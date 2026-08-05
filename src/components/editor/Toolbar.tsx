@@ -16,9 +16,16 @@ const HAND_ICON = (
   </svg>
 );
 
+// 选择图标：鼠标指针形状（经典光标轮廓）
+const SELECT_ICON = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M4 2 L20 11.5 L13 13.5 L9.5 19.5 L7.5 13 Z" />
+  </svg>
+);
+
 const TOOLS: { title: string; tool: ToolType; label: ReactNode }[] = [
   { title: "小手（拖动画布）", tool: "hand", label: HAND_ICON },
-  { title: "选择", tool: "select", label: "↖" },
+  { title: "选择", tool: "select", label: SELECT_ICON },
   { title: "矩形", tool: "rect", label: "▢" },
   { title: "圆角矩形", tool: "rounded", label: "▭" },
   { title: "椭圆", tool: "ellipse", label: "○" },
@@ -59,7 +66,7 @@ export default function Toolbar() {
         value={currentProjectId}
         onChange={(e) => setCurrentProject(e.target.value)}
         title="切换画布"
-        className="h-8 max-w-[9rem] rounded border border-white/40 bg-white/60 px-1 text-sm outline-none"
+        className="lift h-8 max-w-[9rem] rounded border border-white/40 bg-white/60 px-1 text-sm outline-none"
       >
         {projects.map((p) => (
           <option key={p.id} value={p.id}>
@@ -67,28 +74,28 @@ export default function Toolbar() {
           </option>
         ))}
       </select>
-      <button title="新建画布" onClick={createProject} className="h-8 w-8 rounded hover:bg-gray-100">+</button>
-      <button title="重命名画布" onClick={onRename} className="h-8 w-8 rounded hover:bg-gray-100">✎</button>
-      <button title="删除画布" onClick={onDelete} className="h-8 w-8 rounded hover:bg-gray-100">✕</button>
+      <button title="新建画布" onClick={createProject} className="lift h-8 w-8 rounded hover:bg-gray-100">+</button>
+      <button title="重命名画布" onClick={onRename} className="lift h-8 w-8 rounded hover:bg-gray-100">✎</button>
+      <button title="删除画布" onClick={onDelete} className="lift h-8 w-8 rounded hover:bg-gray-100">✕</button>
       <span className="mx-1 h-6 w-px bg-gray-200" />
       {TOOLS.map((t) => (
         <button
           key={t.title}
           title={t.title}
           onClick={() => setTool(t.tool)}
-          className={`h-8 w-8 rounded text-base leading-none ${tool === t.tool ? "bg-blue-100 text-blue-700 ring-1 ring-blue-400" : "hover:bg-gray-100"}`}
+          className={`lift h-8 w-8 rounded text-base leading-none ${tool === t.tool ? "bg-blue-100 text-blue-700 ring-1 ring-blue-400" : "hover:bg-gray-100"}`}
         >
           {t.label}
         </button>
       ))}
       <span className="mx-1 h-6 w-px bg-gray-200" />
-      <button title="撤销" onClick={undo} className="h-8 w-8 rounded hover:bg-gray-100">↩</button>
-      <button title="重做" onClick={redo} className="h-8 w-8 rounded hover:bg-gray-100">↪</button>
+      <button title="撤销" onClick={undo} className="lift h-8 w-8 rounded hover:bg-gray-100">↩</button>
+      <button title="重做" onClick={redo} className="lift h-8 w-8 rounded hover:bg-gray-100">↪</button>
       <span className="mx-1 h-6 w-px bg-gray-200" />
-      <button title="导出 SVG" onClick={() => exportSvgFile(doc)} className="rounded px-2 py-1 text-sm hover:bg-gray-100">SVG</button>
-      <button title="导出 PNG" onClick={() => exportPng(doc).catch(console.error)} className="rounded px-2 py-1 text-sm hover:bg-gray-100">PNG</button>
+      <button title="导出 SVG" onClick={() => exportSvgFile(doc)} className="lift rounded px-2 py-1 text-sm hover:bg-gray-100">SVG</button>
+      <button title="导出 PNG" onClick={() => exportPng(doc).catch(console.error)} className="lift rounded px-2 py-1 text-sm hover:bg-gray-100">PNG</button>
       <span className="flex-1" />
-      <Link href="/settings" className="rounded px-2 py-1 text-sm hover:bg-gray-100" title="设置">⚙</Link>
+      <Link href="/settings" className="lift rounded px-2 py-1 text-sm hover:bg-gray-100" title="设置">⚙</Link>
     </div>
   );
 }

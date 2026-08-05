@@ -106,7 +106,7 @@ export default function ChatPanel() {
     <div className="flex h-full flex-col bg-transparent">
       <div className="flex items-center justify-between border-b border-white/40 px-3 py-2">
         <span className="text-sm font-medium">AI 助手</span>
-        <button onClick={() => setOpen(!open)} className="text-xs text-gray-500 hover:text-gray-800">{open ? "收起" : "展开"}</button>
+        <button onClick={() => setOpen(!open)} className="lift text-xs text-gray-500 hover:text-gray-800">{open ? "收起" : "展开"}</button>
       </div>
       <div className="flex-1 space-y-2 overflow-y-auto p-3 text-sm" ref={bodyRef}>
         {messages.map((m, i) => (
@@ -136,7 +136,7 @@ export default function ChatPanel() {
           <button
             onClick={send}
             disabled={isGenerating || !input.trim()}
-            className="rounded bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+            className="lift rounded bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
           >
             {isGenerating ? "生成中…" : "一键生成"}
           </button>

@@ -51,4 +51,19 @@ describe("Toolbar 画布管理", () => {
     fireEvent.click(screen.getByTitle("删除画布"));
     expect(useCanvasStore.getState().projects).toHaveLength(1);
   });
+
+  it("选择工具图标为鼠标指针形状的 SVG（非文字字符）", () => {
+    render(<Toolbar />);
+    const btn = screen.getByTitle("选择");
+    const svg = btn.querySelector("svg");
+    expect(svg).not.toBeNull();
+    expect(svg!.getAttribute("viewBox")).toBe("0 0 24 24");
+  });
+
+  it("工具栏所有可点击元素带浮出动效类 lift", () => {
+    render(<Toolbar />);
+    for (const el of [...screen.getAllByRole("button"), screen.getByRole("combobox"), screen.getByTitle("设置")]) {
+      expect(el.classList.contains("lift")).toBe(true);
+    }
+  });
 });

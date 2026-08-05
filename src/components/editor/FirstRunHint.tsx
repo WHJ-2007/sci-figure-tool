@@ -14,8 +14,8 @@ export default function FirstRunHint() {
   return (
     <div role="status" className="flex items-center gap-3 border-b border-amber-200/60 bg-amber-50/70 px-4 py-1.5 text-sm text-amber-800 backdrop-blur-md">
       <span>尚未配置 DeepSeek API Key</span>
-      <Link href="/settings" className="font-medium underline">前往设置页</Link>
-      <button type="button" aria-label="关闭提示" onClick={() => setShow(false)} className="ml-auto text-xs text-amber-500">×</button>
+      <Link href="/settings" className="lift font-medium underline">前往设置页</Link>
+      <button type="button" aria-label="关闭提示" onClick={() => setShow(false)} className="lift ml-auto text-xs text-amber-500">×</button>
     </div>
   );
 }

@@ -51,10 +51,10 @@ export default function PropertyPanel() {
           <div className="mb-1 font-medium">排列</div>
           <div className="flex flex-wrap gap-1">
             {([["left", "左"], ["centerX", "水平居中"], ["right", "右"], ["top", "上"], ["centerY", "垂直居中"], ["bottom", "下"]] as const).map(([a, label]) => (
-              <button key={a} title={label} onClick={() => applyAlign(a)} className="rounded border border-gray-300 px-2 py-0.5 hover:bg-gray-100">{label}</button>
+              <button key={a} title={label} onClick={() => applyAlign(a)} className="lift rounded border border-gray-300 px-2 py-0.5 hover:bg-gray-100">{label}</button>
             ))}
-            <button onClick={() => applyDistribute("horizontal")} className="rounded border border-gray-300 px-2 py-0.5 hover:bg-gray-100">横分布</button>
-            <button onClick={() => applyDistribute("vertical")} className="rounded border border-gray-300 px-2 py-0.5 hover:bg-gray-100">纵分布</button>
+            <button onClick={() => applyDistribute("horizontal")} className="lift rounded border border-gray-300 px-2 py-0.5 hover:bg-gray-100">横分布</button>
+            <button onClick={() => applyDistribute("vertical")} className="lift rounded border border-gray-300 px-2 py-0.5 hover:bg-gray-100">纵分布</button>
           </div>
         </div>
       )}
@@ -88,13 +88,13 @@ export default function PropertyPanel() {
           <div className="flex items-center gap-2">
             <span className="text-gray-500">字号</span>
             <input type="number" aria-label="字号" value={one.fontSize} min={6} max={120} onChange={(e) => patch({ fontSize: Number(e.target.value) })} className="h-7 w-16 border border-gray-300 rounded px-1" />
-            <button onClick={() => patch({ bold: !one.bold })} className={`rounded border px-2 py-0.5 ${one.bold ? "bg-blue-100" : ""}`}>B</button>
-            <button onClick={() => patch({ italic: !one.italic })} className={`rounded border px-2 py-0.5 italic ${one.italic ? "bg-blue-100" : ""}`}>I</button>
+            <button onClick={() => patch({ bold: !one.bold })} className={`lift rounded border px-2 py-0.5 ${one.bold ? "bg-blue-100" : ""}`}>B</button>
+            <button onClick={() => patch({ italic: !one.italic })} className={`lift rounded border px-2 py-0.5 italic ${one.italic ? "bg-blue-100" : ""}`}>I</button>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-gray-500">对齐</span>
             {(["left", "center", "right"] as const).map((a) => (
-              <button key={a} onClick={() => patch({ align: a })} className={`rounded border px-2 py-0.5 ${one.align === a ? "bg-blue-100" : ""}`}>{a}</button>
+              <button key={a} onClick={() => patch({ align: a })} className={`lift rounded border px-2 py-0.5 ${one.align === a ? "bg-blue-100" : ""}`}>{a}</button>
             ))}
           </div>
         </div>
@@ -110,8 +110,8 @@ export default function PropertyPanel() {
         <input type="number" aria-label="旋转" value={one.rotation} min={-360} max={360} onChange={(e) => patch({ rotation: Number(e.target.value) })} className="h-7 w-16 border border-gray-300 rounded px-1" />
       </div>
       <div className="flex gap-2">
-        <button onClick={() => deleteElements(selection)} className="rounded bg-red-50 border border-red-300 px-3 py-1 text-red-600 hover:bg-red-100">删除</button>
-        <button onClick={() => setSelection([])} className="rounded border border-gray-300 px-3 py-1 hover:bg-gray-100">取消选择</button>
+        <button onClick={() => deleteElements(selection)} className="lift rounded bg-red-50 border border-red-300 px-3 py-1 text-red-600 hover:bg-red-100">删除</button>
+        <button onClick={() => setSelection([])} className="lift rounded border border-gray-300 px-3 py-1 hover:bg-gray-100">取消选择</button>
       </div>
     </div>
   );

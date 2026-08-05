@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import Toolbar from "./Toolbar";
 import PropertyPanel from "./PropertyPanel";
+import ChatPanel from "./ChatPanel";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { makeElement } from "@/lib/canvas/elements";
 
@@ -24,6 +25,23 @@ describe("Toolbar", () => {
     expect(useCanvasStore.getState().doc.elements).toHaveLength(0);
     fireEvent.click(screen.getByTitle("重做"));
     expect(useCanvasStore.getState().doc.elements).toHaveLength(1);
+  });
+});
+
+describe("悬浮动效", () => {
+  it("属性面板所有操作按钮带 lift 类", () => {
+    const a = makeElement("rect", 0, 0, 100, 60);
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().setSelection([a.id]);
+    render(<PropertyPanel />);
+    const btns = screen.getAllByRole("button");
+    expect(btns.length).toBeGreaterThanOrEqual(2);
+    for (const b of btns) expect(b.classList.contains("lift")).toBe(true);
+  });
+
+  it("聊天面板收起/发送按钮带 lift 类", () => {
+    const { getAllByRole } = render(<ChatPanel />);
+    for (const b of getAllByRole("button")) expect(b.classList.contains("lift")).toBe(true);
   });
 });
 

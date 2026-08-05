@@ -64,9 +64,9 @@ export default function SettingsPage() {
           <input value={form.baseURL} onChange={(e) => setForm({ ...form, baseURL: e.target.value })} className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5" />
         </label>
         <div className="flex gap-2">
-          <button type="submit" className="rounded bg-blue-600 px-4 py-1.5 text-sm text-white hover:bg-blue-700">保存</button>
-          <button type="button" onClick={test} disabled={testing} className="rounded border border-gray-300 px-4 py-1.5 text-sm hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50">测试连接</button>
-          <Link href="/" className="ml-auto self-center text-sm text-gray-500 hover:underline">← 返回画布</Link>
+          <button type="submit" className="lift rounded bg-blue-600 px-4 py-1.5 text-sm text-white hover:bg-blue-700">保存</button>
+          <button type="button" onClick={test} disabled={testing} className="lift rounded border border-gray-300 px-4 py-1.5 text-sm hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50">测试连接</button>
+          <Link href="/" className="lift ml-auto self-center text-sm text-gray-500 hover:underline">← 返回画布</Link>
         </div>
         {status && <p className="text-sm text-gray-600">{status}</p>}
       </form>
