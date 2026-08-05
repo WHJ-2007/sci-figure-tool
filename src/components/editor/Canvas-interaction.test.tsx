@@ -24,6 +24,34 @@ describe("Canvas 交互", () => {
     expect(useCanvasStore.getState().selection).toEqual([a.id]);
   });
 
+  it("缩放视口后拖动元素屏幕跟手（scale=0.25：鼠标屏幕动 40px，元素屏幕动 40px）", () => {
+    useCanvasStore.getState().setView({ scale: 0.25, ox: 100, oy: 50 });
+    const a = makeElement("rect", 10, 10, 100, 60);
+    useCanvasStore.getState().addElement(a);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const el = document.querySelector("[data-element-id]")!;
+    fireEvent.pointerDown(el, { clientX: 50, clientY: 30, button: 0 });
+    // 世界位移 = 屏幕 40px / 0.25 = 160 → 元素屏幕位移 = 160 × 0.25 = 40px，与鼠标一致
+    fireEvent.pointerMove(el, { clientX: 90, clientY: 30, buttons: 1 });
+    fireEvent.pointerUp(el, { clientX: 90, clientY: 30 });
+    expect(useCanvasStore.getState().doc.elements[0].x).toBe(170);
+    expect(useCanvasStore.getState().doc.elements[0].y).toBe(10);
+  });
+
+  it("拖动中滚轮缩放被锁定（避免视口变化导致换算基准错乱、元素不跟手）", () => {
+    const a = makeElement("rect", 10, 10, 100, 60);
+    useCanvasStore.getState().addElement(a);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const el = document.querySelector("[data-element-id]")!;
+    fireEvent.pointerDown(el, { clientX: 50, clientY: 30, button: 0 });
+    fireEvent.wheel(el, { clientX: 100, clientY: 100, deltaY: -100 });
+    expect(useCanvasStore.getState().view.scale).toBe(1);
+    fireEvent.pointerUp(el, { clientX: 50, clientY: 30 });
+    // 松开后滚轮缩放恢复
+    fireEvent.wheel(el, { clientX: 100, clientY: 100, deltaY: -100 });
+    expect(useCanvasStore.getState().view.scale).toBeCloseTo(1.1, 5);
+  });
+
   it("拖动元素移动", () => {
     const a = makeElement("rect", 10, 10, 100, 60);
     useCanvasStore.getState().addElement(a);

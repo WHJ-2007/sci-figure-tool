@@ -30,16 +30,20 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
   const tool = useCanvasStore((s) => s.tool);
   const svgRef = useRef<SVGSVGElement>(null);
 
+  // 每次换算实时读 store 的 view：任何时刻的换算基准都与渲染一致，
+  // 不依赖闭包捕获的 view 快照（拖动中若 view 变化会与按下时的 startX 混算，元素位移被放大）
   const worldX = useCallback((clientX: number) => {
     const rect = svgRef.current?.getBoundingClientRect();
-    return (clientX - (rect?.left ?? 0) - view.ox) / view.scale;
-  }, [view]);
+    const v = useCanvasStore.getState().view;
+    return (clientX - (rect?.left ?? 0) - v.ox) / v.scale;
+  }, []);
   const worldY = useCallback((clientY: number) => {
     const rect = svgRef.current?.getBoundingClientRect();
-    return (clientY - (rect?.top ?? 0) - view.oy) / view.scale;
-  }, [view]);
+    const v = useCanvasStore.getState().view;
+    return (clientY - (rect?.top ?? 0) - v.oy) / v.scale;
+  }, []);
 
-  const { rubber, preview, panning, onPointerDown, onPointerMove, onPointerUp } = usePointerInteraction(worldX, worldY);
+  const { rubber, preview, panning, onPointerDown, onPointerMove, onPointerUp, modeRef } = usePointerInteraction(worldX, worldY);
 
   // 双击文字元素进入编辑（世界坐标命中，从顶层往下找）
   const onDoubleClick = useCallback(
@@ -60,6 +64,9 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
 
   const onWheel = (e: React.WheelEvent) => {
     e.preventDefault();
+    // 拖动/绘制中锁定视口：缩放会改变换算基准，拖动中 view 变化（触控板惯性滚动等）会让
+    // 元素位移与指针严重不匹配（"鼠标动 1 格卡片动 20 格"）
+    if (modeRef.current.kind !== "idle") return;
     const rect = svgRef.current!.getBoundingClientRect();
     const px = e.clientX - rect.left;
     const py = e.clientY - rect.top;
