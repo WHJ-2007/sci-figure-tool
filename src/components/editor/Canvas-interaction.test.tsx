@@ -88,6 +88,42 @@ describe("Canvas 交互", () => {
     expect(doc.find((e) => e.id === b.id)!.x).toBe(150); // 50 + 95 + 5
   });
 
+  it("Shift+点击追加多选，再点已选元素移出", () => {
+    const a = makeElement("rect", 10, 10, 100, 60);
+    const b = makeElement("ellipse", 200, 200, 40, 30);
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().addElement(b);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const els = document.querySelectorAll("[data-element-id]");
+    // shift+点击 a → 单选
+    fireEvent.pointerDown(els[0], { clientX: 50, clientY: 30, button: 0, shiftKey: true });
+    fireEvent.pointerUp(els[0], { clientX: 50, clientY: 30 });
+    expect(useCanvasStore.getState().selection).toEqual([a.id]);
+    // shift+点击 b → 追加
+    fireEvent.pointerDown(els[1], { clientX: 220, clientY: 220, button: 0, shiftKey: true });
+    fireEvent.pointerUp(els[1], { clientX: 220, clientY: 220 });
+    expect(useCanvasStore.getState().selection).toEqual([a.id, b.id]);
+    // shift+点击 a → 移出
+    fireEvent.pointerDown(els[0], { clientX: 50, clientY: 30, button: 0, shiftKey: true });
+    fireEvent.pointerUp(els[0], { clientX: 50, clientY: 30 });
+    expect(useCanvasStore.getState().selection).toEqual([b.id]);
+  });
+
+  it("Shift+空白框选追加到现有选区", () => {
+    const a = makeElement("rect", 400, 400, 100, 60);
+    const b = makeElement("ellipse", 10, 10, 40, 30);
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().addElement(b);
+    useCanvasStore.getState().setSelection([a.id]);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const svg = document.querySelector("svg")!;
+    // shift 在空白处框选：b 加入，a 保留
+    fireEvent.pointerDown(svg, { clientX: 0, clientY: 0, button: 0, shiftKey: true });
+    fireEvent.pointerMove(svg, { clientX: 300, clientY: 300, buttons: 1 });
+    fireEvent.pointerUp(svg, { clientX: 300, clientY: 300 });
+    expect(useCanvasStore.getState().selection).toEqual([a.id, b.id]);
+  });
+
   it("空白点击清空选择", () => {
     const a = makeElement("rect", 10, 10, 100, 60);
     useCanvasStore.getState().addElement(a);

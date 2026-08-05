@@ -8,7 +8,7 @@ type Mode =
   | { kind: "idle" }
   | { kind: "pan"; startClientX: number; startClientY: number; ox0: number; oy0: number }
   | { kind: "move"; startX: number; startY: number; start: Map<string, { x: number; y: number }>; moved: boolean }
-  | { kind: "rubber"; startX: number; startY: number; x: number; y: number }
+  | { kind: "rubber"; startX: number; startY: number; x: number; y: number; additive: boolean }
   | { kind: "resize"; id: string; handle: string; startX: number; startY: number; rect: { x: number; y: number; width: number; height: number } }
   | { kind: "rotate"; id: string; cx: number; cy: number }
   | { kind: "draw-shape"; tool: ShapeType | "rounded"; startX: number; startY: number; x: number; y: number }
@@ -57,8 +57,17 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
         const id = target.getAttribute("data-element-id")!;
         const el = s.doc.elements.find((x) => x.id === id);
         if (el && s.tool === "select") {
-          const next = s.selection.includes(id) ? s.selection : [id];
-          if (!s.selection.includes(id)) s.setSelection([id]);
+          // Shift：toggle 加入/移出多选；普通点击：未选中则单选，已选中则保持群组
+          let next: string[];
+          if (e.shiftKey) {
+            next = s.selection.includes(id) ? s.selection.filter((x) => x !== id) : [...s.selection, id];
+            s.setSelection(next);
+          } else {
+            next = s.selection.includes(id) ? s.selection : [id];
+            if (!s.selection.includes(id)) s.setSelection([id]);
+          }
+          // shift 移出最后一个元素后选区为空，无物可拖
+          if (next.length === 0) return;
           const start = new Map<string, { x: number; y: number }>();
           for (const eid of next) {
             const ee = s.doc.elements.find((x) => x.id === eid);
@@ -69,7 +78,7 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
         }
       }
       if (s.tool === "select") {
-        modeRef.current = { kind: "rubber", startX: wx, startY: wy, x: wx, y: wy };
+        modeRef.current = { kind: "rubber", startX: wx, startY: wy, x: wx, y: wy, additive: e.shiftKey };
       }
     },
     [worldX, worldY]
@@ -144,7 +153,7 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
         height: Math.abs(m.y - m.startY),
       };
       if (r.width < 3 && r.height < 3) {
-        s.setSelection([]);
+        if (!m.additive) s.setSelection([]);
       } else {
         const hit = s.doc.elements
           .filter((el) => {
@@ -152,7 +161,8 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
             return b.x < r.x + r.width && b.x + b.width > r.x && b.y < r.y + r.height && b.y + b.height > r.y;
           })
           .map((el) => el.id);
-        s.setSelection(hit);
+        if (m.additive) s.setSelection([...new Set([...s.selection, ...hit])]);
+        else s.setSelection(hit);
       }
       setRubber(null);
     } else if (m.kind === "draw-shape") {
