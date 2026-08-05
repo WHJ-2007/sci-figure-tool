@@ -2,13 +2,30 @@
 
 import { useRef, useCallback } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
+import { makeElement } from "@/lib/canvas/elements";
+import { hitTestElement } from "@/lib/canvas/geometry";
+import type { CanvasElement } from "@/lib/canvas/types";
 import ElementShape from "./ElementShape";
 import SelectionOverlay from "./SelectionOverlay";
-import { usePointerInteraction } from "./usePointerInteraction";
+import TextEditor from "./TextEditor";
+import { usePointerInteraction, type DrawPreview } from "./usePointerInteraction";
+
+function previewElement(p: DrawPreview): CanvasElement {
+  // 注：TS 对"判别字段本身是联合字面量"的联合在 === 分支后不做剔除，需用结构判别（"points" in p）
+  if ("points" in p) {
+    const first = p.points[0];
+    const last = p.points[p.points.length - 1];
+    return p.type === "arrow"
+      ? makeElement("arrow", first.x, first.y, last.x - first.x, last.y - first.y, { opacity: 0.6 })
+      : makeElement("polyline", first.x, first.y, 0, 0, { points: p.points, opacity: 0.6 });
+  }
+  return makeElement(p.type, p.x, p.y, p.width, p.height, { opacity: 0.6 });
+}
 
 export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidth: number; viewportHeight: number }) {
   const doc = useCanvasStore((s) => s.doc);
   const isGenerating = useCanvasStore((s) => s.isGenerating);
+  const editingText = useCanvasStore((s) => s.editingText);
   const view = useCanvasStore((s) => s.view);
   const setView = useCanvasStore((s) => s.setView);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -22,7 +39,24 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
     return (clientY - (rect?.top ?? 0) - view.oy) / view.scale;
   }, [view]);
 
-  const { rubber, onPointerDown, onPointerMove, onPointerUp } = usePointerInteraction(worldX, worldY);
+  const { rubber, preview, onPointerDown, onPointerMove, onPointerUp } = usePointerInteraction(worldX, worldY);
+
+  // 双击文字元素进入编辑（世界坐标命中，从顶层往下找）
+  const onDoubleClick = useCallback(
+    (e: React.MouseEvent<SVGSVGElement>) => {
+      const s = useCanvasStore.getState();
+      if (s.isGenerating) return;
+      const p = { x: worldX(e.clientX), y: worldY(e.clientY) };
+      const top = [...s.doc.elements].sort((a, b) => b.zIndex - a.zIndex);
+      for (const el of top) {
+        if (hitTestElement(el, p)) {
+          if (el.type === "text") s.setEditingText(el.id);
+          return;
+        }
+      }
+    },
+    [worldX, worldY]
+  );
 
   const onWheel = (e: React.WheelEvent) => {
     e.preventDefault();
@@ -39,6 +73,7 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
   };
 
   const sorted = [...doc.elements].sort((a, b) => a.zIndex - b.zIndex);
+  const editing = doc.elements.find((e) => e.id === editingText && e.type === "text");
 
   return (
     <div className="relative h-full w-full overflow-hidden" onWheel={onWheel}>
@@ -51,12 +86,15 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onDoubleClick={onDoubleClick}
       >
         <g transform={`translate(${view.ox} ${view.oy}) scale(${view.scale})`}>
           {sorted.map((e) => (
             <ElementShape key={e.id} e={e} />
           ))}
+          {preview && <ElementShape e={previewElement(preview)} />}
           <SelectionOverlay scale={view.scale} />
+          {editing && <TextEditor id={editing.id} x={editing.x} y={editing.y} />}
         </g>
         {rubber && (
           <g transform={`translate(${view.ox} ${view.oy}) scale(${view.scale})`}>

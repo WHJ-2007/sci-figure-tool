@@ -1,17 +1,26 @@
 import { useRef, useState, useCallback } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
+import { makeElement } from "@/lib/canvas/elements";
 import { snapRect } from "@/lib/canvas/geometry";
+import type { ShapeType } from "@/lib/canvas/types";
 
 type Mode =
   | { kind: "idle" }
   | { kind: "move"; startX: number; startY: number; start: Map<string, { x: number; y: number }>; moved: boolean }
   | { kind: "rubber"; startX: number; startY: number; x: number; y: number }
   | { kind: "resize"; id: string; handle: string; startX: number; startY: number; rect: { x: number; y: number; width: number; height: number } }
-  | { kind: "rotate"; id: string; cx: number; cy: number };
+  | { kind: "rotate"; id: string; cx: number; cy: number }
+  | { kind: "draw-shape"; tool: ShapeType | "rounded"; startX: number; startY: number; x: number; y: number }
+  | { kind: "draw-line"; tool: "arrow" | "polyline"; startX: number; startY: number; points: { x: number; y: number }[] };
+
+export type DrawPreview =
+  | { type: ShapeType | "rounded"; x: number; y: number; width: number; height: number }
+  | { type: "arrow" | "polyline"; points: { x: number; y: number }[] };
 
 export function usePointerInteraction(worldX: (c: number) => number, worldY: (c: number) => number) {
   const modeRef = useRef<Mode>({ kind: "idle" });
   const [rubber, setRubber] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [preview, setPreview] = useState<DrawPreview | null>(null);
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent<SVGSVGElement>) => {
@@ -19,6 +28,21 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
       if (s.isGenerating) return;
       const wx = worldX(e.clientX);
       const wy = worldY(e.clientY);
+      if (s.tool !== "select") {
+        if (s.tool === "text") {
+          const el = makeElement("text", wx, wy - 8, 60, 22, { text: "" });
+          s.addElement(el);
+          modeRef.current = { kind: "idle" };
+          s.setEditingText(el.id);
+          return;
+        }
+        if (s.tool === "arrow" || s.tool === "polyline") {
+          modeRef.current = { kind: "draw-line", tool: s.tool, startX: wx, startY: wy, points: [{ x: wx, y: wy }] };
+          return;
+        }
+        modeRef.current = { kind: "draw-shape", tool: s.tool as ShapeType | "rounded", startX: wx, startY: wy, x: wx, y: wy };
+        return;
+      }
       const target = (e.target as Element).closest("[data-element-id]");
       if (target) {
         const id = target.getAttribute("data-element-id")!;
@@ -75,6 +99,19 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
           width: Math.abs(m.x - m.startX),
           height: Math.abs(m.y - m.startY),
         });
+      } else if (m.kind === "draw-shape") {
+        m.x = wx;
+        m.y = wy;
+        setPreview({
+          type: m.tool,
+          x: Math.min(m.startX, m.x),
+          y: Math.min(m.startY, m.y),
+          width: Math.abs(m.x - m.startX),
+          height: Math.abs(m.y - m.startY),
+        });
+      } else if (m.kind === "draw-line") {
+        m.points.push({ x: wx, y: wy });
+        setPreview({ type: m.tool, points: [...m.points] });
       }
     },
     [worldX, worldY]
@@ -102,9 +139,33 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
         s.setSelection(hit);
       }
       setRubber(null);
+    } else if (m.kind === "draw-shape") {
+      const w = Math.abs(m.x - m.startX);
+      const h = Math.abs(m.y - m.startY);
+      if (w >= 4 && h >= 4) {
+        const st = useCanvasStore.getState();
+        const el = makeElement(m.tool, Math.min(m.startX, m.x), Math.min(m.startY, m.y), w, h);
+        st.addElement(el);
+        st.setSelection([el.id]);
+      }
+      setPreview(null);
+    } else if (m.kind === "draw-line") {
+      if (m.points.length >= 2) {
+        const st = useCanvasStore.getState();
+        const p0 = m.points[0];
+        const last = m.points[m.points.length - 1];
+        // arrow 用 x/y/width/height 表示线（width/height 为终点相对偏移）；polyline 存 points
+        const el =
+          m.tool === "arrow"
+            ? makeElement("arrow", p0.x, p0.y, last.x - p0.x, last.y - p0.y)
+            : makeElement("polyline", p0.x, p0.y, 0, 0, { points: m.points });
+        st.addElement(el);
+        st.setSelection([el.id]);
+      }
+      setPreview(null);
     }
     modeRef.current = { kind: "idle" };
   }, []);
 
-  return { rubber, onPointerDown, onPointerMove, onPointerUp, modeRef };
+  return { rubber, preview, onPointerDown, onPointerMove, onPointerUp, modeRef };
 }

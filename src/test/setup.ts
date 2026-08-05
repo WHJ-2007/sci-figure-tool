@@ -1,4 +1,10 @@
 import "@testing-library/jest-dom/vitest";
+import { afterEach } from "vitest";
+import { cleanup } from "@testing-library/react";
+
+// vitest 未开启 globals，RTL 的自动 cleanup 不会注册；测试间残留 DOM 会导致
+// 多个 Canvas 实例并存（文字编辑器的两个 textarea 互相抢焦点触发 blur→commit）。
+afterEach(cleanup);
 
 // 版本守卫：jsdom 未来版本若原生支持 PointerEvent 则用原生，不再覆盖
 if (typeof window.PointerEvent === "undefined") {
