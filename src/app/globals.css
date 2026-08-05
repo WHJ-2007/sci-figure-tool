@@ -16,6 +16,11 @@ body {
   animation: fade-slide-in 260ms ease-out;
 }
 
+/* 隐藏 Next.js 开发模式左下角调试指示器（N 徽标，shadow DOM 注入） */
+.nextjs-portal {
+  display: none !important;
+}
+
 /* 可点击元素动效：悬浮克制地 1px 上浮 + 柔阴影；按下下沉 + 轻微缩放变暗；禁用态不生效 */
 .lift {
   transition: transform 150ms ease, box-shadow 150ms ease, filter 150ms ease;

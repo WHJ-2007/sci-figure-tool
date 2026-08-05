@@ -110,16 +110,23 @@ export default function ChatPanel() {
       </div>
       <div className="flex-1 space-y-2 overflow-y-auto p-3 text-sm" ref={bodyRef}>
         {messages.map((m, i) => (
-          <div key={i} className={`max-w-[85%] rounded-lg px-3 py-1.5 ${m.role === "user" ? "ml-auto bg-blue-600 text-white" : "bg-white/70"}`}>
+          <div
+            key={i}
+            className={`max-w-[85%] rounded-lg border px-3 py-1.5 shadow-sm backdrop-blur-md ${
+              m.role === "user"
+                ? "ml-auto border-white/30 bg-blue-500/60 text-white"
+                : "border-white/50 bg-white/50 text-gray-800"
+            }`}
+          >
             {m.content}
           </div>
         ))}
         {activity.length > 0 && (
-          <div className="space-y-1 rounded-lg bg-blue-50/70 p-2 text-xs text-blue-700">
+          <div className="space-y-1 rounded-lg border border-white/50 bg-blue-100/40 p-2 text-xs text-blue-800 backdrop-blur-md">
             {activity.map((a, i) => <div key={i}>⚙ {a}</div>)}
           </div>
         )}
-        {error && <div className="rounded-lg bg-red-50/70 p-2 text-xs text-red-600">{error}</div>}
+        {error && <div className="rounded-lg border border-red-200/50 bg-red-100/40 p-2 text-xs text-red-700 backdrop-blur-md">{error}</div>}
       </div>
       <div className="border-t border-white/40 p-2">
         <textarea
@@ -129,14 +136,14 @@ export default function ChatPanel() {
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
           placeholder="描述你想画的图…（回车发送）"
           rows={2}
-          className="w-full resize-none rounded border border-gray-300 px-2 py-1.5 text-sm outline-none focus:border-blue-500"
+          className="w-full resize-none rounded border border-white/40 bg-white/40 px-2 py-1.5 text-sm outline-none backdrop-blur-md focus:border-blue-500"
         />
         <div className="mt-1 flex items-center justify-between">
-          <span className="text-xs text-gray-400">支持一键生成与对话修改</span>
+          <span className="text-xs text-gray-500">支持一键生成与对话修改</span>
           <button
             onClick={send}
             disabled={isGenerating || !input.trim()}
-            className="lift rounded bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+            className="lift rounded bg-blue-600/80 px-3 py-1 text-sm text-white backdrop-blur-md hover:bg-blue-700 disabled:opacity-50"
           >
             {isGenerating ? "生成中…" : "一键生成"}
           </button>
