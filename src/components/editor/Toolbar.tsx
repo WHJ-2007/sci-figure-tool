@@ -16,10 +16,10 @@ const HAND_ICON = (
   </svg>
 );
 
-// 选择图标：鼠标指针形状（经典光标轮廓）
+// 选择图标：鼠标指针形状（经典光标轮廓，几何中心对齐 viewBox 中心 (12,12)）
 const SELECT_ICON = (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M4 2 L20 11.5 L13 13.5 L9.5 19.5 L7.5 13 Z" />
+    <path d="M4 3.25 L20 12.75 L13 14.75 L9.5 20.75 L7.5 14.25 Z" />
   </svg>
 );
 
@@ -83,7 +83,7 @@ export default function Toolbar() {
           key={t.title}
           title={t.title}
           onClick={() => setTool(t.tool)}
-          className={`lift h-8 w-8 rounded text-base leading-none ${tool === t.tool ? "bg-blue-100 text-blue-700 ring-1 ring-blue-400" : "hover:bg-gray-100"}`}
+          className={`lift flex h-8 w-8 items-center justify-center rounded text-base leading-none ${tool === t.tool ? "bg-blue-100 text-blue-700 ring-1 ring-blue-400" : "hover:bg-gray-100"}`}
         >
           {t.label}
         </button>
