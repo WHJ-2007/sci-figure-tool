@@ -3,7 +3,7 @@
 import { useRef, useCallback } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { makeElement } from "@/lib/canvas/elements";
-import { hitTestElement } from "@/lib/canvas/geometry";
+import { hitTestElement, logicAnchors } from "@/lib/canvas/geometry";
 import type { CanvasElement } from "@/lib/canvas/types";
 import ElementShape from "./ElementShape";
 import SelectionOverlay from "./SelectionOverlay";
@@ -43,7 +43,7 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
     return (clientY - (rect?.top ?? 0) - v.oy) / v.scale;
   }, []);
 
-  const { rubber, preview, panning, onPointerDown, onPointerMove, onPointerUp, modeRef } = usePointerInteraction(worldX, worldY);
+  const { rubber, preview, panning, anchorHint, onPointerDown, onPointerMove, onPointerUp, modeRef } = usePointerInteraction(worldX, worldY);
 
   // 双击文字元素进入编辑（世界坐标命中，从顶层往下找）
   const onDoubleClick = useCallback(
@@ -107,6 +107,28 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
         {rubber && (
           <g transform={`translate(${view.ox} ${view.oy}) scale(${view.scale})`}>
             <rect x={rubber.x} y={rubber.y} width={rubber.width} height={rubber.height} fill="#2563eb22" stroke="#2563eb" strokeWidth={1} />
+          </g>
+        )}
+        {tool === "arrow" && (
+          <g transform={`translate(${view.ox} ${view.oy}) scale(${view.scale})`} pointerEvents="none">
+            {doc.elements.flatMap((e) => logicAnchors(e)).map((a) => {
+              const active = anchorHint?.id === a.id;
+              return (
+                <circle
+                  key={a.id}
+                  data-anchor-layer={a.side}
+                  data-element-id={a.elementId}
+                  data-active={active ? "true" : undefined}
+                  cx={a.x}
+                  cy={a.y}
+                  r={4 / view.scale}
+                  fill={active ? "#2563eb" : "none"}
+                  stroke="#2563eb"
+                  strokeWidth={1.5 / view.scale}
+                  opacity={0.7}
+                />
+              );
+            })}
           </g>
         )}
       </svg>

@@ -1,5 +1,5 @@
 export type ShapeType = "rect" | "ellipse" | "triangle" | "diamond" | "hexagon";
-export type ElementType = ShapeType | "arrow" | "polyline" | "text";
+export type ElementType = ShapeType | "arrow" | "polyline" | "text" | "logic";
 export type ToolType = "select" | "rounded" | "hand" | ElementType;
 
 export interface BaseElement {
@@ -48,7 +48,17 @@ export interface PolylineElement extends BaseElement {
   points: { x: number; y: number }[];
 }
 
-export type CanvasElement = RectElement | EllipseElement | TriangleElement | DiamondElement | HexagonElement | TextElement | ArrowElement | PolylineElement;
+// 逻辑节点：流程/结构图节点，圆角矩形 + 内置居中标题，自带上下左右 4 个箭头锚点
+export interface LogicElement extends BaseElement {
+  type: "logic";
+  rx: number;
+  text: string;
+  fontSize: number;
+  fontFamily: string;
+  bold: boolean;
+}
+
+export type CanvasElement = RectElement | EllipseElement | TriangleElement | DiamondElement | HexagonElement | TextElement | ArrowElement | PolylineElement | LogicElement;
 
 export interface CanvasDocument {
   width: number;

@@ -200,6 +200,80 @@ describe("Canvas 交互", () => {
   });
 });
 
+describe("逻辑节点", () => {
+  it("逻辑节点渲染圆角矩形与居中标题", () => {
+    const l = makeElement("logic", 100, 100, 120, 60, { text: "处理" });
+    useCanvasStore.getState().addElement(l);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const g = document.querySelector("[data-element-id]")!;
+    const rect = g.querySelector("rect")!;
+    expect(rect.getAttribute("rx")).toBe("6");
+    expect(g.querySelector("text")!.textContent).toBe("处理");
+  });
+
+  it("选中逻辑节点显示 4 个锚点圆点（bbox 边缘中点）", () => {
+    const l = makeElement("logic", 100, 100, 120, 60, { text: "A" });
+    useCanvasStore.getState().addElement(l);
+    useCanvasStore.getState().setSelection([l.id]);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const dots = document.querySelectorAll("[data-anchor]");
+    expect(dots).toHaveLength(4);
+    const bySide: Record<string, Element> = {};
+    dots.forEach((d) => (bySide[d.getAttribute("data-anchor")!] = d));
+    expect(Number(bySide.top.getAttribute("cx"))).toBeCloseTo(160);
+    expect(Number(bySide.top.getAttribute("cy"))).toBeCloseTo(100);
+    expect(Number(bySide.left.getAttribute("cx"))).toBeCloseTo(100);
+    expect(Number(bySide.left.getAttribute("cy"))).toBeCloseTo(130);
+    expect(Number(bySide.right.getAttribute("cx"))).toBeCloseTo(220);
+    expect(Number(bySide.bottom.getAttribute("cy"))).toBeCloseTo(160);
+  });
+
+  it("选中普通矩形不显示锚点", () => {
+    const r = makeElement("rect", 10, 10, 100, 60);
+    useCanvasStore.getState().addElement(r);
+    useCanvasStore.getState().setSelection([r.id]);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    expect(document.querySelectorAll("[data-anchor]")).toHaveLength(0);
+  });
+
+  it("箭头工具绘制时端点吸附到锚点并记录 startId/endId", () => {
+    const l = makeElement("logic", 100, 100, 120, 60, { text: "A" });
+    useCanvasStore.getState().addElement(l);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    act(() => useCanvasStore.getState().setTool("arrow"));
+    const svg = document.querySelector("svg")!;
+    // 起点距 left 锚点 (100,130) 5px（<12 阈值）→ 吸附；终点距 right 锚点 (220,130) 5px → 吸附
+    fireEvent.pointerDown(svg, { clientX: 95, clientY: 130, button: 0 });
+    fireEvent.pointerMove(svg, { clientX: 225, clientY: 130, buttons: 1 });
+    fireEvent.pointerUp(svg, { clientX: 225, clientY: 130 });
+    const arrow = useCanvasStore.getState().doc.elements.find((e) => e.type === "arrow")!;
+    expect(arrow).toBeDefined();
+    expect(arrow.startId).toBe(l.id);
+    expect(arrow.endId).toBe(l.id);
+    expect(arrow.x).toBe(100);
+    expect(arrow.y).toBe(130);
+    expect(arrow.x + arrow.width).toBe(220);
+  });
+
+  it("箭头工具悬停时最近锚点高亮（data-anchor-layer 命中标记）", () => {
+    const l = makeElement("logic", 100, 100, 120, 60, { text: "A" });
+    useCanvasStore.getState().addElement(l);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    act(() => useCanvasStore.getState().setTool("arrow"));
+    const svg = document.querySelector("svg")!;
+    // 所有逻辑锚点显示为候选圆点
+    expect(document.querySelectorAll("[data-anchor-layer]")).toHaveLength(4);
+    // 指针悬停到 top 锚点 (160,100) 附近 → 该锚点高亮
+    fireEvent.pointerMove(svg, { clientX: 163, clientY: 100 });
+    const hl = document.querySelectorAll("[data-anchor-layer][data-active='true']");
+    expect(hl).toHaveLength(1);
+    expect(hl[0].getAttribute("data-anchor-layer")).toBe("top");
+    // 移到远处 → 不高亮
+    fireEvent.pointerMove(svg, { clientX: 700, clientY: 500 });
+    expect(document.querySelectorAll("[data-anchor-layer][data-active='true']")).toHaveLength(0);
+  });
+});
+
 describe("小手工具", () => {
   it("hand 工具下拖拽平移视口（内容跟随鼠标）", () => {
     render(<Canvas viewportWidth={800} viewportHeight={600} />);

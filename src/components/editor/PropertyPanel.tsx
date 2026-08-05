@@ -105,6 +105,23 @@ export default function PropertyPanel() {
           <input type="number" aria-label="圆角" value={one.rx} min={0} max={50} onChange={(e) => patch({ rx: Number(e.target.value) })} className="h-7 w-16 border border-gray-300 rounded px-1" />
         </label>
       )}
+      {one.type === "logic" && (
+        <div className="space-y-2">
+          <label className="flex items-center gap-2">
+            <span className="text-gray-500">标题</span>
+            <input aria-label="标题" value={one.text} onChange={(e) => patch({ text: e.target.value })} className="h-7 flex-1 border border-gray-300 rounded px-1" />
+          </label>
+          <div className="flex items-center gap-2">
+            <span className="text-gray-500">字号</span>
+            <input type="number" aria-label="字号" value={one.fontSize} min={6} max={120} onChange={(e) => patch({ fontSize: Number(e.target.value) })} className="h-7 w-16 border border-gray-300 rounded px-1" />
+            <button onClick={() => patch({ bold: !one.bold })} className={`lift rounded border px-2 py-0.5 ${one.bold ? "bg-blue-100" : ""}`}>B</button>
+          </div>
+          <label className="flex items-center gap-2">
+            <span className="text-gray-500">圆角</span>
+            <input type="number" aria-label="圆角" value={one.rx} min={0} max={50} onChange={(e) => patch({ rx: Number(e.target.value) })} className="h-7 w-16 border border-gray-300 rounded px-1" />
+          </label>
+        </div>
+      )}
       <div className="flex items-center gap-2">
         <span className="text-gray-500">旋转</span>
         <input type="number" aria-label="旋转" value={one.rotation} min={-360} max={360} onChange={(e) => patch({ rotation: Number(e.target.value) })} className="h-7 w-16 border border-gray-300 rounded px-1" />

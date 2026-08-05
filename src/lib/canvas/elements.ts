@@ -9,6 +9,7 @@ import type {
   TextElement,
   ArrowElement,
   PolylineElement,
+  LogicElement,
 } from "./types";
 
 export function newId(): string {
@@ -28,6 +29,16 @@ export function estimateTextSize(text: string, fontSize: number): { width: numbe
   return { width: Math.max(w * fontSize, 8), height: fontSize * 1.4 };
 }
 
+// 按填充色亮度取对比文字色（亮底深字、暗底白字）；logic 节点标题用
+export function contrastTextColor(fill: string): string {
+  const hex = fill.startsWith("#") ? fill.slice(1) : "ffffff";
+  const full = hex.length === 3 ? hex.split("").map((c) => c + c).join("") : hex;
+  const r = parseInt(full.slice(0, 2), 16) || 0;
+  const g = parseInt(full.slice(2, 4), 16) || 0;
+  const b = parseInt(full.slice(4, 6), 16) || 0;
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5 ? "#2f2f2f" : "#ffffff";
+}
+
 export type ElementExtras = Partial<RectElement> &
   Partial<EllipseElement> &
   Partial<TriangleElement> &
@@ -35,7 +46,8 @@ export type ElementExtras = Partial<RectElement> &
   Partial<HexagonElement> &
   Partial<TextElement> &
   Partial<ArrowElement> &
-  Partial<PolylineElement>;
+  Partial<PolylineElement> &
+  Partial<LogicElement>;
 
 export function makeElement(
   type: ElementType | "rounded",
@@ -99,6 +111,23 @@ export function makeElement(
         align: extra.align ?? "center",
         width: size.width,
         height: size.height,
+      } as CanvasElement;
+    }
+    case "logic": {
+      // 逻辑节点：圆角矩形 + 内置居中标题；尺寸不足时扩展以容纳标题
+      const t = extra.text ?? "逻辑";
+      const fontSize = extra.fontSize ?? 14;
+      const size = estimateTextSize(t, fontSize);
+      return {
+        ...base,
+        type: "logic",
+        rx: extra.rx ?? 6,
+        text: t,
+        fontSize,
+        fontFamily: extra.fontFamily ?? "Arial, Microsoft YaHei, sans-serif",
+        bold: extra.bold ?? false,
+        width: Math.max(width, size.width + 16),
+        height: Math.max(height, size.height + 10),
       } as CanvasElement;
     }
   }

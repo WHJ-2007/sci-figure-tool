@@ -1,5 +1,6 @@
 import type { CanvasDocument, CanvasElement } from "./types";
 import { shapePoints, arrowHeadPoints } from "./geometry";
+import { contrastTextColor } from "./elements";
 
 const XML_ESCAPE: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" };
 
@@ -49,6 +50,12 @@ export function elementToSvg(e: CanvasElement): string {
       const style = e.italic ? ' font-style="italic"' : "";
       const textAttrs = `fill="${e.fill}" opacity="${e.opacity}"`;
       return `<text ${textAttrs} x="${tx}" y="${e.y + e.height / 2}" text-anchor="${anchor}" dominant-baseline="middle" font-size="${e.fontSize}" font-family="${e.fontFamily}"${weight}${style}${rot}>${esc(e.text)}</text>`;
+    }
+    case "logic": {
+      // 逻辑节点：圆角矩形 + 内置居中标题（标题颜色与填充对比）
+      const weight = e.bold ? ' font-weight="bold"' : "";
+      const titleColor = contrastTextColor(e.fill);
+      return `<g${rot}><rect ${attrs} width="${e.width}" height="${e.height}" rx="${e.rx}"/><text x="${e.x + e.width / 2}" y="${e.y + e.height / 2}" text-anchor="middle" dominant-baseline="middle" font-size="${e.fontSize}" font-family="${e.fontFamily}"${weight} fill="${titleColor}" opacity="${e.opacity}">${esc(e.text)}</text></g>`;
     }
   }
 }

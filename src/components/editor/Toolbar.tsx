@@ -31,6 +31,17 @@ const SETTINGS_ICON = (
   </svg>
 );
 
+// 逻辑节点图标：圆角框 + 4 个锚点圆点（描边风格，锚点为实心）
+const LOGIC_ICON = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true">
+    <rect x="3" y="7" width="18" height="10" rx="2" />
+    <circle cx="12" cy="7" r="1.5" fill="currentColor" stroke="none" />
+    <circle cx="12" cy="17" r="1.5" fill="currentColor" stroke="none" />
+    <circle cx="3" cy="12" r="1.5" fill="currentColor" stroke="none" />
+    <circle cx="21" cy="12" r="1.5" fill="currentColor" stroke="none" />
+  </svg>
+);
+
 // 撤销/重做图标：逆/顺时针弯箭头（描边风格）
 const UNDO_ICON = (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -54,6 +65,7 @@ const TOOLS: { title: string; tool: ToolType; label: ReactNode }[] = [
   { title: "三角形", tool: "triangle", label: "△" },
   { title: "菱形", tool: "diamond", label: "◇" },
   { title: "六边形", tool: "hexagon", label: "⬡" },
+  { title: "逻辑节点", tool: "logic", label: LOGIC_ICON },
   { title: "箭头", tool: "arrow", label: "→" },
   { title: "折线", tool: "polyline", label: "↯" },
   { title: "文字", tool: "text", label: "T" },

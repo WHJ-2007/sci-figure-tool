@@ -2,21 +2,22 @@ import { z } from "zod";
 import { tool } from "ai";
 import type { DraftCanvas } from "./draft";
 
-const shapeType = z.enum(["rect", "ellipse", "triangle", "diamond", "hexagon", "arrow", "polyline", "text"]);
+const shapeType = z.enum(["rect", "ellipse", "triangle", "diamond", "hexagon", "arrow", "polyline", "text", "logic"]);
 
 export function buildTools(draft: DraftCanvas) {
   return {
     createElement: tool({
       description:
-        "在画布上创建一个元素（形状/箭头/文字）。坐标原点在左上角，画布宽 1600 高 1000。" +
-        "arrow 类型：x/y 是起点，必须落在源形状的边缘上；width/height 是终点相对偏移，终点必须精确落在目标形状的边缘上，箭头尖端贴住目标边框，不能悬空、不能插入太深。text 类型必须提供 text 内容。",
+        "在画布上创建一个元素（形状/箭头/文字/逻辑节点）。坐标原点在左上角，画布宽 1600 高 1000。" +
+        "arrow 类型：x/y 是起点，必须落在源形状的边缘上；width/height 是终点相对偏移，终点必须精确落在目标形状的边缘上，箭头尖端贴住目标边框，不能悬空、不能插入太深。" +
+        "logic 类型：流程/结构图语义模块（圆角框 + 内置居中标题 + 自带上下左右 4 个箭头锚点），必须提供 text 标题；用普通图形画语义模块时优先用 logic。text 类型必须提供 text 内容。",
       inputSchema: z.object({
         type: shapeType,
         x: z.number().describe("左上角 x（arrow 为起点 x，须落在源形状边缘上）"),
         y: z.number().describe("左上角 y（arrow 为起点 y，须落在源形状边缘上）"),
         width: z.number().positive().describe("宽度（arrow 为终点相对水平偏移）"),
         height: z.number().positive().describe("高度（arrow 为终点相对垂直偏移）"),
-        text: z.string().optional().describe("文字内容（type=text 时必填）"),
+        text: z.string().optional().describe("文字内容（type=text/logic 时必填，logic 为框内标题）"),
         fill: z.string().optional().describe("填充色，如 #eef4ff"),
         stroke: z.string().optional().describe("边框色，如 #2f2f2f"),
         strokeWidth: z.number().optional().describe("边框宽度"),
@@ -32,6 +33,7 @@ export function buildTools(draft: DraftCanvas) {
     connectElements: tool({
       description:
         "用箭头精确连接两个已有元素：自动计算从源元素边缘到目标元素边缘的箭头（锚点精确落在两个形状的轮廓上，无需手算坐标）。" +
+        "逻辑节点（logic）自带上下左右 4 个锚点，连接会优先从朝向对方的那侧锚点出发/收在锚点上。" +
         "只要两个元素有语义关系（流程、依赖、连接）就优先用它，不要用 createElement 手绘箭头。",
       inputSchema: z.object({
         sourceId: z.string().describe("箭头起点的元素 id（通过 listElements 获取）"),

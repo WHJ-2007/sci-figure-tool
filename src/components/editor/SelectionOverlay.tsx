@@ -1,4 +1,6 @@
+import { Fragment } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
+import { logicAnchors } from "@/lib/canvas/geometry";
 import type { CanvasElement } from "@/lib/canvas/types";
 
 const HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const;
@@ -42,8 +44,11 @@ export default function SelectionOverlay({ scale }: { scale: number }) {
         const cy = b.y + b.height / 2;
         // 选中框必须随元素旋转（与 ElementShape 的 rotate 一致），否则旋转后虚线框与元素脱离
         const rot = e.rotation ? `rotate(${e.rotation} ${cx} ${cy})` : undefined;
+        // 锚点已是旋转后的世界坐标，必须渲染在旋转组之外，否则会二次旋转
+        const anchors = logicAnchors(e);
         return (
-          <g key={e.id} pointerEvents="none" transform={rot}>
+          <Fragment key={e.id}>
+          <g pointerEvents="none" transform={rot}>
             <rect
               x={b.x}
               y={b.y}
@@ -99,6 +104,24 @@ export default function SelectionOverlay({ scale }: { scale: number }) {
               }}
             />
           </g>
+          {anchors.length > 0 && (
+            <g pointerEvents="none">
+              {anchors.map((a) => (
+                <circle
+                  key={a.id}
+                  data-anchor={a.side}
+                  data-element-id={a.elementId}
+                  cx={a.x}
+                  cy={a.y}
+                  r={4 / scale}
+                  fill="#2563eb"
+                  stroke="#ffffff"
+                  strokeWidth={1 / scale}
+                />
+              ))}
+            </g>
+          )}
+          </Fragment>
         );
       })}
     </>

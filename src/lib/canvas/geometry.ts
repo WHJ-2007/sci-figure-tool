@@ -109,7 +109,7 @@ export function shapeExitPoint(e: CanvasElement, from: Point, to: Point): Point 
   if (e.type === "ellipse") {
     return segmentEllipseHit(e.x + e.width / 2, e.y + e.height / 2, e.width / 2, e.height / 2, from, to);
   }
-  const poly = e.type === "rect" || e.type === "text"
+  const poly = e.type === "rect" || e.type === "text" || e.type === "logic"
     ? [
         { x: e.x, y: e.y },
         { x: e.x + e.width, y: e.y },
@@ -277,4 +277,72 @@ export function arrowHeadPoints(x1: number, y1: number, x2: number, y2: number, 
   const p2 = { x: x2 - back * Math.cos(angle - spread), y: y2 - back * Math.sin(angle - spread) };
   const p3 = { x: x2 - back * Math.cos(angle + spread), y: y2 - back * Math.sin(angle + spread) };
   return [p1, p2, p3];
+}
+
+// ---- 逻辑节点锚点 ----
+
+export type AnchorSide = "top" | "bottom" | "left" | "right";
+export interface Anchor extends Point {
+  id: string;
+  elementId: string;
+  side: AnchorSide;
+}
+
+// 箭头端点吸附逻辑锚点的世界坐标阈值
+export const ANCHOR_SNAP_THRESHOLD = 12;
+
+// 逻辑节点自带的 4 个箭头锚点（上下左右），随元素旋转
+export function logicAnchors(e: CanvasElement): Anchor[] {
+  if (e.type !== "logic") return [];
+  const cx = e.x + e.width / 2;
+  const cy = e.y + e.height / 2;
+  const pts: { side: AnchorSide; x: number; y: number }[] = [
+    { side: "top", x: cx, y: e.y },
+    { side: "bottom", x: cx, y: e.y + e.height },
+    { side: "left", x: e.x, y: cy },
+    { side: "right", x: e.x + e.width, y: cy },
+  ];
+  const rad = (e.rotation * Math.PI) / 180;
+  return pts.map((p) => {
+    const dx = p.x - cx;
+    const dy = p.y - cy;
+    return {
+      id: `${e.id}:${p.side}`,
+      elementId: e.id,
+      side: p.side,
+      x: e.rotation ? cx + dx * Math.cos(rad) - dy * Math.sin(rad) : p.x,
+      y: e.rotation ? cy + dx * Math.sin(rad) + dy * Math.cos(rad) : p.y,
+    };
+  });
+}
+
+// 在全部逻辑节点中找距离 p 最近且不超过 threshold 的锚点
+export function nearestAnchor(elements: CanvasElement[], p: Point, threshold = ANCHOR_SNAP_THRESHOLD): Anchor | null {
+  let best: Anchor | null = null;
+  let bestD = threshold;
+  for (const e of elements) {
+    for (const a of logicAnchors(e)) {
+      const d = Math.hypot(a.x - p.x, a.y - p.y);
+      if (d < bestD) {
+        bestD = d;
+        best = a;
+      }
+    }
+  }
+  return best;
+}
+
+// 返回逻辑节点朝向 p 的锚点（无阈值；自动连接选出口/入口锚点用），非逻辑元素返回 null
+export function anchorToward(e: CanvasElement, p: Point): Anchor | null {
+  if (e.type !== "logic") return null;
+  let best: Anchor | null = null;
+  let bestD = Infinity;
+  for (const a of logicAnchors(e)) {
+    const d = Math.hypot(a.x - p.x, a.y - p.y);
+    if (d < bestD) {
+      bestD = d;
+      best = a;
+    }
+  }
+  return best;
 }

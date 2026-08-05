@@ -7,9 +7,12 @@ import {
   distributeOffsets,
   snapRect,
   arrowHeadPoints,
+  logicAnchors,
+  nearestAnchor,
+  anchorToward,
 } from "./geometry";
 import { makeElement } from "./elements";
-import type { CanvasElement } from "./types";
+import type { CanvasElement, LogicElement } from "./types";
 
 const rect = makeElement("rect", 10, 10, 100, 60) as CanvasElement;
 
@@ -144,5 +147,57 @@ describe("arrowHeadPoints", () => {
     const pts = arrowHeadPoints(0, 0, 100, 0, 10);
     expect(pts).toHaveLength(3);
     expect(pts[0]).toEqual({ x: 100, y: 0 });
+  });
+});
+
+describe("逻辑节点锚点", () => {
+  it("logicAnchors 返回上下左右 4 个锚点", () => {
+    const l = makeElement("logic", 100, 200, 120, 60, { text: "处理" }) as LogicElement;
+    const anchors = logicAnchors(l);
+    expect(anchors.map((a) => a.side).sort()).toEqual(["bottom", "left", "right", "top"]);
+    const top = anchors.find((a) => a.side === "top")!;
+    const right = anchors.find((a) => a.side === "right")!;
+    expect(top).toMatchObject({ x: 160, y: 200 });
+    expect(right).toMatchObject({ x: 220, y: 230 });
+    // 锚点 id 含元素 id 与方向
+    expect(top.id).toBe(`${l.id}:top`);
+  });
+
+  it("旋转后锚点绕中心旋转", () => {
+    const l = makeElement("logic", 100, 200, 120, 60, { text: "A", rotation: 90 }) as LogicElement;
+    const anchors = logicAnchors(l);
+    const right = anchors.find((a) => a.side === "right")!;
+    // 旋转 90°：右锚点 (220,230) 绕中心 (160,230) 旋转 → (160, 290)
+    expect(right.x).toBeCloseTo(160, 5);
+    expect(right.y).toBeCloseTo(290, 5);
+  });
+
+  it("非逻辑元素没有锚点", () => {
+    const r = makeElement("rect", 0, 0, 100, 60);
+    expect(logicAnchors(r)).toHaveLength(0);
+  });
+
+  it("nearestAnchor 阈值内返回最近锚点，阈值外返回 null", () => {
+    const l = makeElement("logic", 100, 200, 120, 60, { text: "A" });
+    // (170, 200) 距 top 锚点 (160,200) 10px < 12 → 吸附
+    const a1 = nearestAnchor([l], { x: 170, y: 200 });
+    expect(a1?.side).toBe("top");
+    // (150, 210) 距 top (160,200) 14px > 12 → 不吸附
+    expect(nearestAnchor([l], { x: 150, y: 210 })).toBeNull();
+    // 非逻辑元素不参与吸附
+    const r = makeElement("rect", 0, 0, 100, 60);
+    expect(nearestAnchor([r], { x: 50, y: 0 })).toBeNull();
+  });
+
+  it("anchorToward 返回朝向 p 的锚点（无阈值，自动连接用），非逻辑元素返回 null", () => {
+    const l = makeElement("logic", 100, 200, 120, 60, { text: "A" });
+    expect(anchorToward(l, { x: 500, y: 230 })?.side).toBe("right");
+    expect(anchorToward(l, { x: 160, y: 50 })?.side).toBe("top");
+    expect(anchorToward(l, { x: 50, y: 230 })?.side).toBe("left");
+    // 旋转 90° 后右锚点转到下方 (160, 290)，朝向 (160, 400) 的锚点是 right（旋转后语义方向）
+    const rot = makeElement("logic", 100, 200, 120, 60, { text: "A", rotation: 90 });
+    expect(anchorToward(rot, { x: 160, y: 500 })?.side).toBe("right");
+    const r = makeElement("rect", 0, 0, 100, 60);
+    expect(anchorToward(r, { x: 10, y: 10 })).toBeNull();
   });
 });

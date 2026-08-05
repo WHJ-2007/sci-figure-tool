@@ -1,5 +1,6 @@
 import type { CanvasElement } from "@/lib/canvas/types";
 import { shapePoints, arrowHeadPoints } from "@/lib/canvas/geometry";
+import { contrastTextColor } from "@/lib/canvas/elements";
 
 export default function ElementShape({ e }: { e: CanvasElement }) {
   const rot = e.rotation
@@ -68,6 +69,27 @@ function renderBody(
         >
           {e.text}
         </text>
+      );
+    }
+    case "logic": {
+      // 逻辑节点：圆角矩形 + 内置居中标题（文字颜色与填充对比）
+      return (
+        <g>
+          <rect x={e.x} y={e.y} width={e.width} height={e.height} rx={e.rx} {...common} />
+          <text
+            x={e.x + e.width / 2}
+            y={e.y + e.height / 2}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fontSize={e.fontSize}
+            fontFamily={e.fontFamily}
+            fontWeight={e.bold ? "bold" : undefined}
+            fill={contrastTextColor(e.fill)}
+            opacity={e.opacity}
+          >
+            {e.text}
+          </text>
+        </g>
       );
     }
   }

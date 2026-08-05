@@ -74,4 +74,14 @@ describe("Toolbar 画布管理", () => {
     expect(svg).not.toBeNull();
     expect(svg!.querySelector("circle")).not.toBeNull();
   });
+
+  it("逻辑节点按钮：SVG 图标（圆角框 + 4 锚点圆点），点击切换工具", () => {
+    render(<Toolbar />);
+    const btn = screen.getByTitle("逻辑节点");
+    const svg = btn.querySelector("svg");
+    expect(svg).not.toBeNull();
+    expect(svg!.querySelectorAll("circle")).toHaveLength(4);
+    fireEvent.click(btn);
+    expect(useCanvasStore.getState().tool).toBe("logic");
+  });
 });

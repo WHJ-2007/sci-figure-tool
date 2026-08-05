@@ -145,6 +145,41 @@ describe("DraftCanvas", () => {
     expect(text.zIndex).toBeGreaterThan(rect.zIndex);
   });
 
+  it("createElement 支持 logic 类型（圆角框 + 标题）", () => {
+    const d = new DraftCanvas([]);
+    const r = d.createElement({ type: "logic", x: 10, y: 10, width: 100, height: 60, text: "编码", fontSize: 16, bold: true });
+    expect(r.ok).toBe(true);
+    const el = d.serialize().elements[0];
+    expect(el.type).toBe("logic");
+    expect(el).toMatchObject({ text: "编码", fontSize: 16, bold: true });
+  });
+
+  it("connectElements 逻辑节点优先走锚点（源右锚点 → 目标左锚点）", () => {
+    const d = new DraftCanvas([]);
+    const a = d.createElement({ type: "logic", x: 0, y: 0, width: 100, height: 60, text: "A" });
+    const b = d.createElement({ type: "logic", x: 200, y: 0, width: 100, height: 60, text: "B" });
+    const r = d.connectElements({ sourceId: a.id!, targetId: b.id! });
+    expect(r.ok).toBe(true);
+    const arrow = d.serialize().elements.find((e) => e.type === "arrow")!;
+    // 源右锚点 (100,30) → 目标左锚点 (200,30)
+    expect(arrow.x).toBe(100);
+    expect(arrow.y).toBe(30);
+    expect(arrow.width).toBe(100);
+    expect(arrow.height).toBe(0);
+    expect(arrow.startId).toBe(a.id);
+    expect(arrow.endId).toBe(b.id);
+  });
+
+  it("connectElements 逻辑节点与矩形混合连接时逻辑侧用锚点", () => {
+    const d = new DraftCanvas([]);
+    const l = d.createElement({ type: "logic", x: 0, y: 0, width: 100, height: 60, text: "A" });
+    const r = d.createElement({ type: "rect", x: 200, y: 0, width: 100, height: 60 });
+    d.connectElements({ sourceId: l.id!, targetId: r.id! });
+    const arrow = d.serialize().elements.find((e) => e.type === "arrow")!;
+    expect(arrow.x).toBe(100); // 源右锚点
+    expect(arrow.width).toBe(100); // 终点仍是矩形左边缘
+  });
+
   it("connectElements 对不存在 id / 中心重合 / 非形状端点报错", () => {
     const d = new DraftCanvas([]);
     const a = d.createElement({ type: "rect", x: 0, y: 0, width: 100, height: 60 });

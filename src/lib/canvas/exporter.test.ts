@@ -47,6 +47,22 @@ describe("exporter", () => {
     expect(out).not.toContain("A&B <C>");
   });
 
+  it("elementToSvg 逻辑节点 = 圆角矩形 + 居中标题文字", () => {
+    const l = makeElement("logic", 0, 0, 120, 60, { text: "处理" });
+    const out = elementToSvg(l);
+    expect(out).toContain('<rect');
+    expect(out).toContain('rx="6"');
+    expect(out).toContain("<text");
+    expect(out).toContain("处理");
+  });
+
+  it("elementToSvg 逻辑节点标题颜色与填充对比（深填充白字）", () => {
+    const l = makeElement("logic", 0, 0, 120, 60, { text: "A", fill: "#1f2937" });
+    const out = elementToSvg(l);
+    const text = out.match(/<text[^>]*>/)?.[0];
+    expect(text).toContain('fill="#ffffff"');
+  });
+
   it("elementToSvg 矩形与折线带旋转", () => {
     const r = makeElement("rect", 10, 10, 100, 60, { rotation: 45 });
     expect(elementToSvg(r)).toContain("rotate(45 60 40)");

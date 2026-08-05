@@ -1,8 +1,9 @@
 import { useRef, useState, useCallback } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { makeElement } from "@/lib/canvas/elements";
-import { snapRect } from "@/lib/canvas/geometry";
+import { snapRect, nearestAnchor } from "@/lib/canvas/geometry";
 import type { ShapeType } from "@/lib/canvas/types";
+import type { Anchor } from "@/lib/canvas/geometry";
 
 type Mode =
   | { kind: "idle" }
@@ -11,11 +12,11 @@ type Mode =
   | { kind: "rubber"; startX: number; startY: number; x: number; y: number; additive: boolean }
   | { kind: "resize"; id: string; handle: string; startX: number; startY: number; rect: { x: number; y: number; width: number; height: number } }
   | { kind: "rotate"; id: string; cx: number; cy: number }
-  | { kind: "draw-shape"; tool: ShapeType | "rounded"; startX: number; startY: number; x: number; y: number }
+  | { kind: "draw-shape"; tool: ShapeType | "rounded" | "logic"; startX: number; startY: number; x: number; y: number }
   | { kind: "draw-line"; tool: "arrow" | "polyline"; startX: number; startY: number; points: { x: number; y: number }[] };
 
 export type DrawPreview =
-  | { type: ShapeType | "rounded"; x: number; y: number; width: number; height: number }
+  | { type: ShapeType | "rounded" | "logic"; x: number; y: number; width: number; height: number }
   | { type: "arrow" | "polyline"; points: { x: number; y: number }[] };
 
 export function usePointerInteraction(worldX: (c: number) => number, worldY: (c: number) => number) {
@@ -23,6 +24,8 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
   const [rubber, setRubber] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [preview, setPreview] = useState<DrawPreview | null>(null);
   const [panning, setPanning] = useState(false);
+  // 箭头工具下高亮的最近锚点（悬停或绘制吸附时）
+  const [anchorHint, setAnchorHint] = useState<Anchor | null>(null);
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent<SVGSVGElement>) => {
@@ -46,10 +49,15 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
           return;
         }
         if (s.tool === "arrow" || s.tool === "polyline") {
-          modeRef.current = { kind: "draw-line", tool: s.tool, startX: wx, startY: wy, points: [{ x: wx, y: wy }] };
+          // 箭头起点吸附到逻辑节点锚点：起点落在锚点附近 12px 内则精确对齐（记录锚点 id 供 arrow 的 startId）
+          const startAnchor = s.tool === "arrow" ? nearestAnchor(s.doc.elements, { x: wx, y: wy }) : null;
+          const sx = startAnchor ? startAnchor.x : wx;
+          const sy = startAnchor ? startAnchor.y : wy;
+          modeRef.current = { kind: "draw-line", tool: s.tool, startX: sx, startY: sy, points: [{ x: sx, y: sy }] };
+          setAnchorHint(startAnchor);
           return;
         }
-        modeRef.current = { kind: "draw-shape", tool: s.tool as ShapeType | "rounded", startX: wx, startY: wy, x: wx, y: wy };
+        modeRef.current = { kind: "draw-shape", tool: s.tool as ShapeType | "rounded" | "logic", startX: wx, startY: wy, x: wx, y: wy };
         return;
       }
       const target = (e.target as Element).closest("[data-element-id]");
@@ -82,7 +90,11 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
       const m = modeRef.current;
       const wx = worldX(e.clientX);
       const wy = worldY(e.clientY);
-      if (m.kind === "pan") {
+      if (m.kind === "idle") {
+        // 箭头工具悬停：高亮最近的逻辑节点锚点（阈值内），指引手动箭头对接
+        const s = useCanvasStore.getState();
+        setAnchorHint(s.tool === "arrow" ? nearestAnchor(s.doc.elements, { x: wx, y: wy }) : null);
+      } else if (m.kind === "pan") {
         const s = useCanvasStore.getState();
         s.setView({ scale: s.view.scale, ox: m.ox0 + (e.clientX - m.startClientX), oy: m.oy0 + (e.clientY - m.startClientY) });
       } else if (m.kind === "move") {
@@ -124,9 +136,22 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
           height: Math.abs(m.y - m.startY),
         });
       } else if (m.kind === "draw-line") {
-        // 保持 [起点, 当前指针] 两个点：首帧补上当前点，后续替换末点，polyline 最终恰好 2 点
-        if (m.points.length < 2) m.points.push({ x: wx, y: wy });
-        else m.points[m.points.length - 1] = { x: wx, y: wy };
+        // 保持 [起点, 当前指针] 两个点：首帧补上当前点，后续替换末点，polyline 最终恰好 2 点；
+        // 箭头终点吸附到最近锚点（12px 内），吸附时高亮该锚点
+        const s = useCanvasStore.getState();
+        let ex = wx;
+        let ey = wy;
+        let hint: Anchor | null = null;
+        if (m.tool === "arrow") {
+          hint = nearestAnchor(s.doc.elements, { x: wx, y: wy });
+          if (hint) {
+            ex = hint.x;
+            ey = hint.y;
+          }
+        }
+        setAnchorHint(hint);
+        if (m.points.length < 2) m.points.push({ x: ex, y: ey });
+        else m.points[m.points.length - 1] = { x: ex, y: ey };
         setPreview({ type: m.tool, points: [...m.points] });
       }
     },
@@ -173,10 +198,14 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
         const st = useCanvasStore.getState();
         const p0 = m.points[0];
         const last = m.points[m.points.length - 1];
-        // arrow 用 x/y/width/height 表示线（width/height 为终点相对偏移）；polyline 存 points
+        // arrow 用 x/y/width/height 表示线（width/height 为终点相对偏移）；polyline 存 points。
+        // 端点已吸附到锚点（起点按下时、终点移动时），落点即锚点位置 → 反查记录 startId/endId
         const el =
           m.tool === "arrow"
-            ? makeElement("arrow", p0.x, p0.y, last.x - p0.x, last.y - p0.y)
+            ? makeElement("arrow", p0.x, p0.y, last.x - p0.x, last.y - p0.y, {
+                startId: nearestAnchor(st.doc.elements, p0)?.elementId,
+                endId: nearestAnchor(st.doc.elements, last)?.elementId,
+              })
             : makeElement("polyline", p0.x, p0.y, 0, 0, { points: m.points });
         st.addElement(el);
         st.setSelection([el.id]);
@@ -186,5 +215,5 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
     modeRef.current = { kind: "idle" };
   }, []);
 
-  return { rubber, preview, panning, onPointerDown, onPointerMove, onPointerUp, modeRef };
+  return { rubber, preview, panning, anchorHint, onPointerDown, onPointerMove, onPointerUp, modeRef };
 }
