@@ -28,7 +28,7 @@ export function estimateTextSize(text: string, fontSize: number): { width: numbe
   return { width: Math.max(w * fontSize, 8), height: fontSize * 1.4 };
 }
 
-type ElementExtras = Partial<RectElement> &
+export type ElementExtras = Partial<RectElement> &
   Partial<EllipseElement> &
   Partial<TriangleElement> &
   Partial<DiamondElement> &
@@ -57,7 +57,7 @@ export function makeElement(
     strokeWidth: extra.strokeWidth ?? 2,
     opacity: extra.opacity ?? 1,
     zIndex: extra.zIndex ?? 0,
-    ...extra,
+    parentId: extra.parentId,
   };
   switch (type) {
     case "rect":
@@ -72,10 +72,8 @@ export function makeElement(
       return { ...base, type: "diamond" } as CanvasElement;
     case "hexagon":
       return { ...base, type: "hexagon" } as CanvasElement;
-    case "arrow": {
-      const e = { ...base, type: "arrow", startId: extra.startId, endId: extra.endId } as CanvasElement;
-      return e;
-    }
+    case "arrow":
+      return { ...base, type: "arrow", startId: extra.startId, endId: extra.endId } as CanvasElement;
     case "polyline": {
       const pts = extra.points as { x: number; y: number }[] | undefined;
       const points = pts?.length
@@ -87,18 +85,18 @@ export function makeElement(
       return { ...base, type: "polyline", points } as CanvasElement;
     }
     case "text": {
-      const t = (extra.text as string) ?? "文字";
-      const fontSize = (extra.fontSize as number) ?? 16;
+      const t = extra.text ?? "文字";
+      const fontSize = extra.fontSize ?? 16;
       const size = estimateTextSize(t, fontSize);
       return {
         ...base,
         type: "text",
         text: t,
         fontSize,
-        fontFamily: (extra.fontFamily as string) ?? "Arial, Microsoft YaHei, sans-serif",
-        bold: (extra.bold as boolean) ?? false,
-        italic: (extra.italic as boolean) ?? false,
-        align: (extra.align as "left" | "center" | "right") ?? "center",
+        fontFamily: extra.fontFamily ?? "Arial, Microsoft YaHei, sans-serif",
+        bold: extra.bold ?? false,
+        italic: extra.italic ?? false,
+        align: extra.align ?? "center",
         width: size.width,
         height: size.height,
       } as CanvasElement;

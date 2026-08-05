@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { makeElement, newId, estimateTextSize } from "./elements";
-import type { TextElement } from "./types";
+import type { RectElement, TextElement } from "./types";
 
 describe("elements", () => {
   it("newId 生成唯一 id", () => {
@@ -23,9 +23,9 @@ describe("elements", () => {
   });
 
   it("makeElement 圆角矩形带 rx", () => {
-    const r = makeElement("rounded", 0, 0, 50, 30);
+    const r = makeElement("rounded", 0, 0, 50, 30) as RectElement;
     expect(r.type).toBe("rect");
-    expect((r as any).rx).toBe(8);
+    expect(r.rx).toBe(8);
   });
 
   it("makeElement 文字带默认字体", () => {
@@ -38,5 +38,26 @@ describe("elements", () => {
   it("estimateTextSize 中文字符按 1.0 倍字号、拉丁按 0.6 倍估算", () => {
     const { width } = estimateTextSize("Ab你好", 16);
     expect(width).toBeCloseTo(16 * (0.6 + 0.6 + 1 + 1));
+  });
+
+  it("矩形不携带其他元素的专属字段（无字段泄漏）", () => {
+    const r = makeElement("rect", 0, 0, 10, 10, { text: "hello" }) as RectElement;
+    expect((r as any).text).toBeUndefined();
+    expect((r as any).points).toBeUndefined();
+    expect(r.rx).toBe(0);
+  });
+
+  it("polyline 显式 points 被保留", () => {
+    const p = makeElement("polyline", 0, 0, 0, 0, {
+      points: [
+        { x: 1, y: 2 },
+        { x: 3, y: 4 },
+      ],
+    });
+    expect(p.type).toBe("polyline");
+    expect((p as any).points).toEqual([
+      { x: 1, y: 2 },
+      { x: 3, y: 4 },
+    ]);
   });
 });
