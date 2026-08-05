@@ -20,7 +20,9 @@ describe("Canvas", () => {
     useCanvasStore.getState().addElement(a);
     useCanvasStore.getState().setSelection([a.id]);
     render(<Canvas viewportWidth={800} viewportHeight={600} />);
-    expect(document.querySelector('[data-testid="selection-rect"]')).toBeTruthy();
+    // 选中框为 SVG SelectionOverlay：虚线框 + 8 个缩放手柄 + 旋转手柄
+    expect(document.querySelector('[data-handle="se"]')).toBeTruthy();
+    expect(document.querySelector('[data-handle="rotate"]')).toBeTruthy();
   });
 
   it("滚轮缩放：锚点换算与最大倍数钳制", () => {

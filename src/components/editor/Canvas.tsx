@@ -3,10 +3,11 @@
 import { useRef, useCallback } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
 import ElementShape from "./ElementShape";
+import SelectionOverlay from "./SelectionOverlay";
+import { usePointerInteraction } from "./usePointerInteraction";
 
 export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidth: number; viewportHeight: number }) {
   const doc = useCanvasStore((s) => s.doc);
-  const selection = useCanvasStore((s) => s.selection);
   const isGenerating = useCanvasStore((s) => s.isGenerating);
   const view = useCanvasStore((s) => s.view);
   const setView = useCanvasStore((s) => s.setView);
@@ -14,6 +15,8 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
 
   const worldX = useCallback((clientX: number) => (clientX - view.ox) / view.scale, [view]);
   const worldY = useCallback((clientY: number) => (clientY - view.oy) / view.scale, [view]);
+
+  const { rubber, onPointerDown, onPointerMove, onPointerUp } = usePointerInteraction(worldX, worldY);
 
   const onWheel = (e: React.WheelEvent) => {
     e.preventDefault();
@@ -39,16 +42,22 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
         height={viewportHeight}
         className="block"
         data-testid="canvas-svg"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
       >
         <g transform={`translate(${view.ox} ${view.oy}) scale(${view.scale})`}>
           {sorted.map((e) => (
             <ElementShape key={e.id} e={e} />
           ))}
+          <SelectionOverlay scale={view.scale} />
         </g>
+        {rubber && (
+          <g transform={`translate(${view.ox} ${view.oy}) scale(${view.scale})`}>
+            <rect x={rubber.x} y={rubber.y} width={rubber.width} height={rubber.height} fill="#2563eb22" stroke="#2563eb" strokeWidth={1} />
+          </g>
+        )}
       </svg>
-      {selection.length > 0 && (
-        <div data-testid="selection-rect" className="pointer-events-none absolute border-2 border-blue-500" style={{ display: "none" }} />
-      )}
       {isGenerating && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/60">
           <span className="rounded bg-blue-600 px-4 py-2 text-white">AI 正在生成…</span>
