@@ -6,6 +6,9 @@ export interface ChangelogEntry {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     time: "2026-08-05 21:00",
-    changes: ["科研制图工具首个里程碑：SVG 画布编辑器 + AI 智能体 + 设置页 + 导出"],
+    changes: [
+      "科研制图工具首个里程碑：SVG 画布编辑器 + AI 智能体 + 设置页 + 导出",
+      "画布元素类型定义与工厂函数（默认浅底深框样式、圆角矩形、文字估算）",
+    ],
   },
 ];
