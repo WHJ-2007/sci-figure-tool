@@ -45,6 +45,15 @@ describe("canvas store", () => {
     expect(el.x).toBe(0); // 左对齐扩展：x 不变
   });
 
+  it("updateElement 修改逻辑节点正文后自动扩展框高容纳（正文与框大小匹配）", () => {
+    const l = makeElement("logic", 0, 0, 100, 40, { text: "A", fontSize: 14 });
+    useCanvasStore.getState().addElement(l);
+    useCanvasStore.getState().updateElement(l.id, { body: "第一行\n第二行\n第三行" });
+    const el = useCanvasStore.getState().doc.elements[0] as LogicElement;
+    // 浮点乘加顺序不同会差 1ulp，容差 0.01
+    expect(el.height).toBeGreaterThanOrEqual(14 * 1.4 + 3 * 12 * 1.4 + 10 - 0.01);
+  });
+
   it("updateElement 改字号/加粗也会重算文字宽高", () => {
     const t = makeElement("text", 0, 0, 0, 0, { text: "你好", fontSize: 16 });
     useCanvasStore.getState().addElement(t);

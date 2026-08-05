@@ -48,11 +48,12 @@ export interface PolylineElement extends BaseElement {
   points: { x: number; y: number }[];
 }
 
-// 逻辑节点：流程/结构图节点，圆角矩形 + 内置居中标题，自带上下左右 4 个箭头锚点
+// 逻辑节点：流程/结构图节点，圆角矩形 + 内置居中标题 + 多行正文（body，\n 分隔），自带上下左右 4 个箭头锚点
 export interface LogicElement extends BaseElement {
   type: "logic";
   rx: number;
   text: string;
+  body?: string;
   fontSize: number;
   fontFamily: string;
   bold: boolean;

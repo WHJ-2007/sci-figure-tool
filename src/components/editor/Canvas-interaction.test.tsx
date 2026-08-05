@@ -227,6 +227,19 @@ describe("逻辑节点", () => {
     expect(g.querySelector("text")!.textContent).toBe("处理");
   });
 
+  it("逻辑节点渲染标题与多行正文（正文小字号）", () => {
+    const l = makeElement("logic", 100, 100, 160, 80, { text: "处理", body: "第一行\n第二行", fontSize: 14 });
+    useCanvasStore.getState().addElement(l);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const g = document.querySelector("[data-element-id]")!;
+    const texts = g.querySelectorAll("text");
+    expect(texts).toHaveLength(3); // 标题 + 2 行正文
+    expect(texts[0].textContent).toBe("处理");
+    expect(texts[1].textContent).toBe("第一行");
+    expect(texts[2].textContent).toBe("第二行");
+    expect(Number(texts[1].getAttribute("font-size"))).toBeLessThan(Number(texts[0].getAttribute("font-size")));
+  });
+
   it("选中逻辑节点显示 4 个锚点圆点（bbox 边缘中点）", () => {
     const l = makeElement("logic", 100, 100, 120, 60, { text: "A" });
     useCanvasStore.getState().addElement(l);
@@ -269,6 +282,58 @@ describe("逻辑节点", () => {
     expect(arrow.x).toBe(100);
     expect(arrow.y).toBe(130);
     expect(arrow.x + arrow.width).toBe(220);
+  });
+
+  it("从选中逻辑节点的触点拖出箭头，靠近目标锚点自动吸附并记录 startId/endId", () => {
+    const a = makeElement("logic", 100, 100, 120, 60, { text: "源" });
+    const b = makeElement("logic", 300, 100, 120, 60, { text: "目标" });
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().addElement(b);
+    useCanvasStore.getState().setSelection([a.id]);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    // 源 right 锚点 (220,130)；目标 left 锚点 (300,130)
+    const dots = document.querySelectorAll("[data-anchor]");
+    const right = [...dots].find((d) => d.getAttribute("data-anchor") === "right")!;
+    fireEvent.pointerDown(right, { clientX: 220, clientY: 130, button: 0 });
+    // 指针距目标 left 锚点 8px（<12 阈值）→ 终点吸附到 (300,130)
+    fireEvent.pointerMove(window, { clientX: 292, clientY: 130, buttons: 1 });
+    fireEvent.pointerUp(window, { clientX: 292, clientY: 130 });
+    const arrow = useCanvasStore.getState().doc.elements.find((e) => e.type === "arrow")!;
+    expect(arrow).toBeDefined();
+    expect(arrow.startId).toBe(a.id);
+    expect(arrow.endId).toBe(b.id);
+    expect(arrow.x).toBe(220);
+    expect(arrow.y).toBe(130);
+    expect(arrow.x + arrow.width).toBe(300);
+    expect(arrow.y + arrow.height).toBe(130);
+  });
+
+  it("触点拉箭头时终点不吸附源节点自身的锚点（拖回源附近不吸回）", () => {
+    const a = makeElement("logic", 100, 100, 120, 60, { text: "源" });
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().setSelection([a.id]);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const right = [...document.querySelectorAll("[data-anchor]")].find((d) => d.getAttribute("data-anchor") === "right")!;
+    fireEvent.pointerDown(right, { clientX: 220, clientY: 130, button: 0 });
+    // 往回拖：指针距源 right 锚点 6px（无排除时会被吸附回源）
+    fireEvent.pointerMove(window, { clientX: 214, clientY: 130, buttons: 1 });
+    fireEvent.pointerUp(window, { clientX: 214, clientY: 130 });
+    const arrow = useCanvasStore.getState().doc.elements.find((e) => e.type === "arrow")!;
+    // 终点跟随指针（未吸附回源锚点），不与起点重合
+    expect(arrow.x + arrow.width).toBe(214);
+  });
+
+  it("触点之外的逻辑节点本体拖动不受影响（边界正常拖拉）", () => {
+    const l = makeElement("logic", 100, 100, 120, 60, { text: "处理" });
+    useCanvasStore.getState().addElement(l);
+    useCanvasStore.getState().setSelection([l.id]);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    // 节点中心 (160,130) 不是触点 → 正常 move
+    const el = document.querySelector("[data-element-id]")!;
+    drag(el, { x: 160, y: 130 }, { x: 200, y: 170 });
+    const e = useCanvasStore.getState().doc.elements[0];
+    expect(e.x).toBe(140);
+    expect(e.y).toBe(140);
   });
 
   it("箭头工具悬停时最近锚点高亮（data-anchor-layer 命中标记）", () => {

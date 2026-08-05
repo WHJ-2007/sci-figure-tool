@@ -13,7 +13,7 @@ export default function PropertyPanel() {
 
   const selected = selection.map((id) => doc.elements.find((e) => e.id === id)).filter((e): e is CanvasElement => Boolean(e));
   if (selected.length === 0) {
-    return <div className="p-3 text-sm text-gray-400">未选中元素</div>;
+    return <div className="p-4 text-sm text-gray-400/90">未选中元素</div>;
   }
   const one = selected[0];
 
@@ -51,84 +51,95 @@ export default function PropertyPanel() {
           <div className="mb-1 font-medium">排列</div>
           <div className="flex flex-wrap gap-1">
             {([["left", "左"], ["centerX", "水平居中"], ["right", "右"], ["top", "上"], ["centerY", "垂直居中"], ["bottom", "下"]] as const).map(([a, label]) => (
-              <button key={a} title={label} onClick={() => applyAlign(a)} className="lift rounded border border-gray-300 px-2 py-0.5 hover:bg-gray-100">{label}</button>
+              <button key={a} title={label} onClick={() => applyAlign(a)} className="lift rounded-lg border border-white/60 bg-white/60 px-2 py-0.5 text-gray-600 shadow-sm hover:bg-white/90">{label}</button>
             ))}
-            <button onClick={() => applyDistribute("horizontal")} className="lift rounded border border-gray-300 px-2 py-0.5 hover:bg-gray-100">横分布</button>
-            <button onClick={() => applyDistribute("vertical")} className="lift rounded border border-gray-300 px-2 py-0.5 hover:bg-gray-100">纵分布</button>
+            <button onClick={() => applyDistribute("horizontal")} className="lift rounded-lg border border-white/60 bg-white/60 px-2 py-0.5 text-gray-600 shadow-sm hover:bg-white/90">横分布</button>
+            <button onClick={() => applyDistribute("vertical")} className="lift rounded-lg border border-white/60 bg-white/60 px-2 py-0.5 text-gray-600 shadow-sm hover:bg-white/90">纵分布</button>
           </div>
         </div>
       )}
       <div className="grid grid-cols-2 gap-2">
         <label className="flex items-center gap-2">
-          <span className="text-gray-500">填充色</span>
-          <input type="color" aria-label="填充色" value={one.fill} onChange={(e) => patch({ fill: e.target.value })} className="h-7 w-10" />
+          <span className="text-gray-500/90">填充色</span>
+          <input type="color" aria-label="填充色" value={one.fill} onChange={(e) => patch({ fill: e.target.value })} className="h-7 w-10 cursor-pointer rounded-lg border border-white/60 bg-white/60 p-0.5 shadow-sm" />
         </label>
         <label className="flex items-center gap-2">
-          <span className="text-gray-500">边框色</span>
-          <input type="color" aria-label="边框色" value={one.stroke} onChange={(e) => patch({ stroke: e.target.value })} className="h-7 w-10" />
+          <span className="text-gray-500/90">边框色</span>
+          <input type="color" aria-label="边框色" value={one.stroke} onChange={(e) => patch({ stroke: e.target.value })} className="h-7 w-10 cursor-pointer rounded-lg border border-white/60 bg-white/60 p-0.5 shadow-sm" />
         </label>
         <label className="flex items-center gap-2">
-          <span className="text-gray-500">线宽</span>
+          <span className="text-gray-500/90">线宽</span>
           <input type="number" aria-label="线宽" value={one.strokeWidth} min={0} max={20} onChange={(e) => {
             if (e.target.value === "") return; // 清空输入框不触发变更，避免 Number("")=0 把描边置 0
             patch({ strokeWidth: Number(e.target.value) });
-          }} className="h-7 w-16 border border-gray-300 rounded px-1" />
+          }} className="h-7 w-16 rounded-lg border border-white/60 bg-white/60 px-1.5 text-gray-700 shadow-sm outline-none focus:border-blue-300" />
         </label>
         <label className="flex items-center gap-2">
-          <span className="text-gray-500">透明度</span>
-          <input type="range" aria-label="透明度" value={one.opacity} min={0} max={1} step={0.05} onChange={(e) => patch({ opacity: Number(e.target.value) })} className="w-20" />
+          <span className="text-gray-500/90">透明度</span>
+          <input type="range" aria-label="透明度" value={one.opacity} min={0} max={1} step={0.05} onChange={(e) => patch({ opacity: Number(e.target.value) })} className="w-20 accent-blue-500" />
         </label>
       </div>
       {one.type === "text" && (
         <div className="space-y-2">
           <label className="flex items-center gap-2">
-            <span className="text-gray-500">文字内容</span>
-            <input aria-label="文字内容" value={one.text} onChange={(e) => patch({ text: e.target.value })} className="h-7 flex-1 border border-gray-300 rounded px-1" />
+            <span className="text-gray-500/90">文字内容</span>
+            <input aria-label="文字内容" value={one.text} onChange={(e) => patch({ text: e.target.value })} className="h-7 flex-1 rounded-lg border border-white/60 bg-white/60 px-1.5 text-gray-700 shadow-sm outline-none focus:border-blue-300" />
           </label>
           <div className="flex items-center gap-2">
-            <span className="text-gray-500">字号</span>
-            <input type="number" aria-label="字号" value={one.fontSize} min={6} max={120} onChange={(e) => patch({ fontSize: Number(e.target.value) })} className="h-7 w-16 border border-gray-300 rounded px-1" />
-            <button onClick={() => patch({ bold: !one.bold })} className={`lift rounded border px-2 py-0.5 ${one.bold ? "bg-blue-100" : ""}`}>B</button>
-            <button onClick={() => patch({ italic: !one.italic })} className={`lift rounded border px-2 py-0.5 italic ${one.italic ? "bg-blue-100" : ""}`}>I</button>
+            <span className="text-gray-500/90">字号</span>
+            <input type="number" aria-label="字号" value={one.fontSize} min={6} max={120} onChange={(e) => patch({ fontSize: Number(e.target.value) })} className="h-7 w-16 rounded-lg border border-white/60 bg-white/60 px-1.5 text-gray-700 shadow-sm outline-none focus:border-blue-300" />
+            <button onClick={() => patch({ bold: !one.bold })} className={`lift rounded-lg border px-2 py-0.5 ${one.bold ? "border-blue-300 bg-blue-100 text-blue-700" : "border-white/60 bg-white/60 text-gray-600 shadow-sm hover:bg-white/90"}`}>B</button>
+            <button onClick={() => patch({ italic: !one.italic })} className={`lift rounded-lg border px-2 py-0.5 italic ${one.italic ? "border-blue-300 bg-blue-100 text-blue-700" : "border-white/60 bg-white/60 text-gray-600 shadow-sm hover:bg-white/90"}`}>I</button>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-gray-500">对齐</span>
             {(["left", "center", "right"] as const).map((a) => (
-              <button key={a} onClick={() => patch({ align: a })} className={`lift rounded border px-2 py-0.5 ${one.align === a ? "bg-blue-100" : ""}`}>{a}</button>
+              <button key={a} onClick={() => patch({ align: a })} className={`lift rounded-lg border px-2 py-0.5 ${one.align === a ? "border-blue-300 bg-blue-100 text-blue-700" : "border-white/60 bg-white/60 text-gray-600 shadow-sm hover:bg-white/90"}`}>{a}</button>
             ))}
           </div>
         </div>
       )}
       {one.type === "rect" && (
         <label className="flex items-center gap-2">
-          <span className="text-gray-500">圆角</span>
-          <input type="number" aria-label="圆角" value={one.rx} min={0} max={50} onChange={(e) => patch({ rx: Number(e.target.value) })} className="h-7 w-16 border border-gray-300 rounded px-1" />
+          <span className="text-gray-500/90">圆角</span>
+          <input type="number" aria-label="圆角" value={one.rx} min={0} max={50} onChange={(e) => patch({ rx: Number(e.target.value) })} className="h-7 w-16 rounded-lg border border-white/60 bg-white/60 px-1.5 text-gray-700 shadow-sm outline-none focus:border-blue-300" />
         </label>
       )}
       {one.type === "logic" && (
         <div className="space-y-2">
           <label className="flex items-center gap-2">
-            <span className="text-gray-500">标题</span>
-            <input aria-label="标题" value={one.text} onChange={(e) => patch({ text: e.target.value })} className="h-7 flex-1 border border-gray-300 rounded px-1" />
+            <span className="text-gray-500/90">标题</span>
+            <input aria-label="标题" value={one.text} onChange={(e) => patch({ text: e.target.value })} className="h-7 flex-1 rounded-lg border border-white/60 bg-white/60 px-1.5 text-gray-700 shadow-sm outline-none focus:border-blue-300" />
           </label>
           <div className="flex items-center gap-2">
-            <span className="text-gray-500">字号</span>
-            <input type="number" aria-label="字号" value={one.fontSize} min={6} max={120} onChange={(e) => patch({ fontSize: Number(e.target.value) })} className="h-7 w-16 border border-gray-300 rounded px-1" />
-            <button onClick={() => patch({ bold: !one.bold })} className={`lift rounded border px-2 py-0.5 ${one.bold ? "bg-blue-100" : ""}`}>B</button>
+            <span className="text-gray-500/90">字号</span>
+            <input type="number" aria-label="字号" value={one.fontSize} min={6} max={120} onChange={(e) => patch({ fontSize: Number(e.target.value) })} className="h-7 w-16 rounded-lg border border-white/60 bg-white/60 px-1.5 text-gray-700 shadow-sm outline-none focus:border-blue-300" />
+            <button onClick={() => patch({ bold: !one.bold })} className={`lift rounded-lg border px-2 py-0.5 ${one.bold ? "border-blue-300 bg-blue-100 text-blue-700" : "border-white/60 bg-white/60 text-gray-600 shadow-sm hover:bg-white/90"}`}>B</button>
           </div>
+          <label className="flex flex-col gap-1">
+            <span className="text-gray-500/90">正文（每行一句，回车分行）</span>
+            <textarea
+              aria-label="正文"
+              value={one.body ?? ""}
+              onChange={(e) => patch({ body: e.target.value })}
+              rows={4}
+              className="w-full rounded-lg border border-white/60 bg-white/60 px-2 py-1.5 text-xs leading-relaxed text-gray-700 shadow-sm outline-none focus:border-blue-300"
+              placeholder="正文内容，回车换行"
+            />
+          </label>
           <label className="flex items-center gap-2">
-            <span className="text-gray-500">圆角</span>
-            <input type="number" aria-label="圆角" value={one.rx} min={0} max={50} onChange={(e) => patch({ rx: Number(e.target.value) })} className="h-7 w-16 border border-gray-300 rounded px-1" />
+            <span className="text-gray-500/90">圆角</span>
+            <input type="number" aria-label="圆角" value={one.rx} min={0} max={50} onChange={(e) => patch({ rx: Number(e.target.value) })} className="h-7 w-16 rounded-lg border border-white/60 bg-white/60 px-1.5 text-gray-700 shadow-sm outline-none focus:border-blue-300" />
           </label>
         </div>
       )}
       <div className="flex items-center gap-2">
-        <span className="text-gray-500">旋转</span>
-        <input type="number" aria-label="旋转" value={one.rotation} min={-360} max={360} onChange={(e) => patch({ rotation: Number(e.target.value) })} className="h-7 w-16 border border-gray-300 rounded px-1" />
+        <span className="text-gray-500/90">旋转</span>
+        <input type="number" aria-label="旋转" value={one.rotation} min={-360} max={360} onChange={(e) => patch({ rotation: Number(e.target.value) })} className="h-7 w-16 rounded-lg border border-white/60 bg-white/60 px-1.5 text-gray-700 shadow-sm outline-none focus:border-blue-300" />
       </div>
       <div className="flex gap-2">
-        <button onClick={() => deleteElements(selection)} className="lift rounded bg-red-50 border border-red-300 px-3 py-1 text-red-600 hover:bg-red-100">删除</button>
-        <button onClick={() => setSelection([])} className="lift rounded border border-gray-300 px-3 py-1 hover:bg-gray-100">取消选择</button>
+        <button onClick={() => deleteElements(selection)} className="lift rounded-lg border border-red-200/70 bg-red-50/70 px-3 py-1 text-red-500 shadow-sm hover:bg-red-100/80">删除</button>
+        <button onClick={() => setSelection([])} className="lift rounded-lg border border-white/60 bg-white/60 px-3 py-1 text-gray-600 shadow-sm hover:bg-white/90">取消选择</button>
       </div>
     </div>
   );

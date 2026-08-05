@@ -40,6 +40,23 @@ export function estimateTextSize(text: string, fontSize: number, bold = false): 
   return { width: Math.max(w * fontSize * (bold ? 1.06 : 1), 8), height: fontSize * 1.4 };
 }
 
+// 逻辑节点整体尺寸：容纳标题行 + 多行正文（正文小 2 号），上下内边距 5、左右 8
+export function logicBoxSize(
+  title: string,
+  body: string | undefined,
+  fontSize: number,
+  bold = false
+): { width: number; height: number } {
+  const titleSize = estimateTextSize(title, fontSize, bold);
+  const bodyFontSize = Math.max(10, fontSize - 2);
+  const lines = (body ?? "").split("\n");
+  const bodyWidth = lines.reduce((w, l) => Math.max(w, estimateTextSize(l, bodyFontSize).width), 0);
+  return {
+    width: Math.max(titleSize.width, bodyWidth) + 16,
+    height: titleSize.height + lines.length * (bodyFontSize * 1.4) + 10,
+  };
+}
+
 // 按填充色亮度取对比文字色（亮底深字、暗底白字）；logic 节点标题用
 export function contrastTextColor(fill: string): string {
   const hex = fill.startsWith("#") ? fill.slice(1) : "ffffff";
@@ -125,20 +142,22 @@ export function makeElement(
       } as CanvasElement;
     }
     case "logic": {
-      // 逻辑节点：圆角矩形 + 内置居中标题；尺寸不足时扩展以容纳标题
+      // 逻辑节点：圆角矩形 + 内置居中标题 + 多行正文；尺寸不足时扩展以容纳标题与正文
       const t = extra.text ?? "逻辑";
+      const b = extra.body as string | undefined;
       const fontSize = extra.fontSize ?? 14;
-      const size = estimateTextSize(t, fontSize, extra.bold ?? false);
+      const size = logicBoxSize(t, b, fontSize, extra.bold ?? false);
       return {
         ...base,
         type: "logic",
         rx: extra.rx ?? 6,
         text: t,
+        body: b,
         fontSize,
         fontFamily: extra.fontFamily ?? "Arial, Microsoft YaHei, sans-serif",
         bold: extra.bold ?? false,
-        width: Math.max(width, size.width + 16),
-        height: Math.max(height, size.height + 10),
+        width: Math.max(width, size.width),
+        height: Math.max(height, size.height),
       } as CanvasElement;
     }
   }

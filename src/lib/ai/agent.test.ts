@@ -163,13 +163,21 @@ describe("DraftCanvas", () => {
     expect(text.zIndex).toBeGreaterThan(rect.zIndex);
   });
 
-  it("createElement 支持 logic 类型（圆角框 + 标题）", () => {
+  it("createElement 支持 logic 类型（圆角框 + 标题 + 多行正文）", () => {
     const d = new DraftCanvas([]);
-    const r = d.createElement({ type: "logic", x: 10, y: 10, width: 100, height: 60, text: "编码", fontSize: 16, bold: true });
+    const r = d.createElement({ type: "logic", x: 10, y: 10, width: 100, height: 60, text: "编码", body: "说明一\n说明二", fontSize: 16, bold: true });
     expect(r.ok).toBe(true);
     const el = d.serialize().elements[0];
     expect(el.type).toBe("logic");
-    expect(el).toMatchObject({ text: "编码", fontSize: 16, bold: true });
+    expect(el).toMatchObject({ text: "编码", body: "说明一\n说明二", fontSize: 16, bold: true });
+  });
+
+  it("updateElement 修改逻辑节点正文后自动扩框容纳（正文与框大小匹配）", () => {
+    const d = new DraftCanvas([]);
+    const r = d.createElement({ type: "logic", x: 10, y: 10, width: 100, height: 40, text: "A" });
+    d.updateElement({ id: r.id!, patch: { body: "很长的正文内容\n第二行内容" } });
+    const el = d.serialize().elements.find((e) => e.id === r.id)! as LogicElement;
+    expect(el.height).toBeGreaterThan(40);
   });
 
   it("connectElements 逻辑节点优先走锚点（源右锚点 → 目标左锚点）", () => {

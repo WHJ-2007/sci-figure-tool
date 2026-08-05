@@ -4,7 +4,8 @@ html, body { height: 100%; }
 body {
   margin: 0;
   overflow: hidden;
-  background: #eaf1fd;
+  /* 柔和的三色渐变底：亚克力玻璃面板需要有层次感的背景才看得出通透质感 */
+  background: linear-gradient(160deg, #e2edfb 0%, #f2efff 45%, #e6f3ef 100%);
 }
 
 /* 页面打开动画：设置页卡片淡入 + 上浮 */
@@ -44,6 +45,20 @@ nextjs-portal {
     inset 0 -12px 28px rgb(255 255 255 / 0.35),
     0 10px 40px rgb(45 70 120 / 0.16),
     0 2px 8px rgb(45 70 120 / 0.1);
+}
+
+/* 右侧亚克力面板卡片：更强模糊 + 色彩饱和，让面板与背景相互透叠，边缘内高光呈现玻璃切口 */
+.glass-panel {
+  border-radius: 18px;
+  border: 1px solid rgb(255 255 255 / 0.6);
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.82), rgb(255 255 255 / 0.5));
+  backdrop-filter: blur(24px) saturate(1.5);
+  -webkit-backdrop-filter: blur(24px) saturate(1.5);
+  box-shadow:
+    inset 0 1px 1px rgb(255 255 255 / 0.9),
+    inset 0 -12px 28px rgb(255 255 255 / 0.4),
+    0 10px 40px rgb(45 70 120 / 0.14),
+    0 2px 8px rgb(45 70 120 / 0.08);
 }
 
 /* 可点击元素动效：悬浮克制地 1px 上浮 + 柔阴影；按下下沉 + 轻微缩放变暗；禁用态不生效 */

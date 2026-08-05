@@ -103,26 +103,26 @@ export default function ChatPanel() {
 
   return (
     <div className="flex h-full flex-col bg-transparent">
-      <div className="flex items-center justify-between border-b border-white/40 px-3 py-2">
-        <span className="text-sm font-medium">AI 助手</span>
-        <button onClick={() => setOpen(!open)} className="lift text-xs text-gray-500 hover:text-gray-800">{open ? "收起" : "展开"}</button>
+      <div className="flex items-center justify-between border-b border-white/50 px-4 py-3">
+        <span className="text-sm font-semibold text-gray-700">AI 助手</span>
+        <button onClick={() => setOpen(!open)} className="lift rounded-lg px-2 py-0.5 text-xs text-gray-500 hover:bg-white/60">{open ? "收起" : "展开"}</button>
       </div>
-      <div className="flex-1 space-y-2 overflow-y-auto p-3 text-sm" ref={bodyRef}>
+      <div className="flex-1 space-y-2 overflow-y-auto p-3.5 text-sm" ref={bodyRef}>
         {messages.map((m, i) => (
           <div
             key={i}
-            className={`msg-in max-w-[85%] rounded-lg border px-3 py-1.5 shadow-sm backdrop-blur-md ${
+            className={`msg-in max-w-[85%] rounded-2xl border px-3.5 py-2 shadow-sm backdrop-blur-md ${
               m.role === "user"
-                ? "ml-auto border-white/30 bg-blue-500/60 text-white"
-                : "border-white/50 bg-white/50 text-gray-800"
+                ? "ml-auto border-blue-400/40 bg-blue-500/75 text-white"
+                : "border-white/60 bg-white/75 text-gray-800"
             }`}
           >
             {m.content}
           </div>
         ))}
-        {error && <div className="rounded-lg border border-red-200/50 bg-red-100/40 p-2 text-xs text-red-700 backdrop-blur-md">{error}</div>}
+        {error && <div className="rounded-xl border border-red-200/60 bg-red-100/40 p-2 text-xs text-red-700 backdrop-blur-md">{error}</div>}
       </div>
-      <div className="border-t border-white/40 p-2">
+      <div className="border-t border-white/50 p-3">
         <textarea
           id="chat-input"
           value={input}
@@ -130,14 +130,14 @@ export default function ChatPanel() {
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
           placeholder="描述你想画的图…（回车发送）"
           rows={2}
-          className="w-full resize-none rounded border border-white/40 bg-white/40 px-2 py-1.5 text-sm outline-none backdrop-blur-md focus:border-blue-500"
+          className="w-full resize-none rounded-xl border border-white/60 bg-white/60 px-3 py-2 text-sm text-gray-700 shadow-sm outline-none backdrop-blur-md focus:border-blue-400"
         />
-        <div className="mt-1 flex items-center justify-between">
-          <span className="text-xs text-gray-500">支持一键生成与对话修改</span>
+        <div className="mt-1.5 flex items-center justify-between">
+          <span className="text-xs text-gray-500/90">支持一键生成与对话修改</span>
           <button
             onClick={send}
             disabled={isGenerating || !input.trim()}
-            className="lift rounded bg-blue-600/80 px-3 py-1 text-sm text-white backdrop-blur-md hover:bg-blue-700 disabled:opacity-50"
+            className="lift rounded-xl bg-blue-600/85 px-3.5 py-1.5 text-sm text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
           >
             {isGenerating ? "生成中…" : "一键生成"}
           </button>

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { makeElement, newId, estimateTextSize } from "./elements";
-import type { RectElement, TextElement } from "./types";
+import type { LogicElement, RectElement, TextElement } from "./types";
 
 describe("elements", () => {
   it("newId 生成唯一 id", () => {
@@ -51,6 +51,16 @@ describe("elements", () => {
     expect((r as any).text).toBeUndefined();
     expect((r as any).points).toBeUndefined();
     expect(r.rx).toBe(0);
+  });
+
+  it("makeElement logic 带正文：框尺寸容纳标题 + 多行正文（正文字号小 2 号）", () => {
+    const l = makeElement("logic", 10, 10, 80, 40, { text: "特征提取", body: "对输入做卷积\n降采样", fontSize: 14 }) as LogicElement;
+    expect(l.body).toBe("对输入做卷积\n降采样");
+    // 标题 4 字 × 14 = 56，+16 → 72；正文最长行 5 字 × 12 = 60 → 宽 72
+    expect(l.width).toBeGreaterThanOrEqual(72);
+    // 高 = 标题 14×1.4 + 正文 2 行 × 12×1.4 + 上下 padding 10
+    expect(l.height).toBeGreaterThanOrEqual(14 * 1.4 + 2 * 12 * 1.4 + 10);
+    expect(l.height).toBeGreaterThan(40);
   });
 
   it("polyline 显式 points 被保留", () => {

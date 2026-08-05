@@ -1,6 +1,6 @@
 import { Fragment } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
-import { logicAnchors } from "@/lib/canvas/geometry";
+import { logicAnchors, type Anchor } from "@/lib/canvas/geometry";
 import type { CanvasElement } from "@/lib/canvas/types";
 
 const HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const;
@@ -29,7 +29,13 @@ function boundsOf(e: CanvasElement): { x: number; y: number; width: number; heig
   return { x: e.x, y: e.y, width: e.width, height: e.height };
 }
 
-export default function SelectionOverlay({ scale }: { scale: number }) {
+export default function SelectionOverlay({
+  scale,
+  startTouchArrow,
+}: {
+  scale: number;
+  startTouchArrow?: (a: Anchor) => void;
+}) {
   const doc = useCanvasStore((s) => s.doc);
   const selection = useCanvasStore((s) => s.selection);
   if (selection.length === 0) return null;
@@ -105,7 +111,7 @@ export default function SelectionOverlay({ scale }: { scale: number }) {
             />
           </g>
           {anchors.length > 0 && (
-            <g pointerEvents="none">
+            <g>
               {anchors.map((a) => (
                 <circle
                   key={a.id}
@@ -113,10 +119,15 @@ export default function SelectionOverlay({ scale }: { scale: number }) {
                   data-element-id={a.elementId}
                   cx={a.x}
                   cy={a.y}
-                  r={4 / scale}
+                  r={5 / scale}
                   fill="#2563eb"
                   stroke="#ffffff"
-                  strokeWidth={1 / scale}
+                  strokeWidth={1.5 / scale}
+                  style={{ cursor: "crosshair", pointerEvents: "all" }}
+                  onPointerDown={(ev) => {
+                    ev.stopPropagation();
+                    startTouchArrow?.(a);
+                  }}
                 />
               ))}
             </g>

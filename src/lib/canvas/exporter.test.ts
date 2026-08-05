@@ -56,6 +56,14 @@ describe("exporter", () => {
     expect(out).toContain("处理");
   });
 
+  it("elementToSvg 逻辑节点导出标题与多行正文", () => {
+    const l = makeElement("logic", 0, 0, 120, 60, { text: "处理", body: "行一\n行二" });
+    const out = elementToSvg(l);
+    expect(out).toContain("处理");
+    expect(out).toContain("行一");
+    expect(out).toContain("行二");
+  });
+
   it("elementToSvg 逻辑节点标题颜色与填充对比（深填充白字）", () => {
     const l = makeElement("logic", 0, 0, 120, 60, { text: "A", fill: "#1f2937" });
     const out = elementToSvg(l);

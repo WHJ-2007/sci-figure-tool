@@ -133,7 +133,7 @@ export default function Toolbar() {
   const currentShape = SHAPE_TOOLS.find((t) => t.tool === tool)?.label ?? SHAPE_TOOLS[0].label;
 
   return (
-    <div className="flex items-center gap-1 border-b border-white/40 bg-white/60 px-2 py-1 backdrop-blur-md">
+    <div className="relative z-40 flex items-center gap-1 border-b border-white/40 bg-white/60 px-2 py-1 backdrop-blur-md">
       <select
         value={currentProjectId}
         onChange={(e) => setCurrentProject(e.target.value)}

@@ -43,7 +43,7 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
     return (clientY - (rect?.top ?? 0) - v.oy) / v.scale;
   }, []);
 
-  const { rubber, preview, panning, anchorHint, onPointerDown, onPointerMove, onPointerUp, modeRef } = usePointerInteraction(worldX, worldY);
+  const { rubber, preview, panning, anchorHint, onPointerDown, onPointerMove, onPointerUp, modeRef, startTouchArrow } = usePointerInteraction(worldX, worldY);
 
   // 双击文字元素进入编辑（世界坐标命中，从顶层往下找）
   const onDoubleClick = useCallback(
@@ -104,7 +104,7 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
             <ElementShape key={e.id} e={e} />
           ))}
           {preview && <ElementShape e={previewElement(preview)} />}
-          <SelectionOverlay scale={view.scale} />
+          <SelectionOverlay scale={view.scale} startTouchArrow={startTouchArrow} />
           {editing && <TextEditor id={editing.id} x={editing.x} y={editing.y} />}
         </g>
         {rubber && (

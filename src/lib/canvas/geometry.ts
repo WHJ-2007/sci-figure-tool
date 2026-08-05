@@ -316,11 +316,12 @@ export function logicAnchors(e: CanvasElement): Anchor[] {
   });
 }
 
-// 在全部逻辑节点中找距离 p 最近且不超过 threshold 的锚点
-export function nearestAnchor(elements: CanvasElement[], p: Point, threshold = ANCHOR_SNAP_THRESHOLD): Anchor | null {
+// 在全部逻辑节点中找距离 p 最近且不超过 threshold 的锚点；excludeElementId 排除指定元素（拉箭头时不吸附回源节点自身）
+export function nearestAnchor(elements: CanvasElement[], p: Point, threshold = ANCHOR_SNAP_THRESHOLD, excludeElementId?: string): Anchor | null {
   let best: Anchor | null = null;
   let bestD = threshold;
   for (const e of elements) {
+    if (e.id === excludeElementId) continue;
     for (const a of logicAnchors(e)) {
       const d = Math.hypot(a.x - p.x, a.y - p.y);
       if (d < bestD) {

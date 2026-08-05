@@ -1,9 +1,9 @@
 import { CANVAS_WIDTH, CANVAS_HEIGHT, clampRect, shapeExitPoint, anchorToward, type Point } from "@/lib/canvas/geometry";
-import { makeElement, estimateTextSize } from "@/lib/canvas/elements";
+import { makeElement, estimateTextSize, logicBoxSize } from "@/lib/canvas/elements";
 import type { CanvasDocument, CanvasElement, ElementType } from "@/lib/canvas/types";
 
 // updateElement 只接受白名单内的属性键，防止绕过工具层 schema 直接注入任意属性
-const PATCH_KEYS = ["x", "y", "width", "height", "fill", "stroke", "strokeWidth", "rotation", "text", "fontSize", "opacity", "bold", "italic", "align", "fontFamily"] as const;
+const PATCH_KEYS = ["x", "y", "width", "height", "fill", "stroke", "strokeWidth", "rotation", "text", "body", "fontSize", "opacity", "bold", "italic", "align", "fontFamily"] as const;
 
 export interface CreateArgs {
   type: string;
@@ -12,6 +12,7 @@ export interface CreateArgs {
   width: number;
   height: number;
   text?: string;
+  body?: string;
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
@@ -69,6 +70,7 @@ export class DraftCanvas {
     if (args.type === "text" || args.type === "logic") {
       el = makeElement(args.type as "text" | "logic", r.x, r.y, r.width, r.height, {
         text: args.text ?? (args.type === "logic" ? "逻辑" : "文字"),
+        body: args.body,
         fill: args.fill ?? "#2f2f2f",
         fontSize: args.fontSize,
         bold: args.bold,
@@ -105,10 +107,10 @@ export class DraftCanvas {
       next.width = size.width;
       next.height = size.height;
     }
-    if (next.type === "logic" && ("text" in patch || "fontSize" in patch || "bold" in patch)) {
-      const size = estimateTextSize(next.text, next.fontSize, next.bold);
-      next.width = Math.max(next.width, size.width + 16);
-      next.height = Math.max(next.height, size.height + 10);
+    if (next.type === "logic" && ("text" in patch || "body" in patch || "fontSize" in patch || "bold" in patch)) {
+      const size = logicBoxSize(next.text, next.body, next.fontSize, next.bold);
+      next.width = Math.max(next.width, size.width);
+      next.height = Math.max(next.height, size.height);
     }
     next.width = Math.max(4, next.width);
     next.height = Math.max(4, next.height);

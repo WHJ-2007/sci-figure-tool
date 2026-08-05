@@ -72,13 +72,16 @@ function renderBody(
       );
     }
     case "logic": {
-      // 逻辑节点：圆角矩形 + 内置居中标题（文字颜色与填充对比）
+      // 逻辑节点：圆角矩形 + 标题（顶部）+ 多行正文（小 2 号），布局与 logicBoxSize 公式一致
+      const bodyFontSize = Math.max(10, e.fontSize - 2);
+      const lineH = bodyFontSize * 1.4;
+      const bodyLines = (e.body ?? "").split("\n");
       return (
         <g>
           <rect x={e.x} y={e.y} width={e.width} height={e.height} rx={e.rx} {...common} />
           <text
             x={e.x + e.width / 2}
-            y={e.y + e.height / 2}
+            y={e.y + 5 + (e.fontSize * 1.4) / 2}
             textAnchor="middle"
             dominantBaseline="middle"
             fontSize={e.fontSize}
@@ -89,6 +92,23 @@ function renderBody(
           >
             {e.text}
           </text>
+          {bodyLines.map((line, i) =>
+            line === "" ? null : (
+              <text
+                key={i}
+                x={e.x + e.width / 2}
+                y={e.y + 5 + e.fontSize * 1.4 + i * lineH + lineH / 2}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fontSize={bodyFontSize}
+                fontFamily={e.fontFamily}
+                fill={contrastTextColor(e.fill)}
+                opacity={Math.max(0.75, e.opacity)}
+              >
+                {line}
+              </text>
+            )
+          )}
         </g>
       );
     }

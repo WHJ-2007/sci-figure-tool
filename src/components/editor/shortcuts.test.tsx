@@ -74,17 +74,17 @@ describe("快捷键", () => {
     expect(useCanvasStore.getState().doc.elements).toHaveLength(1);
   });
 
-  it("WASD 平移视口：W 上 / A 左 / S 下 / D 右（每次 50px）", () => {
+  it("WASD 平移视口：W 上 / A 左 / S 下 / D 右（相机语义，每次 50px）", () => {
     render(<EditorHost />);
     const v0 = useCanvasStore.getState().view;
-    fireEvent.keyDown(window, { key: "d" });
-    expect(useCanvasStore.getState().view.ox).toBe(v0.ox + 50);
-    fireEvent.keyDown(window, { key: "a" });
-    expect(useCanvasStore.getState().view.ox).toBe(v0.ox);
-    fireEvent.keyDown(window, { key: "s" });
-    expect(useCanvasStore.getState().view.oy).toBe(v0.oy + 50);
     fireEvent.keyDown(window, { key: "w" });
-    expect(useCanvasStore.getState().view.oy).toBe(v0.oy);
+    expect(useCanvasStore.getState().view.oy).toBe(v0.oy + 50); // 上：内容下移
+    fireEvent.keyDown(window, { key: "s" });
+    expect(useCanvasStore.getState().view.oy).toBe(v0.oy); // 下：回到原位
+    fireEvent.keyDown(window, { key: "a" });
+    expect(useCanvasStore.getState().view.ox).toBe(v0.ox + 50); // 左
+    fireEvent.keyDown(window, { key: "d" });
+    expect(useCanvasStore.getState().view.ox).toBe(v0.ox); // 右：回到原位
     expect(useCanvasStore.getState().view.scale).toBe(v0.scale); // 缩放不变
   });
 
@@ -117,11 +117,14 @@ describe("快捷键", () => {
     document.body.removeChild(ta);
   });
 
-  it("AI 生成中 WASD 不触发平移", () => {
+  it("AI 生成中 WASD 仍可平移（边看 AI 绘制边导航）", () => {
     useCanvasStore.getState().setGenerating(true);
     render(<EditorHost />);
     const v0 = useCanvasStore.getState().view;
     fireEvent.keyDown(window, { key: "d" });
-    expect(useCanvasStore.getState().view.ox).toBe(v0.ox);
+    expect(useCanvasStore.getState().view.ox).toBe(v0.ox - 50);
+    // 生成中 Delete 等编辑快捷键仍被忽略
+    fireEvent.keyDown(window, { key: "Delete" });
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(0);
   });
 });

@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { CanvasDocument, CanvasElement, ToolType } from "./types";
 import { createHistory, pushHistory, undo as undoHistory, redo as redoHistory, type HistoryState } from "./history";
 import { loadProjects, makeProject, defaultProjectName, saveProjects, type CanvasProject } from "./projects";
-import { estimateTextSize } from "./elements";
+import { estimateTextSize, logicBoxSize } from "./elements";
 
 function maxZIndex(elements: CanvasElement[]): number {
   let max = 0;
@@ -109,12 +109,12 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => {
             const size = estimateTextSize(next.text, next.fontSize, next.bold);
             return { ...next, width: size.width, height: size.height };
           }
-          if (next.type === "logic" && ("text" in patch || "fontSize" in patch || "bold" in patch)) {
-            const size = estimateTextSize(next.text, next.fontSize, next.bold);
+          if (next.type === "logic" && ("text" in patch || "body" in patch || "fontSize" in patch || "bold" in patch)) {
+            const size = logicBoxSize(next.text, next.body, next.fontSize, next.bold);
             return {
               ...next,
-              width: Math.max(next.width, size.width + 16),
-              height: Math.max(next.height, size.height + 10),
+              width: Math.max(next.width, size.width),
+              height: Math.max(next.height, size.height),
             };
           }
           return next;

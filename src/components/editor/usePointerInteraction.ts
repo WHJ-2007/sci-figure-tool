@@ -13,7 +13,7 @@ type Mode =
   | { kind: "resize"; id: string; handle: string; startX: number; startY: number; rect: { x: number; y: number; width: number; height: number } }
   | { kind: "rotate"; id: string; cx: number; cy: number }
   | { kind: "draw-shape"; tool: ShapeType | "rounded" | "logic"; startX: number; startY: number; x: number; y: number }
-  | { kind: "draw-line"; tool: "arrow" | "polyline"; startX: number; startY: number; points: { x: number; y: number }[] };
+  | { kind: "draw-line"; tool: "arrow" | "polyline"; startX: number; startY: number; points: { x: number; y: number }[]; sourceId?: string };
 
 export type DrawPreview =
   | { type: ShapeType | "rounded" | "logic"; x: number; y: number; width: number; height: number }
@@ -88,7 +88,8 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
         let ey = wy;
         let hint: Anchor | null = null;
         if (m.tool === "arrow") {
-          hint = nearestAnchor(s.doc.elements, { x: wx, y: wy });
+          // 触点拉箭头（sourceId 存在）时排除源节点自身锚点：箭头拖回源附近不会吸回起点
+          hint = nearestAnchor(s.doc.elements, { x: wx, y: wy }, undefined, m.sourceId);
           if (hint) {
             ex = hint.x;
             ey = hint.y;
@@ -149,7 +150,7 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
           m.tool === "arrow"
             ? makeElement("arrow", p0.x, p0.y, last.x - p0.x, last.y - p0.y, {
                 startId: nearestAnchor(st.doc.elements, p0)?.elementId,
-                endId: nearestAnchor(st.doc.elements, last)?.elementId,
+                endId: nearestAnchor(st.doc.elements, last, undefined, m.sourceId)?.elementId,
               })
             : makeElement("polyline", p0.x, p0.y, 0, 0, { points: m.points });
         st.addElement(el);
@@ -172,6 +173,25 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
     window.addEventListener("pointerup", endDrag);
     window.addEventListener("pointercancel", endDrag);
   }, [onWindowMove, endDrag]);
+
+  // 逻辑节点触点：从锚点位置直接拉出箭头（起点精确落在锚点上，拖动中吸附其他锚点）
+  const startTouchArrow = useCallback(
+    (anchor: Anchor) => {
+      const s = useCanvasStore.getState();
+      if (s.isGenerating || s.tool === "hand") return;
+      modeRef.current = {
+        kind: "draw-line",
+        tool: "arrow",
+        startX: anchor.x,
+        startY: anchor.y,
+        points: [{ x: anchor.x, y: anchor.y }],
+        sourceId: anchor.elementId,
+      };
+      setAnchorHint(anchor);
+      startDrag();
+    },
+    [startDrag]
+  );
 
   useEffect(
     () => () => {
@@ -257,5 +277,5 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
 
   const onPointerUp = useCallback(() => {}, []);
 
-  return { rubber, preview, panning, anchorHint, onPointerDown, onPointerMove, onPointerUp, modeRef };
+  return { rubber, preview, panning, anchorHint, onPointerDown, onPointerMove, onPointerUp, modeRef, startTouchArrow };
 }

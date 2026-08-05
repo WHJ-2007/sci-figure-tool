@@ -52,10 +52,16 @@ export function elementToSvg(e: CanvasElement): string {
       return `<text ${textAttrs} x="${tx}" y="${e.y + e.height / 2}" text-anchor="${anchor}" dominant-baseline="middle" font-size="${e.fontSize}" font-family="${e.fontFamily}"${weight}${style}${rot}>${esc(e.text)}</text>`;
     }
     case "logic": {
-      // 逻辑节点：圆角矩形 + 内置居中标题（标题颜色与填充对比）
+      // 逻辑节点：圆角矩形 + 标题（顶部）+ 多行正文（小 2 号），布局与 logicBoxSize 公式一致
       const weight = e.bold ? ' font-weight="bold"' : "";
       const titleColor = contrastTextColor(e.fill);
-      return `<g${rot}><rect ${attrs} width="${e.width}" height="${e.height}" rx="${e.rx}"/><text x="${e.x + e.width / 2}" y="${e.y + e.height / 2}" text-anchor="middle" dominant-baseline="middle" font-size="${e.fontSize}" font-family="${e.fontFamily}"${weight} fill="${titleColor}" opacity="${e.opacity}">${esc(e.text)}</text></g>`;
+      const bodyFontSize = Math.max(10, e.fontSize - 2);
+      const lineH = bodyFontSize * 1.4;
+      const body = (e.body ?? "").split("\n")
+        .filter((l) => l !== "")
+        .map((l, i) => `<text x="${e.x + e.width / 2}" y="${e.y + 5 + e.fontSize * 1.4 + i * lineH + lineH / 2}" text-anchor="middle" dominant-baseline="middle" font-size="${bodyFontSize}" font-family="${e.fontFamily}" fill="${titleColor}" opacity="${Math.max(0.75, e.opacity)}">${esc(l)}</text>`)
+        .join("");
+      return `<g${rot}><rect ${attrs} width="${e.width}" height="${e.height}" rx="${e.rx}"/><text x="${e.x + e.width / 2}" y="${e.y + 5 + (e.fontSize * 1.4) / 2}" text-anchor="middle" dominant-baseline="middle" font-size="${e.fontSize}" font-family="${e.fontFamily}"${weight} fill="${titleColor}" opacity="${e.opacity}">${esc(e.text)}</text>${body}</g>`;
     }
   }
 }
