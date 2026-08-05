@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { loadSettings } from "@/lib/settings";
 import type { CanvasDocument } from "@/lib/canvas/types";
+import type { AgentEvent } from "@/lib/ai/agent";
 
 interface Msg {
   role: "user" | "assistant";
@@ -26,7 +27,8 @@ export default function ChatPanel() {
 
   const send = async () => {
     const text = input.trim();
-    if (!text || isGenerating) return;
+    // 守卫用 getState()：避免订阅闭包在极端时序下被旧请求的 finally 误解锁
+    if (!text || useCanvasStore.getState().isGenerating) return;
     const s = useCanvasStore.getState();
     const settings = loadSettings();
     const next = [...messages, { role: "user" as const, content: text }];
@@ -67,7 +69,7 @@ export default function ChatPanel() {
           const line = buf.slice(0, nl);
           buf = buf.slice(nl + 1);
           if (line) {
-            const ev = JSON.parse(line);
+            const ev = JSON.parse(line) as AgentEvent;
             if (ev.type === "progress") setActivity((a) => [...a, ...(ev.activity ?? [])]);
             else if (ev.type === "complete") {
               finalDoc = ev.canvas;

@@ -52,7 +52,9 @@ Element.prototype.getBoundingClientRect = () =>
   ({ left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
 
 // jsdom 未实现 Element.scrollTo：聊天面板自动滚动用，桩掉即可（滚动语义由真实浏览器保证）
-Element.prototype.scrollTo = () => {};
+if (typeof Element.prototype.scrollTo !== "function") {
+  Element.prototype.scrollTo = () => {};
+}
 
 // jsdom 未实现 Blob.stream()（也无 arrayBuffer）：NDJSON 流测试的 mockStream 依赖它，
 // 用 FileReader（jsdom 已实现）读出内容再包装成流
