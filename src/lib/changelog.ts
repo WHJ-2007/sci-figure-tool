@@ -23,6 +23,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       "聊天面板与 AI 生成流：对话式一键生成（NDJSON 流式读取进度与应用画布）、生成中画布锁定",
       "首次运行引导：未配置 API Key 时顶部显示引导条（前往设置页/可关闭）",
       "PowerShell 启动器核心：进程管理（启动/停止/状态 JSON，PID 文件 + 端口检测，全部 .ps1 带 UTF-8 BOM）",
+      "PowerShell 启动器 GUI：WinForms 界面（启动/停止/打开浏览器/退出，状态轮询 + 日志滚动显示；根目录 启动器.bat 一键运行）",
     ],
   },
 ];
