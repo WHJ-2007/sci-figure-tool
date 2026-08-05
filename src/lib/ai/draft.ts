@@ -21,9 +21,15 @@ export interface CreateArgs {
 export class DraftCanvas {
   elements: CanvasElement[] = [];
   private activity: string[] = [];
+  private onChange: (() => void) | undefined;
 
-  constructor(elements: CanvasElement[]) {
+  constructor(elements: CanvasElement[], onChange?: () => void) {
     this.elements = structuredClone(elements);
+    this.onChange = onChange;
+  }
+
+  private changed() {
+    this.onChange?.();
   }
 
   serialize(): CanvasDocument {
@@ -61,6 +67,7 @@ export class DraftCanvas {
     }
     this.elements.push(el);
     this.activity.push(`创建${typeName(el.type)} (${Math.round(r.x)}, ${Math.round(r.y)}, ${Math.round(r.width)}×${Math.round(r.height)})${"text" in el ? `：${el.text}` : ""}`);
+    this.changed();
     return { ok: true, id: el.id };
   }
 
@@ -77,6 +84,7 @@ export class DraftCanvas {
     this.elements[idx] = next;
     const changed = Object.keys(args.patch).join(", ");
     this.activity.push(`修改元素 ${e.id.slice(0, 6)}：${changed}`);
+    this.changed();
     return { ok: true };
   }
 
@@ -85,6 +93,7 @@ export class DraftCanvas {
     if (idx < 0) return { ok: false, error: `元素不存在: ${args.id}` };
     this.elements.splice(idx, 1);
     this.activity.push(`删除元素 ${args.id.slice(0, 6)}`);
+    this.changed();
     return { ok: true };
   }
 
@@ -106,6 +115,7 @@ export class DraftCanvas {
   clear() {
     this.elements = [];
     this.activity.push("清空画布");
+    this.changed();
     return { ok: true };
   }
 }

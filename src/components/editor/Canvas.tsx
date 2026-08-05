@@ -28,6 +28,7 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
   const editingText = useCanvasStore((s) => s.editingText);
   const view = useCanvasStore((s) => s.view);
   const setView = useCanvasStore((s) => s.setView);
+  const tool = useCanvasStore((s) => s.tool);
   const svgRef = useRef<SVGSVGElement>(null);
 
   const worldX = useCallback((clientX: number) => {
@@ -39,13 +40,13 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
     return (clientY - (rect?.top ?? 0) - view.oy) / view.scale;
   }, [view]);
 
-  const { rubber, preview, onPointerDown, onPointerMove, onPointerUp } = usePointerInteraction(worldX, worldY);
+  const { rubber, preview, panning, onPointerDown, onPointerMove, onPointerUp } = usePointerInteraction(worldX, worldY);
 
   // 双击文字元素进入编辑（世界坐标命中，从顶层往下找）
   const onDoubleClick = useCallback(
     (e: React.MouseEvent<SVGSVGElement>) => {
       const s = useCanvasStore.getState();
-      if (s.isGenerating) return;
+      if (s.isGenerating || s.tool === "hand") return;
       const p = { x: worldX(e.clientX), y: worldY(e.clientY) };
       const top = [...s.doc.elements].sort((a, b) => b.zIndex - a.zIndex);
       for (const el of top) {
@@ -81,7 +82,7 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
         ref={svgRef}
         width={viewportWidth}
         height={viewportHeight}
-        className="block"
+        className={`block ${tool === "hand" ? (panning ? "cursor-grabbing" : "cursor-grab") : ""}`}
         data-testid="canvas-svg"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}

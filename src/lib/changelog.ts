@@ -34,6 +34,8 @@ export const CHANGELOG: ChangelogEntry[] = [
       "首次运行引导：未配置 API Key 时顶部显示引导条（前往设置页/可关闭）",
       "PowerShell 启动器核心：进程管理（启动/停止/状态 JSON，PID 文件 + 端口检测，全部 .ps1 带 UTF-8 BOM）",
       "PowerShell 启动器 GUI：WinForms 界面（启动/停止/打开浏览器/退出，状态轮询 + 日志滚动显示；根目录 启动器.bat 一键运行）",
+      "AI 生成实时绘制反馈：每个元素操作立即在画布上出现（snapshot 流），生成完成后 Ctrl+Z 一步整体撤销",
+      "小手平移工具：工具栏最左侧新增小手按钮（SVG 图标），拖动画布平移视口",
     ],
   },
 ];

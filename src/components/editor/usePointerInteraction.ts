@@ -6,6 +6,7 @@ import type { ShapeType } from "@/lib/canvas/types";
 
 type Mode =
   | { kind: "idle" }
+  | { kind: "pan"; startClientX: number; startClientY: number; ox0: number; oy0: number }
   | { kind: "move"; startX: number; startY: number; start: Map<string, { x: number; y: number }>; moved: boolean }
   | { kind: "rubber"; startX: number; startY: number; x: number; y: number }
   | { kind: "resize"; id: string; handle: string; startX: number; startY: number; rect: { x: number; y: number; width: number; height: number } }
@@ -21,11 +22,17 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
   const modeRef = useRef<Mode>({ kind: "idle" });
   const [rubber, setRubber] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [preview, setPreview] = useState<DrawPreview | null>(null);
+  const [panning, setPanning] = useState(false);
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent<SVGSVGElement>) => {
       const s = useCanvasStore.getState();
       if (s.isGenerating) return;
+      if (s.tool === "hand") {
+        modeRef.current = { kind: "pan", startClientX: e.clientX, startClientY: e.clientY, ox0: s.view.ox, oy0: s.view.oy };
+        setPanning(true);
+        return;
+      }
       const wx = worldX(e.clientX);
       const wy = worldY(e.clientY);
       if (s.tool !== "select") {
@@ -73,7 +80,10 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
       const m = modeRef.current;
       const wx = worldX(e.clientX);
       const wy = worldY(e.clientY);
-      if (m.kind === "move") {
+      if (m.kind === "pan") {
+        const s = useCanvasStore.getState();
+        s.setView({ scale: s.view.scale, ox: m.ox0 + (e.clientX - m.startClientX), oy: m.oy0 + (e.clientY - m.startClientY) });
+      } else if (m.kind === "move") {
         const dx = wx - m.startX;
         const dy = wy - m.startY;
         if (!m.moved && Math.hypot(dx, dy) < 3) return;
@@ -124,7 +134,9 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
   const onPointerUp = useCallback(() => {
     const m = modeRef.current;
     const s = useCanvasStore.getState();
-    if (m.kind === "rubber") {
+    if (m.kind === "pan") {
+      setPanning(false);
+    } else if (m.kind === "rubber") {
       const r = {
         x: Math.min(m.startX, m.x),
         y: Math.min(m.startY, m.y),
@@ -171,5 +183,5 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
     modeRef.current = { kind: "idle" };
   }, []);
 
-  return { rubber, preview, onPointerDown, onPointerMove, onPointerUp, modeRef };
+  return { rubber, preview, panning, onPointerDown, onPointerMove, onPointerUp, modeRef };
 }

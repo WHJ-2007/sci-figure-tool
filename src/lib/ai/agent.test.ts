@@ -92,7 +92,49 @@ describe("tools", () => {
   });
 });
 
+describe("DraftCanvas onChange", () => {
+  it("变更成功触发 onChange，失败操作不触发", () => {
+    const onChange = vi.fn();
+    const d = new DraftCanvas([], onChange);
+    const r = d.createElement({ type: "rect", x: 0, y: 0, width: 100, height: 60 });
+    expect(onChange).toHaveBeenCalledTimes(1);
+    d.updateElement({ id: r.id!, patch: { fill: "#ff0000" } });
+    expect(onChange).toHaveBeenCalledTimes(2);
+    d.updateElement({ id: "missing", patch: { x: 1 } });
+    expect(onChange).toHaveBeenCalledTimes(2);
+    d.deleteElement({ id: r.id! });
+    expect(onChange).toHaveBeenCalledTimes(3);
+    d.deleteElement({ id: "missing" });
+    expect(onChange).toHaveBeenCalledTimes(3);
+    d.clear();
+    expect(onChange).toHaveBeenCalledTimes(4);
+  });
+});
+
 describe("runAgent", () => {
+  it("每个元素操作触发 snapshot 事件，complete 收尾且画布与快照一致", async () => {
+    mockGenerateText.mockImplementation(async ({ tools, onStepFinish }: any) => {
+      const res = await (tools as any).createElement.execute({ type: "rect", x: 10, y: 10, width: 100, height: 60 });
+      onStepFinish?.({ toolResults: [{ toolName: "createElement", result: res }] });
+      return { text: "已创建矩形" };
+    });
+    const events: any[] = [];
+    await runAgent({
+      messages: [{ role: "user", content: "画一个矩形" }],
+      canvas: { width: 1600, height: 1000, elements: [] },
+      apiKey: "sk-test",
+      baseURL: "https://api.deepseek.com",
+      model: "deepseek-chat",
+      onEvent: (ev) => events.push(ev),
+    });
+    const snapshots = events.filter((e) => e.type === "snapshot");
+    expect(snapshots.length).toBeGreaterThan(0);
+    expect(snapshots[0].canvas.elements).toHaveLength(1);
+    const complete = events.find((e) => e.type === "complete");
+    expect(complete.canvas.elements).toEqual(snapshots[snapshots.length - 1].canvas.elements);
+    expect(events[events.length - 1].type).toBe("complete");
+  });
+
   it("驱动模型调用工具并把结果应用到草稿、发出 complete 事件", async () => {
     mockGenerateText.mockImplementation(async ({ tools, onStepFinish }: any) => {
       const res = await (tools as any).createElement.execute({ type: "rect", x: 10, y: 10, width: 100, height: 60 });

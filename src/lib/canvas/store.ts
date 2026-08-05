@@ -27,6 +27,8 @@ export interface CanvasStore {
   setTool: (t: ToolType) => void;
   setView: (v: { scale: number; ox: number; oy: number }) => void;
   setDoc: (doc: CanvasDocument) => void;
+  applyAISnapshot: (doc: CanvasDocument) => void;
+  applyAIResult: (doc: CanvasDocument, baseline: CanvasDocument) => void;
   setGenerating: (v: boolean) => void;
   setEditingText: (id: string | null) => void;
   undo: () => void;
@@ -114,6 +116,17 @@ export const useCanvasStore = create<CanvasStore>()((set) => {
     setGenerating: (v) => set({ isGenerating: v }),
     setDoc: (doc) =>
       set((s) => ({ history: pushHistory(s.history, s.doc), doc: structuredClone(doc), selection: [], editingText: null })),
+    // AI 生成中的中间快照：替换画布但不入撤销栈，生成完成后的 applyAIResult 才作为整体一步
+    applyAISnapshot: (doc) =>
+      set(() => ({ doc: structuredClone(doc), selection: [], editingText: null })),
+    // AI 生成完成：入栈"生成前基线"（快照中间态不入栈，undo 一步回到生成前），再替换为最终画布
+    applyAIResult: (doc, baseline) =>
+      set((s) => ({
+        history: pushHistory(s.history, baseline),
+        doc: structuredClone(doc),
+        selection: [],
+        editingText: null,
+      })),
     undo: () =>
       set((s) => {
         const r = undoHistory(s.history, s.doc);

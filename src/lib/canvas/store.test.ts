@@ -70,6 +70,32 @@ describe("canvas store", () => {
     expect(useCanvasStore.getState().doc.elements).toHaveLength(0);
   });
 
+  it("applyAISnapshot 替换画布、清空选择且不入历史栈", () => {
+    const a = makeElement("rect", 0, 0, 100, 60);
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().setSelection([a.id]);
+    useCanvasStore.getState().applyAISnapshot({ width: 1600, height: 1000, elements: [] });
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(0);
+    expect(useCanvasStore.getState().selection).toHaveLength(0);
+    // undo 弹回 addElement 前的空画布：证明 applyAISnapshot 未入栈（若入栈，undo 会回到有 a 的状态）
+    useCanvasStore.getState().undo();
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(0);
+  });
+
+  it("applyAIResult 以生成前基线入栈，undo 一步回到基线、redo 回到结果", () => {
+    const base = { width: 1600, height: 1000, elements: [makeElement("rect", 0, 0, 100, 60)] };
+    useCanvasStore.getState().setDoc(base);
+    // 生成中：两个中间快照不入栈
+    useCanvasStore.getState().applyAISnapshot({ width: 1600, height: 1000, elements: [base.elements[0], makeElement("ellipse", 10, 10, 50, 50)] });
+    const result = { width: 1600, height: 1000, elements: [base.elements[0], makeElement("ellipse", 10, 10, 50, 50), makeElement("text", 0, 0, 60, 20, { text: "AI" })] };
+    useCanvasStore.getState().applyAIResult(result, base);
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(3);
+    useCanvasStore.getState().undo();
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(1);
+    useCanvasStore.getState().redo();
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(3);
+  });
+
   it("addElements 按序分配 zIndex 且不改动入参对象", () => {
     const a = makeElement("rect", 0, 0, 100, 60);
     const b = makeElement("ellipse", 10, 10, 50, 50);

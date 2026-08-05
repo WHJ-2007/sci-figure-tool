@@ -1,11 +1,23 @@
 "use client";
 
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { exportSvgFile, exportPng } from "@/lib/canvas/exporter";
 import type { ToolType } from "@/lib/canvas/types";
 
-const TOOLS: { title: string; tool: ToolType; label: string }[] = [
+// 小手图标用内联 SVG（非 emoji），描边风格与工具栏一致
+const HAND_ICON = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M18 11V6a2 2 0 0 0-4 0v5" />
+    <path d="M14 10V4a2 2 0 0 0-4 0v6" />
+    <path d="M10 10.5V6a2 2 0 0 0-4 0v8" />
+    <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" />
+  </svg>
+);
+
+const TOOLS: { title: string; tool: ToolType; label: ReactNode }[] = [
+  { title: "小手（拖动画布）", tool: "hand", label: HAND_ICON },
   { title: "选择", tool: "select", label: "↖" },
   { title: "矩形", tool: "rect", label: "▢" },
   { title: "圆角矩形", tool: "rounded", label: "▭" },

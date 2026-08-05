@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { render, fireEvent } from "@testing-library/react";
+import { render, fireEvent, act } from "@testing-library/react";
 import Canvas from "./Canvas";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { makeElement } from "@/lib/canvas/elements";
@@ -97,5 +97,46 @@ describe("Canvas 交互", () => {
     fireEvent.pointerDown(svg, { clientX: 700, clientY: 500, button: 0 });
     fireEvent.pointerUp(svg, { clientX: 700, clientY: 500 });
     expect(useCanvasStore.getState().selection).toEqual([]);
+  });
+});
+
+describe("小手工具", () => {
+  it("hand 工具下拖拽平移视口（内容跟随鼠标）", () => {
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    useCanvasStore.getState().setTool("hand");
+    const svg = document.querySelector("svg")!;
+    drag(svg, { x: 100, y: 50 }, { x: 160, y: 90 });
+    const v = useCanvasStore.getState().view;
+    expect(v.ox).toBe(60);
+    expect(v.oy).toBe(40);
+  });
+
+  it("hand 拖拽不选中、不移动元素", () => {
+    const a = makeElement("rect", 10, 10, 100, 60);
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().setSelection([a.id]);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    useCanvasStore.getState().setTool("hand");
+    const el = document.querySelector("[data-element-id]")!;
+    drag(el, { x: 50, y: 30 }, { x: 80, y: 90 });
+    const e = useCanvasStore.getState().doc.elements[0];
+    expect(e.x).toBe(10);
+    expect(e.y).toBe(10);
+    expect(useCanvasStore.getState().view.ox).toBe(30);
+    expect(useCanvasStore.getState().view.oy).toBe(60);
+  });
+
+  it("hand 模式光标 grab，拖拽中 grabbing", () => {
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const svg = document.querySelector("svg")!;
+    expect(svg.classList.contains("cursor-grab")).toBe(false);
+    act(() => useCanvasStore.getState().setTool("hand"));
+    expect(svg.classList.contains("cursor-grab")).toBe(true);
+    fireEvent.pointerDown(svg, { clientX: 100, clientY: 50, button: 0 });
+    fireEvent.pointerMove(svg, { clientX: 120, clientY: 60, buttons: 1 });
+    expect(svg.classList.contains("cursor-grabbing")).toBe(true);
+    fireEvent.pointerUp(svg, { clientX: 120, clientY: 60 });
+    expect(svg.classList.contains("cursor-grabbing")).toBe(false);
+    expect(svg.classList.contains("cursor-grab")).toBe(true);
   });
 });

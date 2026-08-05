@@ -31,6 +31,8 @@ export default function ChatPanel() {
     if (!text || useCanvasStore.getState().isGenerating) return;
     const s = useCanvasStore.getState();
     const settings = loadSettings();
+    // 生成前画布作为撤销基线：snapshot 中间态不入栈，生成完成后整体一步 undo 回到该基线
+    const baseline = structuredClone(s.doc);
     const next = [...messages, { role: "user" as const, content: text }];
     setMessages(next);
     setInput("");
@@ -71,6 +73,7 @@ export default function ChatPanel() {
           if (line) {
             const ev = JSON.parse(line) as AgentEvent;
             if (ev.type === "progress") setActivity((a) => [...a, ...(ev.activity ?? [])]);
+            else if (ev.type === "snapshot") useCanvasStore.getState().applyAISnapshot(ev.canvas);
             else if (ev.type === "complete") {
               finalDoc = ev.canvas;
               summary = ev.summary ?? "";
@@ -80,7 +83,7 @@ export default function ChatPanel() {
         }
       }
       if (finalDoc) {
-        useCanvasStore.getState().setDoc(finalDoc);
+        useCanvasStore.getState().applyAIResult(finalDoc, baseline);
         if (summary) setMessages((m) => [...m, { role: "assistant", content: summary }]);
       }
     } catch (err) {

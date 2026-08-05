@@ -57,6 +57,33 @@ describe("ChatPanel", () => {
     await waitFor(() => expect(useCanvasStore.getState().doc.elements).toHaveLength(1));
   });
 
+  it("snapshot 事件使元素在 complete 前逐步出现在画布，完成后撤销一步回到生成前", async () => {
+    const e1 = makeElement("rect", 0, 0, 50, 30);
+    const e2 = makeElement("ellipse", 100, 100, 40, 40);
+    let ctrl!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({ start(c) { ctrl = c; } });
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(stream, { headers: { "Content-Type": "application/x-ndjson" } }));
+    const enc = new TextEncoder();
+    render(<ChatPanel />);
+    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "画图" } });
+    fireEvent.click(screen.getByText("一键生成"));
+    await waitFor(() => expect(useCanvasStore.getState().isGenerating).toBe(true));
+    // 第一个 snapshot：元素 e1 立刻出现在画布（complete 尚未到达）
+    ctrl.enqueue(enc.encode(JSON.stringify({ type: "snapshot", canvas: { width: 1600, height: 1000, elements: [e1] } }) + "\n"));
+    await waitFor(() => expect(useCanvasStore.getState().doc.elements).toHaveLength(1));
+    expect(useCanvasStore.getState().doc.elements[0].type).toBe("rect");
+    // 第二个 snapshot：e2 追加
+    ctrl.enqueue(enc.encode(JSON.stringify({ type: "snapshot", canvas: { width: 1600, height: 1000, elements: [e1, e2] } }) + "\n"));
+    await waitFor(() => expect(useCanvasStore.getState().doc.elements).toHaveLength(2));
+    // complete：最终状态 + 总结，撤销一步回到生成前空画布
+    ctrl.enqueue(enc.encode(JSON.stringify({ type: "complete", canvas: { width: 1600, height: 1000, elements: [e1, e2] }, summary: "画好了" }) + "\n"));
+    ctrl.close();
+    await waitFor(() => expect(screen.getByText(/画好了/)).toBeInTheDocument());
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(2);
+    useCanvasStore.getState().undo();
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(0);
+  });
+
   it("未配置 Key 时提示去设置", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({ error: "未配置 API Key" }), { status: 400 }));
     render(<ChatPanel />);

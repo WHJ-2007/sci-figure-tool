@@ -12,6 +12,7 @@ export interface ChatMessage {
 
 export type AgentEvent =
   | { type: "progress"; activity: string[] }
+  | { type: "snapshot"; canvas: CanvasDocument }
   | { type: "complete"; canvas: CanvasDocument; summary: string }
   | { type: "error"; message: string };
 
@@ -24,7 +25,11 @@ export async function runAgent(opts: {
   onEvent: (ev: AgentEvent) => void;
 }): Promise<string> {
   const provider = createOpenAICompatible({ baseURL: opts.baseURL, apiKey: opts.apiKey, name: "deepseek" });
-  const draft = new DraftCanvas(opts.canvas.elements);
+  // onChange 闭包引用 draft 自身（构造后才会被调用），用 let 声明避开 TDZ
+  let draft: DraftCanvas;
+  draft = new DraftCanvas(opts.canvas.elements, () => {
+    opts.onEvent({ type: "snapshot", canvas: draft.serialize() });
+  });
   const result = await generateText({
     model: provider(opts.model),
     system: SYSTEM_PROMPT,
