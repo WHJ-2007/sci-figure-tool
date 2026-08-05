@@ -11,11 +11,14 @@ export default function ElementShape({ e }: { e: CanvasElement }) {
     strokeWidth: e.strokeWidth,
     opacity: e.opacity,
   };
-  const g = <g transform={rot} pointerEvents="none">{renderBody(e, common)}</g>;
+  const g = <g transform={rot}>{renderBody(e, common)}</g>;
   return <g data-element-id={e.id}>{g}</g>;
 }
 
-function renderBody(e: CanvasElement, common: any): React.ReactNode {
+function renderBody(
+  e: CanvasElement,
+  common: { fill: string; stroke: string; strokeWidth: number; opacity: number }
+): React.ReactNode {
   switch (e.type) {
     case "rect":
       return <rect x={e.x} y={e.y} width={e.width} height={e.height} rx={e.rx} {...common} />;
@@ -61,6 +64,7 @@ function renderBody(e: CanvasElement, common: any): React.ReactNode {
           fontWeight={e.bold ? "bold" : undefined}
           fontStyle={e.italic ? "italic" : undefined}
           fill={e.fill}
+          opacity={e.opacity}
         >
           {e.text}
         </text>

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import Canvas from "./Canvas";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { makeElement } from "@/lib/canvas/elements";
@@ -21,5 +21,25 @@ describe("Canvas", () => {
     useCanvasStore.getState().setSelection([a.id]);
     render(<Canvas viewportWidth={800} viewportHeight={600} />);
     expect(document.querySelector('[data-testid="selection-rect"]')).toBeTruthy();
+  });
+
+  it("滚轮缩放：锚点换算与最大倍数钳制", () => {
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    fireEvent.wheel(document.querySelector("div.relative")!, { clientX: 100, clientY: 100, deltaY: -100 });
+    let view = useCanvasStore.getState().view;
+    expect(view.scale).toBeCloseTo(1.1, 5);
+    expect(view.ox).toBeCloseTo(-10, 5);
+    expect(view.oy).toBeCloseTo(-10, 5);
+
+    act(() => useCanvasStore.getState().setView({ scale: 4, ox: 0, oy: 0 }));
+    fireEvent.wheel(document.querySelector("div.relative")!, { clientX: 100, clientY: 100, deltaY: -100 });
+    view = useCanvasStore.getState().view;
+    expect(view.scale).toBe(4);
+  });
+
+  it("旋转元素内层 g 带旋转 transform", () => {
+    useCanvasStore.getState().addElement(makeElement("rect", 10, 10, 100, 60, { rotation: 45 }));
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    expect(document.querySelector("g[transform*='rotate(45']")).toBeTruthy();
   });
 });

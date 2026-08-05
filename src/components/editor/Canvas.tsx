@@ -21,10 +21,11 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
     const px = e.clientX - rect.left;
     const py = e.clientY - rect.top;
     const factor = e.deltaY < 0 ? 1.1 : 0.9;
+    const newScale = Math.min(4, Math.max(0.25, view.scale * factor));
     setView({
-      scale: Math.min(4, Math.max(0.25, view.scale * factor)),
-      ox: px - ((px - view.ox) / view.scale) * Math.min(4, Math.max(0.25, view.scale * factor)),
-      oy: py - ((py - view.oy) / view.scale) * Math.min(4, Math.max(0.25, view.scale * factor)),
+      scale: newScale,
+      ox: px - ((px - view.ox) / view.scale) * newScale,
+      oy: py - ((py - view.oy) / view.scale) * newScale,
     });
   };
 
