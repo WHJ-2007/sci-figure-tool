@@ -111,7 +111,7 @@ export default function ChatPanel() {
         {messages.map((m, i) => (
           <div
             key={i}
-            className={`max-w-[85%] rounded-lg border px-3 py-1.5 shadow-sm backdrop-blur-md ${
+            className={`msg-in max-w-[85%] rounded-lg border px-3 py-1.5 shadow-sm backdrop-blur-md ${
               m.role === "user"
                 ? "ml-auto border-white/30 bg-blue-500/60 text-white"
                 : "border-white/50 bg-white/50 text-gray-800"

@@ -16,6 +16,15 @@ body {
   animation: fade-slide-in 260ms ease-out;
 }
 
+/* 对话消息出现动画：每条新消息（用户/AI）淡入 + 轻微上浮 */
+@keyframes msg-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.msg-in {
+  animation: msg-in 240ms ease-out;
+}
+
 /* 隐藏 Next.js 开发模式左下角调试指示器（N 徽标，shadow DOM 注入的自定义元素 <nextjs-portal>） */
 nextjs-portal {
   display: none !important;

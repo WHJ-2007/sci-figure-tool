@@ -33,6 +33,24 @@ describe("ChatPanel", () => {
     expect(screen.queryByText(/创建矩形/)).toBeNull();
   });
 
+  it("用户与 AI 消息气泡都带出现动画类 msg-in", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      mockStream([
+        { type: "complete", canvas: { width: 1600, height: 1000, elements: [] }, summary: "画好了" },
+      ])
+    );
+    render(<ChatPanel />);
+    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "画一个矩形" } });
+    fireEvent.click(screen.getByText("一键生成"));
+    // 用户消息立即出现且带动画类
+    const userMsg = screen.getByText("画一个矩形").closest("div")!;
+    expect(userMsg.className).toContain("msg-in");
+    // AI 回复出现时同样带动画类
+    await waitFor(() => expect(screen.getByText(/画好了/)).toBeInTheDocument());
+    const aiMsg = screen.getByText(/画好了/).closest("div")!;
+    expect(aiMsg.className).toContain("msg-in");
+  });
+
   it("NDJSON 事件行被拆成多个网络分块时仍能完整解析", async () => {
     const line = JSON.stringify({
       type: "complete",
