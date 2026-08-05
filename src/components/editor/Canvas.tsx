@@ -76,7 +76,7 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
   const editing = doc.elements.find((e) => e.id === editingText && e.type === "text");
 
   return (
-    <div className="relative h-full w-full overflow-hidden" onWheel={onWheel}>
+    <div className="relative h-full w-full select-none overflow-hidden" onWheel={onWheel}>
       <svg
         ref={svgRef}
         width={viewportWidth}

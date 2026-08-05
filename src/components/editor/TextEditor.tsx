@@ -33,7 +33,7 @@ export default function TextEditor({ id, x, y }: { id: string; x: number; y: num
           if (e.key === "Escape") { doneRef.current = true; e.stopPropagation(); useCanvasStore.setState({ editingText: null }); }
         }}
         onBlur={commit}
-        className="w-full h-full resize-none border border-blue-500 bg-white p-1 text-sm outline-none"
+        className="w-full h-full resize-none select-text border border-blue-500 bg-white p-1 text-sm outline-none"
       />
     </foreignObject>
   );

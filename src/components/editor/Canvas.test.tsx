@@ -25,6 +25,11 @@ describe("Canvas", () => {
     expect(document.querySelector('[data-handle="rotate"]')).toBeTruthy();
   });
 
+  it("画布容器屏蔽系统文本选择（select-none，避免 Shift 多选时选中页面文字）", () => {
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    expect(document.querySelector("div.relative")!.className).toContain("select-none");
+  });
+
   it("滚轮缩放：锚点换算与最大倍数钳制", () => {
     render(<Canvas viewportWidth={800} viewportHeight={600} />);
     fireEvent.wheel(document.querySelector("div.relative")!, { clientX: 100, clientY: 100, deltaY: -100 });
