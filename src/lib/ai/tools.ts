@@ -33,6 +33,28 @@ export function buildTools(draft: DraftCanvas) {
       }),
       execute: (args) => draft.createElement(args),
     }),
+    applyGraph: tool({
+      description:
+        "声明式一键绘制流程/结构图：只需声明节点（标题/正文/填充色）与节点间的连接关系，系统自动完成分层布局（对齐、等距、连线）。" +
+        "节点自动创建为逻辑节点（圆角框 + 居中标题 + 自带 4 个箭头锚点），连线自动精确对接锚点。" +
+        "流程图、架构图、数据管道等一切有明确节点+关系的图都优先用它，一次调用代替逐条 createElement + connectElements。" +
+        "direction：TB 自上而下（默认）、LR 从左到右。布局超出画布时系统自动整体缩放（最低 0.5 倍）。",
+      inputSchema: z.object({
+        nodes: z.array(
+          z.object({
+            id: z.string().describe("节点唯一标识（英文/数字），供 edges 引用"),
+            text: z.string().describe("节点标题（简洁语义名词，≤8 字，不加标点、不加“模块/组件”后缀）"),
+            body: z.string().optional().describe("节点正文（多行用 \\n 分隔，每行一个要点 ≤12 字，可省略）"),
+            fill: z.string().optional().describe("填充色（科研调色板：#eef4ff 蓝 / #f0fff0 绿 / #fff8e6 橙 / #f3efff 紫 / #ffeef0 红 / #ffffff 白；同图 ≤3 种颜色）"),
+            width: z.number().optional().describe("期望宽度（可省略，系统按标题+正文自动扩框）"),
+            height: z.number().optional().describe("期望高度（可省略，系统按标题+正文自动扩框）"),
+          })
+        ),
+        edges: z.array(z.object({ from: z.string(), to: z.string() })).describe("节点间连接关系（箭头方向从 from 指向 to）"),
+        direction: z.enum(["TB", "LR"]).optional().describe("布局方向：TB 自上而下（默认）、LR 从左到右"),
+      }),
+      execute: (args) => draft.applyGraph(args),
+    }),
     connectElements: tool({
       description:
         "用箭头精确连接两个已有元素：自动计算从源元素边缘到目标元素边缘的箭头（锚点精确落在两个形状的轮廓上，无需手算坐标）。" +

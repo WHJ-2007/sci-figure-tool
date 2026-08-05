@@ -4,7 +4,7 @@ import { DraftCanvas } from "./draft";
 import { buildTools } from "./tools";
 import { runAgent } from "./agent";
 import { CANVAS_WIDTH } from "../canvas/geometry";
-import { estimateTextSize } from "../canvas/elements";
+import { estimateTextSize, logicBoxSize } from "../canvas/elements";
 import type { LogicElement, TextElement } from "../canvas/types";
 
 // vi.mock 工厂被提升执行时引用外部变量会 TDZ 报错，必须用 vi.hoisted 创建 mock；
@@ -215,6 +215,66 @@ describe("DraftCanvas", () => {
     expect(d.connectElements({ sourceId: a.id!, targetId: same.id! }).ok).toBe(false);
     const ar = d.createElement({ type: "arrow", x: 0, y: 0, width: 50, height: 30 });
     expect(d.connectElements({ sourceId: a.id!, targetId: ar.id! }).ok).toBe(false);
+  });
+
+  it("applyGraph 一键布局：TB 三节点同列、y 递增、箭头 startId/endId 正确映射", () => {
+    const d = new DraftCanvas([]);
+    const r = d.applyGraph({
+      nodes: [
+        { id: "a", text: "输入" },
+        { id: "b", text: "处理" },
+        { id: "c", text: "输出" },
+      ],
+      edges: [{ from: "a", to: "b" }, { from: "b", to: "c" }],
+      direction: "TB",
+    });
+    expect(r.ok).toBe(true);
+    const els = d.serialize().elements;
+    const logics = els.filter((e) => e.type === "logic");
+    expect(logics).toHaveLength(3);
+    // dagre 对齐的是节点中心，等宽标题 → 左上角 x 一致
+    expect(logics[0].x).toBeCloseTo(logics[1].x, 5);
+    expect(logics[1].x).toBeCloseTo(logics[2].x, 5);
+    expect(logics[1].y).toBeGreaterThan(logics[0].y);
+    expect(logics[2].y).toBeGreaterThan(logics[1].y);
+    const arrows = els.filter((e) => e.type === "arrow");
+    expect(arrows).toHaveLength(2);
+    const byText = new Map(logics.map((l) => [l.text, l.id]));
+    expect(arrows[0].startId).toBe(byText.get("输入"));
+    expect(arrows[0].endId).toBe(byText.get("处理"));
+    expect(arrows[1].startId).toBe(byText.get("处理"));
+    expect(arrows[1].endId).toBe(byText.get("输出"));
+    expect(d.flushActivity().join("")).toContain("自动布局");
+  });
+
+  it("applyGraph edges 引用不存在的节点时报错且不创建任何元素", () => {
+    const d = new DraftCanvas([]);
+    const r = d.applyGraph({
+      nodes: [{ id: "a", text: "A" }],
+      edges: [{ from: "a", to: "missing" }],
+    });
+    expect(r.ok).toBe(false);
+    expect(d.serialize().elements).toHaveLength(0);
+  });
+
+  it("applyGraph 空节点列表报错", () => {
+    const d = new DraftCanvas([]);
+    const r = d.applyGraph({ nodes: [], edges: [] });
+    expect(r.ok).toBe(false);
+    expect(d.serialize().elements).toHaveLength(0);
+  });
+
+  it("applyGraph 传递正文与填充色，框尺寸自动容纳正文", () => {
+    const d = new DraftCanvas([]);
+    const r = d.applyGraph({
+      nodes: [{ id: "a", text: "预处理", body: "去噪\n归一化", fill: "#eef4ff" }],
+      edges: [],
+    });
+    expect(r.ok).toBe(true);
+    const l = d.serialize().elements[0] as LogicElement;
+    expect(l).toMatchObject({ text: "预处理", body: "去噪\n归一化", fill: "#eef4ff" });
+    expect(l.width).toBeGreaterThanOrEqual(logicBoxSize("预处理", "去噪\n归一化", 14).width);
+    expect(l.height).toBeGreaterThanOrEqual(logicBoxSize("预处理", "去噪\n归一化", 14).height);
   });
 });
 

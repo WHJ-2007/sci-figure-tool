@@ -1,5 +1,6 @@
 import { CANVAS_WIDTH, CANVAS_HEIGHT, clampRect, shapeExitPoint, anchorToward, type Point } from "@/lib/canvas/geometry";
 import { makeElement, estimateTextSize, logicBoxSize } from "@/lib/canvas/elements";
+import { layoutGraph } from "@/lib/canvas/graphLayout";
 import type { CanvasDocument, CanvasElement, ElementType } from "@/lib/canvas/types";
 
 // updateElement 只接受白名单内的属性键，防止绕过工具层 schema 直接注入任意属性
@@ -178,6 +179,61 @@ export class DraftCanvas {
     this.activity.push(`连接 ${s.id.slice(0, 6)} → ${t.id.slice(0, 6)}`);
     this.changed();
     return { ok: true, id: el.id };
+  }
+
+  // 声明式一键布局：AI 只声明节点（标题/正文/填充）与连接关系，坐标交给 dagre 分层布局，
+  // 节点一律创建为逻辑节点（自带 4 锚点），边用 connectElements 精确对接锚点
+  applyGraph(args: {
+    nodes: { id: string; text: string; body?: string; fill?: string; width?: number; height?: number }[];
+    edges: { from: string; to: string }[];
+    direction?: "TB" | "LR";
+  }): { ok: boolean; error?: string } {
+    if (args.nodes.length === 0) return { ok: false, error: "节点列表不能为空" };
+    const ids = new Set(args.nodes.map((n) => n.id));
+    for (const e of args.edges) {
+      if (!ids.has(e.from)) return { ok: false, error: `边引用了不存在的节点: ${e.from}` };
+      if (!ids.has(e.to)) return { ok: false, error: `边引用了不存在的节点: ${e.to}` };
+    }
+    const fontSize = 14;
+    const sized = args.nodes.map((n) => {
+      const text = n.text || n.id;
+      const s = logicBoxSize(text, n.body, fontSize);
+      return {
+        id: n.id,
+        text,
+        body: n.body,
+        fill: n.fill,
+        width: Math.max(Number(n.width) || 0, s.width),
+        height: Math.max(Number(n.height) || 0, s.height),
+      };
+    });
+    const pos = layoutGraph(
+      sized.map((n) => ({ id: n.id, width: n.width, height: n.height })),
+      args.edges,
+      args.direction ?? "TB",
+      60
+    );
+    const idMap = new Map<string, string>();
+    for (const n of sized) {
+      const p = pos.get(n.id)!;
+      const r = this.createElement({
+        type: "logic",
+        x: p.x,
+        y: p.y,
+        width: n.width,
+        height: n.height,
+        text: n.text,
+        body: n.body,
+        fill: n.fill ?? "#eef4ff",
+        fontSize,
+      });
+      idMap.set(n.id, r.id!);
+    }
+    for (const e of args.edges) {
+      this.connectElements({ sourceId: idMap.get(e.from)!, targetId: idMap.get(e.to)! });
+    }
+    this.activity.push(`自动布局绘制 ${sized.length} 个节点、${args.edges.length} 条连线（${args.direction ?? "TB"}）`);
+    return { ok: true };
   }
 
   clear() {
