@@ -50,6 +50,76 @@ export function shapePoints(type: string, r: Rect): Point[] {
   }
 }
 
+// —— AI 自动连接：线段 from→to 与形状轮廓的求交 ——
+
+// 线段 AB 与线段 CD 的交点（平行/不相交返回 null）
+function segmentSegmentHit(a: Point, b: Point, c: Point, d: Point): Point | null {
+  const rx = b.x - a.x;
+  const ry = b.y - a.y;
+  const sx = d.x - c.x;
+  const sy = d.y - c.y;
+  const denom = rx * sy - ry * sx;
+  if (denom === 0) return null;
+  const t = ((c.x - a.x) * sy - (c.y - a.y) * sx) / denom;
+  const u = ((c.x - a.x) * ry - (c.y - a.y) * rx) / denom;
+  if (t < 0 || t > 1 || u < 0 || u > 1) return null;
+  return { x: a.x + t * rx, y: a.y + t * ry };
+}
+
+// 线段 from→to 与凸多边形边界的交点中离 from 最近的一个；无交点返回 null
+function segmentPolygonHit(poly: Point[], from: Point, to: Point): Point | null {
+  let best: Point | null = null;
+  let bestD = Infinity;
+  for (let i = 0; i < poly.length; i++) {
+    const hit = segmentSegmentHit(from, to, poly[i], poly[(i + 1) % poly.length]);
+    if (!hit) continue;
+    const d = (hit.x - from.x) ** 2 + (hit.y - from.y) ** 2;
+    if (d < bestD) {
+      bestD = d;
+      best = hit;
+    }
+  }
+  return best;
+}
+
+// 线段 from→to 与椭圆的交点中离 from 最近的一个；无交点返回 null
+// 仿射变换把椭圆缩成单位圆后解析求交，再变换回原空间
+function segmentEllipseHit(cx: number, cy: number, rx: number, ry: number, from: Point, to: Point): Point | null {
+  const fx = (from.x - cx) / rx;
+  const fy = (from.y - cy) / ry;
+  const dx = (to.x - cx) / rx - fx;
+  const dy = (to.y - cy) / ry - fy;
+  const a = dx * dx + dy * dy;
+  if (a === 0) return null;
+  const b = 2 * (fx * dx + fy * dy);
+  const c = fx * fx + fy * fy - 1;
+  const disc = b * b - 4 * a * c;
+  if (disc < 0) return null;
+  // 取第一个正根：from 在椭圆内部时负根是反方向的交点，正根才是朝 to 方向的轮廓交点
+  const t1 = (-b - Math.sqrt(disc)) / (2 * a);
+  const t2 = (-b + Math.sqrt(disc)) / (2 * a);
+  const t = t1 > 0 ? t1 : t2;
+  if (t < 0 || t > 1) return null;
+  return { x: cx + (fx + t * dx) * rx, y: cy + (fy + t * dy) * ry };
+}
+
+// 从形状内/外的 from 点朝 to 方向，线段与形状轮廓的第一个交点（连接箭头的锚点）。
+// 矩形/多边形按凸多边形求交，椭圆按解析求交；无交点返回 null
+export function shapeExitPoint(e: CanvasElement, from: Point, to: Point): Point | null {
+  if (e.type === "ellipse") {
+    return segmentEllipseHit(e.x + e.width / 2, e.y + e.height / 2, e.width / 2, e.height / 2, from, to);
+  }
+  const poly = e.type === "rect" || e.type === "text"
+    ? [
+        { x: e.x, y: e.y },
+        { x: e.x + e.width, y: e.y },
+        { x: e.x + e.width, y: e.y + e.height },
+        { x: e.x, y: e.y + e.height },
+      ]
+    : shapePoints(e.type, e);
+  return segmentPolygonHit(poly, from, to);
+}
+
 export function pointInPolygon(p: Point, poly: Point[]): boolean {
   let inside = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {

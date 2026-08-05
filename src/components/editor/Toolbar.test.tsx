@@ -66,4 +66,12 @@ describe("Toolbar 画布管理", () => {
       expect(el.classList.contains("lift")).toBe(true);
     }
   });
+
+  it("设置按钮为描边风格 SVG 齿轮图标（非 emoji）", () => {
+    render(<Toolbar />);
+    const link = screen.getByTitle("设置");
+    const svg = link.querySelector("svg");
+    expect(svg).not.toBeNull();
+    expect(svg!.querySelector("circle")).not.toBeNull();
+  });
 });

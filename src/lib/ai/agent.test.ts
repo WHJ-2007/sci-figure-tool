@@ -80,6 +80,55 @@ describe("DraftCanvas", () => {
     expect(list[0]).toMatchObject({ type: "text", text: "Encoder" });
     expect(JSON.stringify(list)).toContain("Encoder");
   });
+
+  it("connectElements 箭头精确落在两个矩形边缘（水平相邻）", () => {
+    const d = new DraftCanvas([]);
+    const a = d.createElement({ type: "rect", x: 0, y: 0, width: 100, height: 60 });
+    const b = d.createElement({ type: "rect", x: 200, y: 0, width: 100, height: 60 });
+    const r = d.connectElements({ sourceId: a.id!, targetId: b.id! });
+    expect(r.ok).toBe(true);
+    const arrow = d.serialize().elements.find((e) => e.type === "arrow")!;
+    // 起点在源右边缘中点 (100,30)，终点在目标左边缘中点 (200,30)
+    expect(arrow.x).toBe(100);
+    expect(arrow.y).toBe(30);
+    expect(arrow.width).toBe(100);
+    expect(arrow.height).toBe(0);
+  });
+
+  it("connectElements 垂直连接精确落在上下边缘", () => {
+    const d = new DraftCanvas([]);
+    const a = d.createElement({ type: "rect", x: 0, y: 0, width: 100, height: 60 });
+    const b = d.createElement({ type: "rect", x: 0, y: 80, width: 100, height: 60 });
+    const r = d.connectElements({ sourceId: a.id!, targetId: b.id! });
+    expect(r.ok).toBe(true);
+    const arrow = d.serialize().elements.find((e) => e.type === "arrow")!;
+    expect(arrow.x).toBe(50);
+    expect(arrow.y).toBe(60);
+    expect(arrow.width).toBe(0);
+    expect(arrow.height).toBe(20);
+  });
+
+  it("connectElements 椭圆源锚点精确在椭圆轮廓上", () => {
+    const d = new DraftCanvas([]);
+    const a = d.createElement({ type: "ellipse", x: 0, y: 0, width: 100, height: 60 });
+    const b = d.createElement({ type: "rect", x: 200, y: 0, width: 100, height: 60 });
+    d.connectElements({ sourceId: a.id!, targetId: b.id! });
+    const arrow = d.serialize().elements.find((e) => e.type === "arrow")!;
+    expect(arrow.x).toBe(100); // 椭圆最右点 (中心 50,30 + 半轴 50)
+    expect(arrow.y).toBe(30);
+    expect(arrow.width).toBe(100);
+  });
+
+  it("connectElements 对不存在 id / 中心重合 / 非形状端点报错", () => {
+    const d = new DraftCanvas([]);
+    const a = d.createElement({ type: "rect", x: 0, y: 0, width: 100, height: 60 });
+    expect(d.connectElements({ sourceId: "missing", targetId: a.id! }).ok).toBe(false);
+    expect(d.connectElements({ sourceId: a.id!, targetId: "missing" }).ok).toBe(false);
+    const same = d.createElement({ type: "rect", x: 0, y: 0, width: 100, height: 60 });
+    expect(d.connectElements({ sourceId: a.id!, targetId: same.id! }).ok).toBe(false);
+    const ar = d.createElement({ type: "arrow", x: 0, y: 0, width: 50, height: 30 });
+    expect(d.connectElements({ sourceId: a.id!, targetId: ar.id! }).ok).toBe(false);
+  });
 });
 
 describe("tools", () => {

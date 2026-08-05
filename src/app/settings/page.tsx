@@ -40,7 +40,7 @@ export default function SettingsPage() {
 
   return (
     <div className="flex h-full flex-col items-center justify-center">
-      <form onSubmit={submit} className="w-96 space-y-4 rounded-xl border border-white/40 bg-white/60 p-6 shadow-lg backdrop-blur-md">
+      <form onSubmit={submit} className="page-open w-96 space-y-4 rounded-xl border border-white/40 bg-white/60 p-6 shadow-lg backdrop-blur-md">
         <h1 className="text-lg font-medium">设置</h1>
         <label className="block text-sm">
           <span className="text-gray-600">DeepSeek API Key</span>

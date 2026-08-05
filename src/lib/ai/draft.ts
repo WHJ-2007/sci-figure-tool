@@ -1,4 +1,4 @@
-import { CANVAS_WIDTH, CANVAS_HEIGHT, clampRect } from "@/lib/canvas/geometry";
+import { CANVAS_WIDTH, CANVAS_HEIGHT, clampRect, shapeExitPoint, type Point } from "@/lib/canvas/geometry";
 import { makeElement } from "@/lib/canvas/elements";
 import type { CanvasDocument, CanvasElement, ElementType } from "@/lib/canvas/types";
 
@@ -111,6 +111,35 @@ export class DraftCanvas {
       stroke: e.stroke,
       rotation: e.rotation,
     }));
+  }
+
+  // 自动连接：从源形状边缘精确指向目标形状边缘的箭头（AI 无需手算坐标）
+  connectElements(args: { sourceId: string; targetId: string; stroke?: string; strokeWidth?: number }): { ok: boolean; id?: string; error?: string } {
+    const s = this.elements.find((e) => e.id === args.sourceId);
+    const t = this.elements.find((e) => e.id === args.targetId);
+    if (!s) return { ok: false, error: `源元素不存在: ${args.sourceId}` };
+    if (!t) return { ok: false, error: `目标元素不存在: ${args.targetId}` };
+    const connectable: ElementType[] = ["rect", "ellipse", "triangle", "diamond", "hexagon", "text"];
+    if (!connectable.includes(s.type) || !connectable.includes(t.type)) {
+      return { ok: false, error: "只能连接形状或文字元素（箭头/折线不能作为连接端点）" };
+    }
+    const from: Point = { x: s.x + s.width / 2, y: s.y + s.height / 2 };
+    const to: Point = { x: t.x + t.width / 2, y: t.y + t.height / 2 };
+    if (from.x === to.x && from.y === to.y) return { ok: false, error: "两个元素中心重合，无法连接" };
+    const p1 = shapeExitPoint(s, from, to) ?? from;
+    const p2 = shapeExitPoint(t, from, to) ?? to;
+    const maxZ = this.elements.reduce((m, e) => Math.max(m, e.zIndex), 0);
+    const el = makeElement("arrow", p1.x, p1.y, p2.x - p1.x, p2.y - p1.y, {
+      stroke: args.stroke ?? "#2f2f2f",
+      strokeWidth: args.strokeWidth,
+      startId: s.id,
+      endId: t.id,
+      zIndex: maxZ + 1,
+    });
+    this.elements.push(el);
+    this.activity.push(`连接 ${s.id.slice(0, 6)} → ${t.id.slice(0, 6)}`);
+    this.changed();
+    return { ok: true, id: el.id };
   }
 
   clear() {

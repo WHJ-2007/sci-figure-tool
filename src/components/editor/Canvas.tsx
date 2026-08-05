@@ -24,7 +24,6 @@ function previewElement(p: DrawPreview): CanvasElement {
 
 export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidth: number; viewportHeight: number }) {
   const doc = useCanvasStore((s) => s.doc);
-  const isGenerating = useCanvasStore((s) => s.isGenerating);
   const editingText = useCanvasStore((s) => s.editingText);
   const view = useCanvasStore((s) => s.view);
   const setView = useCanvasStore((s) => s.setView);
@@ -104,11 +103,6 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
           </g>
         )}
       </svg>
-      {isGenerating && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/20 backdrop-blur-[2px]">
-          <span className="rounded bg-blue-600/80 px-4 py-2 text-white backdrop-blur-md">AI 正在生成…</span>
-        </div>
-      )}
     </div>
   );
 }
