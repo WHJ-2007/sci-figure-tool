@@ -73,4 +73,55 @@ describe("快捷键", () => {
     fireEvent.keyDown(window, { key: "Delete" });
     expect(useCanvasStore.getState().doc.elements).toHaveLength(1);
   });
+
+  it("WASD 平移视口：W 上 / A 左 / S 下 / D 右（每次 50px）", () => {
+    render(<EditorHost />);
+    const v0 = useCanvasStore.getState().view;
+    fireEvent.keyDown(window, { key: "d" });
+    expect(useCanvasStore.getState().view.ox).toBe(v0.ox + 50);
+    fireEvent.keyDown(window, { key: "a" });
+    expect(useCanvasStore.getState().view.ox).toBe(v0.ox);
+    fireEvent.keyDown(window, { key: "s" });
+    expect(useCanvasStore.getState().view.oy).toBe(v0.oy + 50);
+    fireEvent.keyDown(window, { key: "w" });
+    expect(useCanvasStore.getState().view.oy).toBe(v0.oy);
+    expect(useCanvasStore.getState().view.scale).toBe(v0.scale); // 缩放不变
+  });
+
+  it("WASD 平移不改变选中元素位置", () => {
+    const a = makeElement("rect", 0, 0, 50, 50);
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().setSelection([a.id]);
+    render(<EditorHost />);
+    fireEvent.keyDown(window, { key: "d" });
+    expect(useCanvasStore.getState().doc.elements[0].x).toBe(0);
+  });
+
+  it("Ctrl+W 等修饰键组合不触发平移（保留浏览器/系统快捷键）", () => {
+    render(<EditorHost />);
+    const v0 = useCanvasStore.getState().view;
+    fireEvent.keyDown(window, { key: "w", ctrlKey: true });
+    fireEvent.keyDown(window, { key: "a", metaKey: true });
+    expect(useCanvasStore.getState().view.ox).toBe(v0.ox);
+    expect(useCanvasStore.getState().view.oy).toBe(v0.oy);
+  });
+
+  it("输入框内按 WASD 不触发平移（打字不移动画布）", () => {
+    render(<EditorHost />);
+    const v0 = useCanvasStore.getState().view;
+    const ta = document.createElement("textarea");
+    document.body.appendChild(ta);
+    ta.focus();
+    fireEvent.keyDown(ta, { key: "a" });
+    expect(useCanvasStore.getState().view.ox).toBe(v0.ox);
+    document.body.removeChild(ta);
+  });
+
+  it("AI 生成中 WASD 不触发平移", () => {
+    useCanvasStore.getState().setGenerating(true);
+    render(<EditorHost />);
+    const v0 = useCanvasStore.getState().view;
+    fireEvent.keyDown(window, { key: "d" });
+    expect(useCanvasStore.getState().view.ox).toBe(v0.ox);
+  });
 });

@@ -19,6 +19,17 @@ export function useShortcuts() {
         else if (k === "d") { e.preventDefault(); duplicateSelection(); }
         return;
       }
+      // WASD 平移视口（每次 50px，按住自动重复）；仅移动视图，不影响元素与选区
+      const k = e.key.toLowerCase();
+      if (k === "w" || k === "a" || k === "s" || k === "d") {
+        e.preventDefault();
+        s.setView({
+          scale: s.view.scale,
+          ox: s.view.ox + (k === "a" ? -50 : k === "d" ? 50 : 0),
+          oy: s.view.oy + (k === "w" ? -50 : k === "s" ? 50 : 0),
+        });
+        return;
+      }
       if (e.key === "Delete" || e.key === "Backspace") {
         if (s.editingText) return;
         if (s.selection.length) {
