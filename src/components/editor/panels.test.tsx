@@ -11,8 +11,11 @@ beforeEach(() => useCanvasStore.setState(useCanvasStore.getInitialState()));
 describe("Toolbar", () => {
   it("点击工具切换 tool", () => {
     render(<Toolbar />);
+    // 图案气泡：先开主按钮再点子工具
+    fireEvent.click(screen.getByTitle("图案"));
     fireEvent.click(screen.getByTitle("矩形"));
     expect(useCanvasStore.getState().tool).toBe("rect");
+    // 常驻工具直接可点
     fireEvent.click(screen.getByTitle("选择"));
     expect(useCanvasStore.getState().tool).toBe("select");
   });

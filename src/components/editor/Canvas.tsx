@@ -84,6 +84,8 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
 
   return (
     <div className="relative h-full w-full select-none overflow-hidden" onWheel={onWheel}>
+      {/* 玻璃面板包裹画布：半透明白 + 背景模糊 + 内高光描边 + 外投影，边缘体现玻璃质感 */}
+      <div className="glass-canvas absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
       <svg
         ref={svgRef}
         width={viewportWidth}
@@ -96,6 +98,7 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
         onPointerCancel={onPointerUp}
         onDoubleClick={onDoubleClick}
       >
+        <rect data-testid="canvas-bg" width={viewportWidth} height={viewportHeight} rx={10} fill="#ffffff" pointerEvents="none" />
         <g transform={`translate(${view.ox} ${view.oy}) scale(${view.scale})`}>
           {sorted.map((e) => (
             <ElementShape key={e.id} e={e} />
@@ -132,6 +135,7 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
           </g>
         )}
       </svg>
+      </div>
     </div>
   );
 }

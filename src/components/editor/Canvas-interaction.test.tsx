@@ -290,6 +290,23 @@ describe("逻辑节点", () => {
   });
 });
 
+describe("画布玻璃边缘", () => {
+  it("画布背景为白色矩形且不拦截指针事件", () => {
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const bg = document.querySelector("[data-testid='canvas-bg']")!;
+    expect(bg).not.toBeNull();
+    expect(bg.getAttribute("fill")).toBe("#ffffff");
+    expect(bg.getAttribute("pointer-events")).toBe("none");
+  });
+
+  it("画布外层为玻璃面板容器（半透明毛玻璃边框包裹 svg）", () => {
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const glass = document.querySelector(".glass-canvas")!;
+    expect(glass).not.toBeNull();
+    expect(glass.querySelector("svg")).not.toBeNull();
+  });
+});
+
 describe("小手工具", () => {
   it("hand 工具下拖拽平移视口（内容跟随鼠标）", () => {
     render(<Canvas viewportWidth={800} viewportHeight={600} />);

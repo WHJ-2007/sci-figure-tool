@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { exportSvgFile, exportPng } from "@/lib/canvas/exporter";
 import type { ToolType } from "@/lib/canvas/types";
@@ -56,20 +56,40 @@ const REDO_ICON = (
   </svg>
 );
 
-const TOOLS: { title: string; tool: ToolType; label: ReactNode }[] = [
-  { title: "小手（拖动画布）", tool: "hand", label: HAND_ICON },
-  { title: "选择", tool: "select", label: SELECT_ICON },
+interface ToolItem {
+  title: string;
+  tool: ToolType;
+  label: ReactNode;
+}
+
+// 工具分组：图案 = 所有图形/标注（含箭头连线），逻辑 = 逻辑节点；选择/小手常驻
+const SHAPE_TOOLS: ToolItem[] = [
   { title: "矩形", tool: "rect", label: "▢" },
   { title: "圆角矩形", tool: "rounded", label: "▭" },
   { title: "椭圆", tool: "ellipse", label: "○" },
   { title: "三角形", tool: "triangle", label: "△" },
   { title: "菱形", tool: "diamond", label: "◇" },
   { title: "六边形", tool: "hexagon", label: "⬡" },
-  { title: "逻辑节点", tool: "logic", label: LOGIC_ICON },
   { title: "箭头", tool: "arrow", label: "→" },
   { title: "折线", tool: "polyline", label: "↯" },
   { title: "文字", tool: "text", label: "T" },
 ];
+const LOGIC_TOOLS: ToolItem[] = [{ title: "逻辑节点", tool: "logic", label: LOGIC_ICON }];
+const SHAPE_TOOL_SET = new Set(SHAPE_TOOLS.map((t) => t.tool));
+
+function ToolButton({ item, active, onClick }: { item: ToolItem; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      title={item.title}
+      onClick={onClick}
+      className={`lift flex h-9 w-9 items-center justify-center rounded text-base leading-none ${
+        active ? "bg-blue-100 text-blue-700 ring-1 ring-blue-400" : "hover:bg-gray-100"
+      }`}
+    >
+      {item.label}
+    </button>
+  );
+}
 
 export default function Toolbar() {
   const tool = useCanvasStore((s) => s.tool);
@@ -83,6 +103,21 @@ export default function Toolbar() {
   const createProject = useCanvasStore((s) => s.createProject);
   const renameProject = useCanvasStore((s) => s.renameProject);
   const deleteProject = useCanvasStore((s) => s.deleteProject);
+  const [open, setOpen] = useState<"shape" | "logic" | null>(null);
+  const shapeRef = useRef<HTMLDivElement>(null);
+  const logicRef = useRef<HTMLDivElement>(null);
+
+  // 非阻塞气泡：点击主按钮开/关、点击气泡外任意处关闭（pointerdown 优先于 click，先收气泡再落画布）
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (shapeRef.current?.contains(t) || logicRef.current?.contains(t)) return;
+      setOpen(null);
+    };
+    window.addEventListener("pointerdown", onDown);
+    return () => window.removeEventListener("pointerdown", onDown);
+  }, [open]);
 
   const onRename = () => {
     const p = projects.find((x) => x.id === currentProjectId);
@@ -93,6 +128,9 @@ export default function Toolbar() {
     if (!window.confirm("删除当前画布？")) return;
     deleteProject(currentProjectId);
   };
+
+  const shapeActive = SHAPE_TOOL_SET.has(tool);
+  const currentShape = SHAPE_TOOLS.find((t) => t.tool === tool)?.label ?? SHAPE_TOOLS[0].label;
 
   return (
     <div className="flex items-center gap-1 border-b border-white/40 bg-white/60 px-2 py-1 backdrop-blur-md">
@@ -112,16 +150,56 @@ export default function Toolbar() {
       <button title="重命名画布" onClick={onRename} className="lift h-8 w-8 rounded hover:bg-gray-100">✎</button>
       <button title="删除画布" onClick={onDelete} className="lift h-8 w-8 rounded hover:bg-gray-100">✕</button>
       <span className="mx-1 h-6 w-px bg-gray-200" />
-      {TOOLS.map((t) => (
+      {/* 常驻工具：选择、小手 */}
+      <ToolButton
+        item={{ title: "选择", tool: "select", label: SELECT_ICON }}
+        active={tool === "select"}
+        onClick={() => setTool("select")}
+      />
+      <ToolButton
+        item={{ title: "小手（拖动画布）", tool: "hand", label: HAND_ICON }}
+        active={tool === "hand"}
+        onClick={() => setTool("hand")}
+      />
+      <span className="mx-1 h-6 w-px bg-gray-200" />
+      {/* 图案组：主按钮显示当前选中的子工具图标 */}
+      <div className="relative" ref={shapeRef}>
         <button
-          key={t.title}
-          title={t.title}
-          onClick={() => setTool(t.tool)}
-          className={`lift flex h-8 w-8 items-center justify-center rounded text-base leading-none ${tool === t.tool ? "bg-blue-100 text-blue-700 ring-1 ring-blue-400" : "hover:bg-gray-100"}`}
+          title="图案"
+          onClick={() => setOpen(open === "shape" ? null : "shape")}
+          className={`lift flex h-8 w-8 items-center justify-center rounded text-base leading-none ${
+            shapeActive || open === "shape" ? "bg-blue-100 text-blue-700 ring-1 ring-blue-400" : "hover:bg-gray-100"
+          }`}
         >
-          {t.label}
+          {currentShape}
         </button>
-      ))}
+        {open === "shape" && (
+          <div className="absolute left-0 top-full z-30 mt-1 grid grid-cols-3 gap-1 rounded-lg border border-white/50 bg-white/75 p-2 shadow-xl backdrop-blur-md">
+            {SHAPE_TOOLS.map((t) => (
+              <ToolButton key={t.tool} item={t} active={t.tool === tool} onClick={() => setTool(t.tool)} />
+            ))}
+          </div>
+        )}
+      </div>
+      {/* 逻辑组 */}
+      <div className="relative" ref={logicRef}>
+        <button
+          title="逻辑"
+          onClick={() => setOpen(open === "logic" ? null : "logic")}
+          className={`lift flex h-8 w-8 items-center justify-center rounded ${
+            tool === "logic" || open === "logic" ? "bg-blue-100 text-blue-700 ring-1 ring-blue-400" : "hover:bg-gray-100"
+          }`}
+        >
+          {LOGIC_ICON}
+        </button>
+        {open === "logic" && (
+          <div className="absolute left-0 top-full z-30 mt-1 rounded-lg border border-white/50 bg-white/75 p-2 shadow-xl backdrop-blur-md">
+            {LOGIC_TOOLS.map((t) => (
+              <ToolButton key={t.tool} item={t} active={t.tool === tool} onClick={() => setTool(t.tool)} />
+            ))}
+          </div>
+        )}
+      </div>
       <span className="mx-1 h-6 w-px bg-gray-200" />
       <button title="撤销" onClick={undo} className="lift flex h-8 w-8 items-center justify-center rounded hover:bg-gray-100">{UNDO_ICON}</button>
       <button title="重做" onClick={redo} className="lift flex h-8 w-8 items-center justify-center rounded hover:bg-gray-100">{REDO_ICON}</button>
