@@ -1,3 +1,23 @@
+"use client";
+
+import Toolbar from "@/components/editor/Toolbar";
+import Canvas from "@/components/editor/Canvas";
+import PropertyPanel from "@/components/editor/PropertyPanel";
+import ChatPanel from "@/components/editor/ChatPanel";
+
 export default function Home() {
-  return <main className="h-full w-full flex items-center justify-center text-gray-500">科研制图工具</main>;
+  return (
+    <main className="flex h-full w-full flex-col">
+      <Toolbar />
+      <div className="flex min-h-0 flex-1">
+        <div className="min-w-0 flex-1">
+          <Canvas viewportWidth={1200} viewportHeight={800} />
+        </div>
+        <div className="flex w-80 flex-col border-l border-gray-200">
+          <PropertyPanel />
+          <ChatPanel />
+        </div>
+      </div>
+    </main>
+  );
 }
