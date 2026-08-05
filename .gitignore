@@ -2,3 +2,7 @@
 node_modules/
 .next/
 tools/launcher/.runtime/
+
+.claude/settings.local.json
+.env*
+*.tsbuildinfo
