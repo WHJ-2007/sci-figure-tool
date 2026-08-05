@@ -13,6 +13,20 @@ const HANDLE_POS: Record<(typeof HANDLES)[number], { x: number; y: number }> = {
   w: { x: 0, y: 0.5 },
 };
 
+// 真实包围盒：arrow 负向拖拽时 width/height 为负，polyline 创建时宽高为 0，需归一化
+function boundsOf(e: CanvasElement): { x: number; y: number; width: number; height: number } {
+  if (e.type === "arrow") {
+    const x2 = e.x + e.width, y2 = e.y + e.height;
+    return { x: Math.min(e.x, x2), y: Math.min(e.y, y2), width: Math.abs(e.width), height: Math.abs(e.height) };
+  }
+  if (e.type === "polyline") {
+    const xs = e.points.map((p) => p.x), ys = e.points.map((p) => p.y);
+    const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+    return { x: minX, y: minY, width: Math.max(maxX - minX, 1), height: Math.max(maxY - minY, 1) };
+  }
+  return { x: e.x, y: e.y, width: e.width, height: e.height };
+}
+
 export default function SelectionOverlay({ scale }: { scale: number }) {
   const doc = useCanvasStore((s) => s.doc);
   const selection = useCanvasStore((s) => s.selection);
@@ -23,17 +37,18 @@ export default function SelectionOverlay({ scale }: { scale: number }) {
   return (
     <>
       {sel.map((e) => {
-        const cx = e.x + e.width / 2;
-        const cy = e.y + e.height / 2;
+        const b = boundsOf(e);
+        const cx = b.x + b.width / 2;
+        const cy = b.y + b.height / 2;
         // 选中框必须随元素旋转（与 ElementShape 的 rotate 一致），否则旋转后虚线框与元素脱离
         const rot = e.rotation ? `rotate(${e.rotation} ${cx} ${cy})` : undefined;
         return (
           <g key={e.id} pointerEvents="none" transform={rot}>
             <rect
-              x={e.x}
-              y={e.y}
-              width={e.width}
-              height={e.height}
+              x={b.x}
+              y={b.y}
+              width={b.width}
+              height={b.height}
               fill="none"
               stroke="#2563eb"
               strokeWidth={1.5 / scale}
@@ -47,8 +62,8 @@ export default function SelectionOverlay({ scale }: { scale: number }) {
                   key={h}
                   data-handle={h}
                   data-element-id={e.id}
-                  x={e.x + p.x * e.width - H / 2}
-                  y={e.y + p.y * e.height - H / 2}
+                  x={b.x + p.x * b.width - H / 2}
+                  y={b.y + p.y * b.height - H / 2}
                   width={H}
                   height={H}
                   fill="#ffffff"
@@ -66,7 +81,7 @@ export default function SelectionOverlay({ scale }: { scale: number }) {
               data-handle="rotate"
               data-element-id={e.id}
               x={cx - H / 2}
-              y={e.y - H - 8 / scale}
+              y={b.y - H - 8 / scale}
               width={H}
               height={H}
               rx={H / 2}
@@ -126,8 +141,10 @@ function rotateDown(ev: React.PointerEvent, e: CanvasElement) {
   const s = useCanvasStore.getState();
   if (s.isGenerating) return;
   s.commitHistory(); // 旋转前提交快照（手势前状态），一次旋转 = 一步撤销
-  const cx = e.x + e.width / 2;
-  const cy = e.y + e.height / 2;
+  // 与选中框一致用真实包围盒中心，避免负宽高元素旋转中心错位
+  const b = boundsOf(e);
+  const cx = b.x + b.width / 2;
+  const cy = b.y + b.height / 2;
   const onMove = (me: PointerEvent) => {
     const svg = (ev.target as Element).closest("svg")!;
     const r = svg.getBoundingClientRect();

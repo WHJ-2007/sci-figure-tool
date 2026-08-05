@@ -30,6 +30,8 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
       const wy = worldY(e.clientY);
       if (s.tool !== "select") {
         if (s.tool === "text") {
+          // 编辑中再点击不放新字（否则双击会堆叠创建两个空文字）
+          if (s.editingText) return;
           const el = makeElement("text", wx, wy - 8, 60, 22, { text: "" });
           s.addElement(el);
           modeRef.current = { kind: "idle" };
@@ -110,7 +112,9 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
           height: Math.abs(m.y - m.startY),
         });
       } else if (m.kind === "draw-line") {
-        m.points.push({ x: wx, y: wy });
+        // 保持 [起点, 当前指针] 两个点：首帧补上当前点，后续替换末点，polyline 最终恰好 2 点
+        if (m.points.length < 2) m.points.push({ x: wx, y: wy });
+        else m.points[m.points.length - 1] = { x: wx, y: wy };
         setPreview({ type: m.tool, points: [...m.points] });
       }
     },

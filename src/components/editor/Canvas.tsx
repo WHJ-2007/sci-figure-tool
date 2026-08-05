@@ -86,6 +86,7 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
         onDoubleClick={onDoubleClick}
       >
         <g transform={`translate(${view.ox} ${view.oy}) scale(${view.scale})`}>
