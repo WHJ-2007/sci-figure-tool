@@ -42,7 +42,7 @@ export default function Toolbar() {
       <button title="重做" onClick={redo} className="h-8 w-8 rounded hover:bg-gray-100">↪</button>
       <span className="mx-1 h-6 w-px bg-gray-200" />
       <button title="导出 SVG" onClick={() => exportSvgFile(doc)} className="rounded px-2 py-1 text-sm hover:bg-gray-100">SVG</button>
-      <button title="导出 PNG" onClick={() => exportPng(doc)} className="rounded px-2 py-1 text-sm hover:bg-gray-100">PNG</button>
+      <button title="导出 PNG" onClick={() => exportPng(doc).catch(console.error)} className="rounded px-2 py-1 text-sm hover:bg-gray-100">PNG</button>
       <span className="flex-1" />
       <Link href="/settings" className="rounded px-2 py-1 text-sm hover:bg-gray-100" title="设置">⚙</Link>
     </div>
