@@ -1,4 +1,15 @@
-import type { CanvasElement, ElementType } from "./types";
+import type {
+  CanvasElement,
+  ElementType,
+  RectElement,
+  EllipseElement,
+  TriangleElement,
+  DiamondElement,
+  HexagonElement,
+  TextElement,
+  ArrowElement,
+  PolylineElement,
+} from "./types";
 
 export function newId(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -17,13 +28,22 @@ export function estimateTextSize(text: string, fontSize: number): { width: numbe
   return { width: Math.max(w * fontSize, 8), height: fontSize * 1.4 };
 }
 
+type ElementExtras = Partial<RectElement> &
+  Partial<EllipseElement> &
+  Partial<TriangleElement> &
+  Partial<DiamondElement> &
+  Partial<HexagonElement> &
+  Partial<TextElement> &
+  Partial<ArrowElement> &
+  Partial<PolylineElement>;
+
 export function makeElement(
-  type: ElementType,
+  type: ElementType | "rounded",
   x: number,
   y: number,
   width: number,
   height: number,
-  extra: Partial<CanvasElement> = {}
+  extra: ElementExtras = {}
 ): CanvasElement {
   const base = {
     id: extra.id ?? newId(),
