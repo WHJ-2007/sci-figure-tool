@@ -1,18 +1,38 @@
 import "@testing-library/jest-dom/vitest";
 
-// jsdom 未实现 PointerEvent：补一个继承 MouseEvent 的构造器，让指针事件的 clientX/clientY/pointerId 正常传递
-class PointerEvent extends MouseEvent {
-  pointerId: number;
-  pointerType: string;
-  isPrimary: boolean;
-  constructor(type: string, init: PointerEventInit = {}) {
-    super(type, init);
-    this.pointerId = init.pointerId ?? 1;
-    this.pointerType = init.pointerType ?? "mouse";
-    this.isPrimary = init.isPrimary ?? true;
+// 版本守卫：jsdom 未来版本若原生支持 PointerEvent 则用原生，不再覆盖
+if (typeof window.PointerEvent === "undefined") {
+  // jsdom 未实现 PointerEvent：补一个继承 MouseEvent 的构造器，让指针事件的 clientX/clientY/pointerId 正常传递
+  class PointerEvent extends MouseEvent {
+    pointerId: number;
+    pointerType: string;
+    isPrimary: boolean;
+    pressure: number;
+    width: number;
+    height: number;
+    tiltX: number;
+    tiltY: number;
+    twist: number;
+    tangentialPressure: number;
+    constructor(type: string, init: PointerEventInit = {}) {
+      super(type, init);
+      this.pointerId = init.pointerId ?? 1;
+      this.pointerType = init.pointerType ?? "mouse";
+      this.isPrimary = init.isPrimary ?? true;
+      this.pressure = init.pressure ?? 0;
+      this.width = init.width ?? 1;
+      this.height = init.height ?? 1;
+      this.tiltX = init.tiltX ?? 0;
+      this.tiltY = init.tiltY ?? 0;
+      this.twist = init.twist ?? 0;
+      this.tangentialPressure = init.tangentialPressure ?? 0;
+    }
+    getCoalescedEvents() {
+      return [this];
+    }
   }
+  Object.defineProperty(window, "PointerEvent", { value: PointerEvent, configurable: true });
 }
-Object.defineProperty(window, "PointerEvent", { value: PointerEvent, configurable: true });
 
 // jsdom 未实现指针捕获：拖拽测试用到，桩掉即可（捕获语义由真实浏览器保证）
 Element.prototype.setPointerCapture = () => {};
