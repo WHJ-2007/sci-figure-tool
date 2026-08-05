@@ -12,6 +12,9 @@ export const CHANGELOG: ChangelogEntry[] = [
       "导出 SVG/PNG",
       "设置页（API Key/模型/Base URL + 测试连接）",
       "PowerShell 启动器",
+      "多画布：画布持久化（localStorage）+ 工具栏下拉切换/新建/重命名/删除；AI 优先在现有画布上修改，必要时才新建画布（newCanvas 工具）",
+      "AI 生成过程提示气泡：左下角实时显示最新步骤，弹出/收缩动画，点击聚焦聊天输入框",
+      "全局毛玻璃质感：渐变背景 + 工具栏/侧栏/气泡/引导条半透明模糊",
     ],
   },
   {

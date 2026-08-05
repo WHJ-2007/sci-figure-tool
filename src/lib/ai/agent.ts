@@ -13,6 +13,7 @@ export interface ChatMessage {
 export type AgentEvent =
   | { type: "progress"; activity: string[] }
   | { type: "snapshot"; canvas: CanvasDocument }
+  | { type: "new-canvas" }
   | { type: "complete"; canvas: CanvasDocument; summary: string }
   | { type: "error"; message: string };
 
@@ -28,6 +29,7 @@ export async function runAgent(opts: {
   // onChange 闭包引用 draft 自身（构造后才会被调用），用 let 声明避开 TDZ
   let draft: DraftCanvas;
   draft = new DraftCanvas(opts.canvas.elements, () => {
+    if (draft.takeNewCanvasFlag()) opts.onEvent({ type: "new-canvas" });
     opts.onEvent({ type: "snapshot", canvas: draft.serialize() });
   });
   const result = await generateText({

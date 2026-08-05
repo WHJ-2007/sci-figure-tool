@@ -159,3 +159,71 @@ describe("canvas store", () => {
     expect(useCanvasStore.getState().editingText).toBeNull();
   });
 });
+
+describe("多画布", () => {
+  it("新建画布并切换，原画布内容保留", () => {
+    const s = useCanvasStore.getState();
+    const a = makeElement("rect", 0, 0, 100, 60);
+    s.addElement(a);
+    const first = s.currentProjectId;
+    const second = useCanvasStore.getState().createProject();
+    expect(second).not.toBe(first);
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(0);
+    expect(useCanvasStore.getState().projects).toHaveLength(2);
+    useCanvasStore.getState().setCurrentProject(first);
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(1);
+  });
+
+  it("新建画布默认名递增（画布 2、画布 3）", () => {
+    useCanvasStore.getState().createProject();
+    expect(useCanvasStore.getState().projects[1].name).toBe("画布 2");
+    useCanvasStore.getState().createProject();
+    expect(useCanvasStore.getState().projects[2].name).toBe("画布 3");
+  });
+
+  it("撤销栈按画布隔离", () => {
+    const a = makeElement("rect", 0, 0, 100, 60);
+    useCanvasStore.getState().addElement(a);
+    const first = useCanvasStore.getState().currentProjectId;
+    const second = useCanvasStore.getState().createProject();
+    useCanvasStore.getState().addElement(makeElement("ellipse", 10, 10, 50, 50));
+    // B 画布 undo：回到 B 的空态
+    useCanvasStore.getState().undo();
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(0);
+    // 切回 A：undo 作用于 A 的历史（回到 A 的空态）
+    useCanvasStore.getState().setCurrentProject(first);
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(1);
+    useCanvasStore.getState().undo();
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(0);
+    // A 的 redo 仍可用（历史未被 B 污染）
+    useCanvasStore.getState().redo();
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(1);
+    // 切回 B：undo/redo 状态独立
+    useCanvasStore.getState().setCurrentProject(second);
+    useCanvasStore.getState().redo();
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(1);
+  });
+
+  it("删除当前画布切到相邻画布，最后一张不可删", () => {
+    useCanvasStore.getState().createProject();
+    useCanvasStore.getState().createProject();
+    const s = useCanvasStore.getState();
+    expect(s.projects).toHaveLength(3);
+    // 删除中间画布（当前是第 3 张）
+    const third = s.currentProjectId;
+    s.deleteProject(third);
+    const s2 = useCanvasStore.getState();
+    expect(s2.projects).toHaveLength(2);
+    expect(s2.currentProjectId).not.toBe(third);
+    // 删到最后一张不可删
+    s2.deleteProject(s2.projects[0].id);
+    s2.deleteProject(s2.projects[0].id);
+    expect(useCanvasStore.getState().projects).toHaveLength(1);
+  });
+
+  it("重命名画布", () => {
+    const id = useCanvasStore.getState().currentProjectId;
+    useCanvasStore.getState().renameProject(id, "Transformer 图");
+    expect(useCanvasStore.getState().projects[0].name).toBe("Transformer 图");
+  });
+});

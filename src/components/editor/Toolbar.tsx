@@ -36,9 +36,41 @@ export default function Toolbar() {
   const undo = useCanvasStore((s) => s.undo);
   const redo = useCanvasStore((s) => s.redo);
   const doc = useCanvasStore((s) => s.doc);
+  const projects = useCanvasStore((s) => s.projects);
+  const currentProjectId = useCanvasStore((s) => s.currentProjectId);
+  const setCurrentProject = useCanvasStore((s) => s.setCurrentProject);
+  const createProject = useCanvasStore((s) => s.createProject);
+  const renameProject = useCanvasStore((s) => s.renameProject);
+  const deleteProject = useCanvasStore((s) => s.deleteProject);
+
+  const onRename = () => {
+    const p = projects.find((x) => x.id === currentProjectId);
+    const name = window.prompt("画布名称", p?.name ?? "");
+    if (name && name.trim()) renameProject(currentProjectId, name.trim());
+  };
+  const onDelete = () => {
+    if (!window.confirm("删除当前画布？")) return;
+    deleteProject(currentProjectId);
+  };
 
   return (
-    <div className="flex items-center gap-1 border-b border-gray-200 bg-white px-2 py-1">
+    <div className="flex items-center gap-1 border-b border-white/40 bg-white/60 px-2 py-1 backdrop-blur-md">
+      <select
+        value={currentProjectId}
+        onChange={(e) => setCurrentProject(e.target.value)}
+        title="切换画布"
+        className="h-8 max-w-[9rem] rounded border border-white/40 bg-white/60 px-1 text-sm outline-none"
+      >
+        {projects.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name}
+          </option>
+        ))}
+      </select>
+      <button title="新建画布" onClick={createProject} className="h-8 w-8 rounded hover:bg-gray-100">+</button>
+      <button title="重命名画布" onClick={onRename} className="h-8 w-8 rounded hover:bg-gray-100">✎</button>
+      <button title="删除画布" onClick={onDelete} className="h-8 w-8 rounded hover:bg-gray-100">✕</button>
+      <span className="mx-1 h-6 w-px bg-gray-200" />
       {TOOLS.map((t) => (
         <button
           key={t.title}

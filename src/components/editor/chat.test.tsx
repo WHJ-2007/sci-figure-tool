@@ -84,6 +84,35 @@ describe("ChatPanel", () => {
     expect(useCanvasStore.getState().doc.elements).toHaveLength(0);
   });
 
+  it("new-canvas 事件创建并切换新画布，元素落在新画布，撤销一步回新画布空态", async () => {
+    const e1 = makeElement("rect", 0, 0, 50, 30);
+    useCanvasStore.getState().addElement(makeElement("ellipse", 10, 10, 40, 30));
+    const firstId = useCanvasStore.getState().currentProjectId;
+    vi.mocked(fetch).mockResolvedValueOnce(
+      mockStream([
+        { type: "new-canvas" },
+        { type: "snapshot", canvas: { width: 1600, height: 1000, elements: [e1] } },
+        { type: "complete", canvas: { width: 1600, height: 1000, elements: [e1] }, summary: "画好了" },
+      ])
+    );
+    render(<ChatPanel />);
+    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "换张画布" } });
+    fireEvent.click(screen.getByText("一键生成"));
+    await waitFor(() => expect(screen.getByText(/画好了/)).toBeInTheDocument());
+    const s = useCanvasStore.getState();
+    expect(s.projects).toHaveLength(2);
+    expect(s.currentProjectId).not.toBe(firstId);
+    expect(s.doc.elements).toHaveLength(1);
+    expect(s.doc.elements[0].type).toBe("rect");
+    // 原画布内容未受影响
+    useCanvasStore.getState().setCurrentProject(firstId);
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(1);
+    useCanvasStore.getState().setCurrentProject(useCanvasStore.getState().projects.find((p) => p.id !== firstId)!.id);
+    // 新画布 undo 一步回到空态（基线为新画布初始空画布）
+    useCanvasStore.getState().undo();
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(0);
+  });
+
   it("未配置 Key 时提示去设置", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({ error: "未配置 API Key" }), { status: 400 }));
     render(<ChatPanel />);

@@ -105,8 +105,8 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
         )}
       </svg>
       {isGenerating && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/60">
-          <span className="rounded bg-blue-600 px-4 py-2 text-white">AI 正在生成…</span>
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/20 backdrop-blur-[2px]">
+          <span className="rounded bg-blue-600/80 px-4 py-2 text-white backdrop-blur-md">AI 正在生成…</span>
         </div>
       )}
     </div>

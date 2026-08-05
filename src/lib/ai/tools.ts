@@ -53,9 +53,14 @@ export function buildTools(draft: DraftCanvas) {
       execute: () => draft.listElements(),
     }),
     clearCanvas: tool({
-      description: "清空整个画布，重新开始。",
+      description: "清空整个画布，重新开始。仅当用户明确要求清空画布或重画时才使用。",
       inputSchema: z.object({}),
       execute: () => draft.clear(),
+    }),
+    newCanvas: tool({
+      description: "新建一个空白画布并切换到它。仅当现有画布上的内容确实无法承载用户需求时才使用；普通的新增/修改需求不要调用。",
+      inputSchema: z.object({}),
+      execute: () => draft.newCanvas(),
     }),
   };
 }

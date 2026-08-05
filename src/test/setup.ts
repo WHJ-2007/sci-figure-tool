@@ -1,10 +1,17 @@
 import "@testing-library/jest-dom/vitest";
-import { afterEach } from "vitest";
+import { beforeEach, afterEach } from "vitest";
 import { cleanup } from "@testing-library/react";
 
 // vitest 未开启 globals，RTL 的自动 cleanup 不会注册；测试间残留 DOM 会导致
 // 多个 Canvas 实例并存（文字编辑器的两个 textarea 互相抢焦点触发 blur→commit）。
 afterEach(cleanup);
+
+// 多画布持久化后，store 初始化会读 localStorage；跨测试文件的残留项目数据会污染断言，
+// 统一在每个测试前清空（settings 等其他 key 也在内，各测试自己负责写入）。
+// node 环境（如 agent.test.ts）无 localStorage，需守卫。
+beforeEach(() => {
+  if (typeof localStorage !== "undefined") localStorage.clear();
+});
 
 // 以下 jsdom 专有桩仅对 DOM 环境生效（node 环境的测试如 agent.test.ts 不依赖 DOM）
 if (typeof window !== "undefined") {

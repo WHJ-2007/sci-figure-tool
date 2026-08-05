@@ -135,6 +135,30 @@ describe("runAgent", () => {
     expect(events[events.length - 1].type).toBe("complete");
   });
 
+  it("newCanvas 工具清空草稿、发出 new-canvas 事件，新内容落在新画布", async () => {
+    mockGenerateText.mockImplementation(async ({ tools, onStepFinish }: any) => {
+      await (tools as any).createElement.execute({ type: "rect", x: 0, y: 0, width: 50, height: 30 });
+      await (tools as any).newCanvas.execute({});
+      await (tools as any).createElement.execute({ type: "ellipse", x: 10, y: 10, width: 40, height: 30 });
+      onStepFinish?.({ toolResults: [] });
+      return { text: "已新建画布" };
+    });
+    const events: any[] = [];
+    await runAgent({
+      messages: [{ role: "user", content: "换个画布画" }],
+      canvas: { width: 1600, height: 1000, elements: [] },
+      apiKey: "sk-test",
+      baseURL: "https://api.deepseek.com",
+      model: "deepseek-chat",
+      onEvent: (ev) => events.push(ev),
+    });
+    expect(events.some((e) => e.type === "new-canvas")).toBe(true);
+    const complete = events.find((e) => e.type === "complete");
+    // newCanvas 清空旧元素，final 只有新画布上的元素
+    expect(complete.canvas.elements).toHaveLength(1);
+    expect(complete.canvas.elements[0].type).toBe("ellipse");
+  });
+
   it("驱动模型调用工具并把结果应用到草稿、发出 complete 事件", async () => {
     mockGenerateText.mockImplementation(async ({ tools, onStepFinish }: any) => {
       const res = await (tools as any).createElement.execute({ type: "rect", x: 10, y: 10, width: 100, height: 60 });

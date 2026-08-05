@@ -22,6 +22,7 @@ export class DraftCanvas {
   elements: CanvasElement[] = [];
   private activity: string[] = [];
   private onChange: (() => void) | undefined;
+  private newCanvasFlag = false;
 
   constructor(elements: CanvasElement[], onChange?: () => void) {
     this.elements = structuredClone(elements);
@@ -117,6 +118,20 @@ export class DraftCanvas {
     this.activity.push("清空画布");
     this.changed();
     return { ok: true };
+  }
+
+  newCanvas() {
+    this.elements = [];
+    this.activity.push("新建画布");
+    this.newCanvasFlag = true;
+    this.changed();
+    return { ok: true };
+  }
+
+  takeNewCanvasFlag(): boolean {
+    const f = this.newCanvasFlag;
+    this.newCanvasFlag = false;
+    return f;
   }
 }
 

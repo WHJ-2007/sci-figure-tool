@@ -14,10 +14,11 @@ interface Msg {
 export default function ChatPanel() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
-  const [activity, setActivity] = useState<string[]>([]);
   const [error, setError] = useState<string>("");
   const [open, setOpen] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
+  const activity = useCanvasStore((s) => s.activity);
+  const setActivity = useCanvasStore((s) => s.setActivity);
   const setGenerating = useCanvasStore((s) => s.setGenerating);
   const isGenerating = useCanvasStore((s) => s.isGenerating);
 
@@ -31,8 +32,9 @@ export default function ChatPanel() {
     if (!text || useCanvasStore.getState().isGenerating) return;
     const s = useCanvasStore.getState();
     const settings = loadSettings();
-    // 生成前画布作为撤销基线：snapshot 中间态不入栈，生成完成后整体一步 undo 回到该基线
-    const baseline = structuredClone(s.doc);
+    // 生成前画布作为撤销基线：snapshot 中间态不入栈，生成完成后整体一步 undo 回到该基线；
+    // new-canvas 事件后基线重置为新画布的空态
+    let baseline = structuredClone(s.doc);
     const next = [...messages, { role: "user" as const, content: text }];
     setMessages(next);
     setInput("");
@@ -72,8 +74,15 @@ export default function ChatPanel() {
           buf = buf.slice(nl + 1);
           if (line) {
             const ev = JSON.parse(line) as AgentEvent;
-            if (ev.type === "progress") setActivity((a) => [...a, ...(ev.activity ?? [])]);
-            else if (ev.type === "snapshot") useCanvasStore.getState().applyAISnapshot(ev.canvas);
+            if (ev.type === "progress") {
+              const items = ev.activity ?? [];
+              if (items.length) useCanvasStore.setState((s) => ({ activity: [...s.activity, ...items] }));
+            }
+            else if (ev.type === "new-canvas") {
+              // AI 新建画布：创建并切换到新项目，撤销基线重置为新画布空态
+              useCanvasStore.getState().createProject();
+              baseline = structuredClone(useCanvasStore.getState().doc);
+            } else if (ev.type === "snapshot") useCanvasStore.getState().applyAISnapshot(ev.canvas);
             else if (ev.type === "complete") {
               finalDoc = ev.canvas;
               summary = ev.summary ?? "";
@@ -94,26 +103,27 @@ export default function ChatPanel() {
   };
 
   return (
-    <div className="flex h-full flex-col border-l border-gray-200 bg-white">
-      <div className="flex items-center justify-between border-b border-gray-200 px-3 py-2">
+    <div className="flex h-full flex-col bg-transparent">
+      <div className="flex items-center justify-between border-b border-white/40 px-3 py-2">
         <span className="text-sm font-medium">AI 助手</span>
         <button onClick={() => setOpen(!open)} className="text-xs text-gray-500 hover:text-gray-800">{open ? "收起" : "展开"}</button>
       </div>
       <div className="flex-1 space-y-2 overflow-y-auto p-3 text-sm" ref={bodyRef}>
         {messages.map((m, i) => (
-          <div key={i} className={`max-w-[85%] rounded-lg px-3 py-1.5 ${m.role === "user" ? "ml-auto bg-blue-600 text-white" : "bg-gray-100"}`}>
+          <div key={i} className={`max-w-[85%] rounded-lg px-3 py-1.5 ${m.role === "user" ? "ml-auto bg-blue-600 text-white" : "bg-white/70"}`}>
             {m.content}
           </div>
         ))}
         {activity.length > 0 && (
-          <div className="space-y-1 rounded-lg bg-blue-50 p-2 text-xs text-blue-700">
+          <div className="space-y-1 rounded-lg bg-blue-50/70 p-2 text-xs text-blue-700">
             {activity.map((a, i) => <div key={i}>⚙ {a}</div>)}
           </div>
         )}
-        {error && <div className="rounded-lg bg-red-50 p-2 text-xs text-red-600">{error}</div>}
+        {error && <div className="rounded-lg bg-red-50/70 p-2 text-xs text-red-600">{error}</div>}
       </div>
-      <div className="border-t border-gray-200 p-2">
+      <div className="border-t border-white/40 p-2">
         <textarea
+          id="chat-input"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
