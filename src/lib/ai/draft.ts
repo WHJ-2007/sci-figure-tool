@@ -3,7 +3,7 @@ import { makeElement } from "@/lib/canvas/elements";
 import type { CanvasDocument, CanvasElement, ElementType } from "@/lib/canvas/types";
 
 // updateElement 只接受白名单内的属性键，防止绕过工具层 schema 直接注入任意属性
-const PATCH_KEYS = ["x", "y", "width", "height", "fill", "stroke", "strokeWidth", "rotation", "text", "fontSize", "opacity"] as const;
+const PATCH_KEYS = ["x", "y", "width", "height", "fill", "stroke", "strokeWidth", "rotation", "text", "fontSize", "opacity", "bold", "italic", "align", "fontFamily"] as const;
 
 export interface CreateArgs {
   type: string;
@@ -16,6 +16,11 @@ export interface CreateArgs {
   stroke?: string;
   strokeWidth?: number;
   rotation?: number;
+  fontSize?: number;
+  bold?: boolean;
+  italic?: boolean;
+  align?: "left" | "center" | "right";
+  fontFamily?: string;
 }
 
 export class DraftCanvas {
@@ -31,6 +36,16 @@ export class DraftCanvas {
 
   private changed() {
     this.onChange?.();
+  }
+
+  // 文字元素统一置顶：AI 生成的文字标注应始终显示在模块框之上，不被不透明填充遮挡
+  private ensureTextOnTop() {
+    const sorted = [...this.elements].sort((a, b) => a.zIndex - b.zIndex);
+    let z = 0;
+    const next: CanvasElement[] = [];
+    for (const e of sorted) if (e.type !== "text") next.push({ ...e, zIndex: ++z });
+    for (const e of sorted) if (e.type === "text") next.push({ ...e, zIndex: ++z });
+    this.elements = next;
   }
 
   serialize(): CanvasDocument {
@@ -55,6 +70,11 @@ export class DraftCanvas {
       el = makeElement("text", r.x, r.y, r.width, r.height, {
         text: args.text ?? "文字",
         fill: args.fill ?? "#2f2f2f",
+        fontSize: args.fontSize,
+        bold: args.bold,
+        italic: args.italic,
+        align: args.align,
+        fontFamily: args.fontFamily,
         zIndex: maxZ + 1,
       });
     } else {
@@ -67,6 +87,7 @@ export class DraftCanvas {
       });
     }
     this.elements.push(el);
+    this.ensureTextOnTop();
     this.activity.push(`创建${typeName(el.type)} (${Math.round(r.x)}, ${Math.round(r.y)}, ${Math.round(r.width)}×${Math.round(r.height)})${"text" in el ? `：${el.text}` : ""}`);
     this.changed();
     return { ok: true, id: el.id };
@@ -83,6 +104,7 @@ export class DraftCanvas {
     next.x = Math.min(Math.max(next.x, 0), CANVAS_WIDTH - next.width);
     next.y = Math.min(Math.max(next.y, 0), CANVAS_HEIGHT - next.height);
     this.elements[idx] = next;
+    this.ensureTextOnTop();
     const changed = Object.keys(args.patch).join(", ");
     this.activity.push(`修改元素 ${e.id.slice(0, 6)}：${changed}`);
     this.changed();
@@ -93,6 +115,7 @@ export class DraftCanvas {
     const idx = this.elements.findIndex((e) => e.id === args.id);
     if (idx < 0) return { ok: false, error: `元素不存在: ${args.id}` };
     this.elements.splice(idx, 1);
+    this.ensureTextOnTop();
     this.activity.push(`删除元素 ${args.id.slice(0, 6)}`);
     this.changed();
     return { ok: true };
@@ -137,6 +160,7 @@ export class DraftCanvas {
       zIndex: maxZ + 1,
     });
     this.elements.push(el);
+    this.ensureTextOnTop();
     this.activity.push(`连接 ${s.id.slice(0, 6)} → ${t.id.slice(0, 6)}`);
     this.changed();
     return { ok: true, id: el.id };

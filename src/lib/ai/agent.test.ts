@@ -119,6 +119,32 @@ describe("DraftCanvas", () => {
     expect(arrow.width).toBe(100);
   });
 
+  it("createElement 文字支持个性化样式（字号/加粗/斜体/对齐/字体）", () => {
+    const d = new DraftCanvas([]);
+    d.createElement({ type: "text", x: 10, y: 10, width: 50, height: 20, text: "Encoder", fontSize: 22, bold: true, italic: true, align: "left", fontFamily: "serif" });
+    const el = d.serialize().elements[0];
+    expect(el).toMatchObject({ fontSize: 22, bold: true, italic: true, align: "left", fontFamily: "serif", text: "Encoder" });
+  });
+
+  it("updateElement 支持修改文字样式", () => {
+    const d = new DraftCanvas([]);
+    const r = d.createElement({ type: "text", x: 0, y: 0, width: 50, height: 20, text: "A" });
+    const res = d.updateElement({ id: r.id!, patch: { bold: true, fontSize: 30, align: "right" } });
+    expect(res.ok).toBe(true);
+    expect(d.serialize().elements[0]).toMatchObject({ bold: true, fontSize: 30, align: "right" });
+  });
+
+  it("文字元素自动置顶：先建文字再建框，文字仍显示在框之上", () => {
+    const d = new DraftCanvas([]);
+    // 先创建文字（z 低），后创建矩形（默认会盖住文字）
+    const t = d.createElement({ type: "text", x: 10, y: 10, width: 50, height: 20, text: "标题" });
+    const r = d.createElement({ type: "rect", x: 0, y: 0, width: 200, height: 60 });
+    const elements = d.serialize().elements;
+    const text = elements.find((e) => e.id === t.id)!;
+    const rect = elements.find((e) => e.id === r.id)!;
+    expect(text.zIndex).toBeGreaterThan(rect.zIndex);
+  });
+
   it("connectElements 对不存在 id / 中心重合 / 非形状端点报错", () => {
     const d = new DraftCanvas([]);
     const a = d.createElement({ type: "rect", x: 0, y: 0, width: 100, height: 60 });

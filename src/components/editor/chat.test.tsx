@@ -29,8 +29,8 @@ describe("ChatPanel", () => {
     fireEvent.click(screen.getByText("一键生成"));
     await waitFor(() => expect(screen.getByText(/画好了/)).toBeInTheDocument());
     await waitFor(() => expect(useCanvasStore.getState().doc.elements).toHaveLength(1));
-    // progress 活动日志应渲染在消息区内（行首有 ⚙ 图标，用子串匹配）
-    expect(screen.getByText(/创建矩形/)).toBeInTheDocument();
+    // 活动日志不再显示在对话区（改由左下角气泡显示）
+    expect(screen.queryByText(/创建矩形/)).toBeNull();
   });
 
   it("NDJSON 事件行被拆成多个网络分块时仍能完整解析", async () => {

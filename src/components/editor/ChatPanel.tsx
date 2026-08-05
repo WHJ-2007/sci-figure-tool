@@ -17,14 +17,13 @@ export default function ChatPanel() {
   const [error, setError] = useState<string>("");
   const [open, setOpen] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
-  const activity = useCanvasStore((s) => s.activity);
   const setActivity = useCanvasStore((s) => s.setActivity);
   const setGenerating = useCanvasStore((s) => s.setGenerating);
   const isGenerating = useCanvasStore((s) => s.isGenerating);
 
   useEffect(() => {
     bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
-  }, [messages, activity]);
+  }, [messages]);
 
   const send = async () => {
     const text = input.trim();
@@ -121,11 +120,6 @@ export default function ChatPanel() {
             {m.content}
           </div>
         ))}
-        {activity.length > 0 && (
-          <div className="space-y-1 rounded-lg border border-white/50 bg-blue-100/40 p-2 text-xs text-blue-800 backdrop-blur-md">
-            {activity.map((a, i) => <div key={i}>⚙ {a}</div>)}
-          </div>
-        )}
         {error && <div className="rounded-lg border border-red-200/50 bg-red-100/40 p-2 text-xs text-red-700 backdrop-blur-md">{error}</div>}
       </div>
       <div className="border-t border-white/40 p-2">
