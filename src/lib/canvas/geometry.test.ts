@@ -53,6 +53,28 @@ describe("hitTestElement", () => {
   });
 });
 
+describe("hitTestElement 多边形", () => {
+  const tri = makeElement("triangle", 0, 0, 100, 60) as CanvasElement;
+  it("三角形内部命中", () => {
+    expect(hitTestElement(tri, { x: 50, y: 30 })).toBe(true); // 底部中点，必在内部
+    expect(hitTestElement(tri, { x: 50, y: 55 })).toBe(true);
+  });
+  it("三角形外不命中（上外角、左右外侧）", () => {
+    expect(hitTestElement(tri, { x: 50, y: 0 })).toBe(false); // 顶角上方
+    expect(hitTestElement(tri, { x: 0, y: 0 })).toBe(false);
+    expect(hitTestElement(tri, { x: 100, y: 0 })).toBe(false);
+  });
+  it("菱形中心命中", () => {
+    const dia = makeElement("diamond", 0, 0, 100, 60) as CanvasElement;
+    expect(hitTestElement(dia, { x: 50, y: 30 })).toBe(true);
+  });
+  it("六边形中心命中", () => {
+    const hex = makeElement("hexagon", 0, 0, 100, 60) as CanvasElement;
+    expect(hitTestElement(hex, { x: 50, y: 30 })).toBe(true);
+    expect(hitTestElement(hex, { x: 50, y: -4 })).toBe(false); // 上方外侧，必不命中
+  });
+});
+
 describe("clampRect", () => {
   it("越界矩形被钳制到画布内", () => {
     expect(clampRect({ x: -50, y: -30, width: 100, height: 60 })).toEqual({ x: 0, y: 0, width: 100, height: 60 });
@@ -100,6 +122,12 @@ describe("snapRect", () => {
   });
   it("无目标时不吸附", () => {
     const offs = snapRect({ x: 50, y: 50, width: 50, height: 50 }, []);
+    expect(offs.dx).toBe(0);
+    expect(offs.dy).toBe(0);
+  });
+  it("排除自身：不吸附到自己的旧位置", () => {
+    const self = makeElement("rect", 94, 0, 50, 50) as CanvasElement;
+    const offs = snapRect(self, [self], 6, self.id);
     expect(offs.dx).toBe(0);
     expect(offs.dy).toBe(0);
   });

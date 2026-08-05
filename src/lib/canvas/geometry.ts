@@ -1,5 +1,8 @@
 import type { CanvasElement } from "./types";
 
+// 旋转约定：本模块所有几何计算均假设元素未旋转（rotation 字段存在于数据模型但尚未在 UI 中暴露）。
+// 后续任务若开放旋转，必须同步更新 shapePoints / pointInPolygon / hitTestElement / clampRect / snapRect 等函数。
+
 export interface Rect { x: number; y: number; width: number; height: number }
 export interface Point { x: number; y: number }
 
@@ -84,7 +87,7 @@ export function hitTestElement(e: CanvasElement, p: Point, tolerance = HIT_TOLER
   if (e.type === "arrow") {
     const x2 = e.x + e.width;
     const y2 = e.y + e.height;
-    return distToSegment(p, { x: e.x, y: e.y }, { x: x2, y: y2 }) <= tolerance || distToSegment(p, { x: x2, y: y2 }, { x: e.x, y: e.y }) <= tolerance;
+    return distToSegment(p, { x: e.x, y: e.y }, { x: x2, y: y2 }) <= tolerance;
   }
   if (e.type === "polyline") {
     return e.points.some((pt, i) => i > 0 && distToSegment(p, e.points[i - 1], pt) <= tolerance);
@@ -163,11 +166,16 @@ export function distributeOffsets(ids: string[], elements: CanvasElement[], dir:
   return out;
 }
 
-export function snapRect(r: Rect, elements: CanvasElement[], threshold = SNAP_THRESHOLD): { dx: number; dy: number } {
+/**
+ * 计算吸附偏移。elements 必须排除正在移动的元素自身（或传 movingId）。
+ * 否则移动元素会吸附到自己的旧位置：静止时 d=0 把 best 置 0，压制所有吸附。
+ */
+export function snapRect(r: Rect, elements: CanvasElement[], threshold = SNAP_THRESHOLD, movingId?: string): { dx: number; dy: number } {
   let bestDx = 0;
   let bestDy = 0;
   let best = threshold;
   for (const e of elements) {
+    if (e.id === movingId) continue;
     const t = lineBounds(e);
     const edges: { pos: number; axis: "x" | "y"; ref: number }[] = [
       { pos: r.x, axis: "x", ref: t.x },
