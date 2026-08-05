@@ -5,6 +5,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    time: "2026-08-05 23:30",
+    changes: [
+      "首个可用版本：SVG 画布编辑器（形状/文字/箭头、对齐分布、撤销重做、属性面板）",
+      "AI 智能体：DeepSeek 一键生成整图与对话修改（agent + skill 工具调用，流式进度）",
+      "导出 SVG/PNG",
+      "设置页（API Key/模型/Base URL + 测试连接）",
+      "PowerShell 启动器",
+    ],
+  },
+  {
     time: "2026-08-05 21:00",
     changes: [
       "科研制图工具首个里程碑：SVG 画布编辑器 + AI 智能体 + 设置页 + 导出",
