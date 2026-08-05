@@ -21,7 +21,10 @@ export function useShortcuts() {
       }
       if (e.key === "Delete" || e.key === "Backspace") {
         if (s.editingText) return;
-        if (s.selection.length) s.deleteElements(s.selection);
+        if (s.selection.length) {
+          e.preventDefault();
+          s.deleteElements(s.selection);
+        }
       }
     };
     window.addEventListener("keydown", onKey);
@@ -33,13 +36,14 @@ function duplicateSelection() {
   const s = useCanvasStore.getState();
   const selected = s.doc.elements.filter((e) => s.selection.includes(e.id));
   if (!selected.length) return;
-  const maxZ = Math.max(...s.doc.elements.map((e) => e.zIndex), 0);
   const copies = selected.map((e) => {
     const copy = structuredClone(e);
     copy.id = newId();
     copy.x += 20;
     copy.y += 20;
-    copy.zIndex = maxZ + 1;
+    if (copy.type === "polyline") {
+      copy.points = copy.points.map((p) => ({ x: p.x + 20, y: p.y + 20 }));
+    }
     return copy;
   });
   s.addElements(copies);
