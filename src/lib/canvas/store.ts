@@ -66,8 +66,13 @@ export const useCanvasStore = create<CanvasStore>()((set) => {
     updateElement: (id, patch) =>
       set((s) => {
         const doc = structuredClone(s.doc);
-        doc.elements = doc.elements.map((e) => (e.id === id ? ({ ...e, ...patch } as CanvasElement) : e));
-        return { history: pushHistory(s.history, s.doc), doc };
+        let changed = false;
+        doc.elements = doc.elements.map((e) => {
+          if (e.id !== id) return e;
+          changed = true;
+          return { ...e, ...patch } as CanvasElement;
+        });
+        return changed ? { history: pushHistory(s.history, s.doc), doc } : { doc };
       }),
     updateElementFast: (id, patch) =>
       set((s) => {
@@ -78,8 +83,15 @@ export const useCanvasStore = create<CanvasStore>()((set) => {
     deleteElements: (ids) =>
       set((s) => {
         const doc = structuredClone(s.doc);
+        const count = doc.elements.length;
         doc.elements = doc.elements.filter((e) => !ids.includes(e.id));
-        return { history: pushHistory(s.history, s.doc), doc, selection: [] };
+        if (doc.elements.length === count) return { doc };
+        return {
+          history: pushHistory(s.history, s.doc),
+          doc,
+          selection: [],
+          editingText: s.editingText && ids.includes(s.editingText) ? null : s.editingText,
+        };
       }),
     moveElements: (ids, dx, dy) =>
       set((s) => {
@@ -95,9 +107,9 @@ export const useCanvasStore = create<CanvasStore>()((set) => {
       }),
     commitHistory: () => set((s) => ({ history: pushHistory(s.history, s.doc) })),
 
-    setSelection: (ids) => set({ selection: ids }),
+    setSelection: (ids) => set({ selection: [...ids] }),
     setTool: (t) => set({ tool: t }),
-    setView: (v) => set({ view: v }),
+    setView: (v) => set({ view: { ...v } }),
     setEditingText: (id) => set({ editingText: id }),
     setGenerating: (v) => set({ isGenerating: v }),
     setDoc: (doc) =>
