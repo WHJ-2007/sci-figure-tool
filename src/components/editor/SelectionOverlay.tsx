@@ -57,13 +57,17 @@ export default function SelectionOverlay({ scale }: { scale: number }) {
             />
             {HANDLES.map((h) => {
               const p = HANDLE_POS[h];
+              // 手柄中心外移 H（8/scale）到包围盒之外：点元素本体（含边缘）只触发拖动；
+              // 否则手柄压在元素边上，AI 生成的小元素（40x30）边缘全被手柄覆盖，拖动会误触缩放/旋转（"乱飞"）
+              const cx = b.x + p.x * b.width + (p.x - 0.5) * 2 * H;
+              const cy = b.y + p.y * b.height + (p.y - 0.5) * 2 * H;
               return (
                 <rect
                   key={h}
                   data-handle={h}
                   data-element-id={e.id}
-                  x={b.x + p.x * b.width - H / 2}
-                  y={b.y + p.y * b.height - H / 2}
+                  x={cx - H / 2}
+                  y={cy - H / 2}
                   width={H}
                   height={H}
                   fill="#ffffff"

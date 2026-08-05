@@ -58,6 +58,20 @@ describe("Canvas 交互", () => {
     expect(e.height).toBe(110);
   });
 
+  it("缩放手柄中心在包围盒之外（点元素本体/边缘拖动不误触缩放）", () => {
+    const a = makeElement("rect", 10, 10, 40, 30);
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().setSelection([a.id]);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const nw = document.querySelector('[data-handle="nw"]')!;
+    const se = document.querySelector('[data-handle="se"]')!;
+    // 元素 bbox (10,10)-(50,40)；手柄中心外移 8px：nw 中心 (2,2)、se 中心 (58,48)
+    expect(Number(nw.getAttribute("x"))).toBe(-2);
+    expect(Number(nw.getAttribute("y"))).toBe(-2);
+    expect(Number(se.getAttribute("x"))).toBe(54);
+    expect(Number(se.getAttribute("y"))).toBe(44);
+  });
+
   it("旋转手柄拖动改变旋转角", () => {
     const a = makeElement("rect", 100, 100, 100, 60);
     useCanvasStore.getState().addElement(a);
