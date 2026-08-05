@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { useCanvasStore } from "./store";
-import { makeElement } from "./elements";
-import type { PolylineElement } from "./types";
+import { makeElement, estimateTextSize } from "./elements";
+import type { LogicElement, PolylineElement, TextElement } from "./types";
 
 beforeEach(() => useCanvasStore.setState(useCanvasStore.getInitialState()));
 
@@ -25,6 +25,32 @@ describe("canvas store", () => {
     expect(useCanvasStore.getState().doc.elements[0].fill).toBe("#ffffff");
     useCanvasStore.getState().redo();
     expect(useCanvasStore.getState().doc.elements[0].fill).toBe("#ff0000");
+  });
+
+  it("updateElement 修改文字内容后自动重算文字元素宽高（文字与选中框大小匹配）", () => {
+    const t = makeElement("text", 0, 0, 0, 0, { text: "A", fontSize: 20 });
+    useCanvasStore.getState().addElement(t);
+    useCanvasStore.getState().updateElement(t.id, { text: "你好世界" });
+    const el = useCanvasStore.getState().doc.elements[0] as TextElement;
+    expect(el.width).toBeCloseTo(80);
+    expect(el.height).toBeCloseTo(20 * 1.4);
+  });
+
+  it("updateElement 修改逻辑节点标题后自动扩展框宽以容纳（文字与框大小匹配）", () => {
+    const l = makeElement("logic", 0, 0, 80, 40, { text: "A", fontSize: 16 });
+    useCanvasStore.getState().addElement(l);
+    useCanvasStore.getState().updateElement(l.id, { text: "这是一个很长的标题" });
+    const el = useCanvasStore.getState().doc.elements[0] as LogicElement;
+    expect(el.width).toBeGreaterThanOrEqual(estimateTextSize("这是一个很长的标题", 16).width + 16);
+    expect(el.x).toBe(0); // 左对齐扩展：x 不变
+  });
+
+  it("updateElement 改字号/加粗也会重算文字宽高", () => {
+    const t = makeElement("text", 0, 0, 0, 0, { text: "你好", fontSize: 16 });
+    useCanvasStore.getState().addElement(t);
+    useCanvasStore.getState().updateElement(t.id, { fontSize: 32, bold: true });
+    const el = useCanvasStore.getState().doc.elements[0] as TextElement;
+    expect(el.width).toBeCloseTo(32 * 2 * 1.06);
   });
 
   it("deleteElements 删除并支持撤销恢复", () => {

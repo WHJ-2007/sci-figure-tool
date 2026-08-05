@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback, useEffect } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { makeElement } from "@/lib/canvas/elements";
 import { snapRect, nearestAnchor } from "@/lib/canvas/geometry";
@@ -8,7 +8,7 @@ import type { Anchor } from "@/lib/canvas/geometry";
 type Mode =
   | { kind: "idle" }
   | { kind: "pan"; startClientX: number; startClientY: number; ox0: number; oy0: number }
-  | { kind: "move"; startX: number; startY: number; start: Map<string, { x: number; y: number }>; moved: boolean }
+  | { kind: "move"; startX: number; startY: number; start: Map<string, { x: number; y: number }>; moved: boolean; lastDx: number; lastDy: number }
   | { kind: "rubber"; startX: number; startY: number; x: number; y: number; additive: boolean }
   | { kind: "resize"; id: string; handle: string; startX: number; startY: number; rect: { x: number; y: number; width: number; height: number } }
   | { kind: "rotate"; id: string; cx: number; cy: number }
@@ -27,74 +27,14 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
   // 箭头工具下高亮的最近锚点（悬停或绘制吸附时）
   const [anchorHint, setAnchorHint] = useState<Anchor | null>(null);
 
-  const onPointerDown = useCallback(
-    (e: React.PointerEvent<SVGSVGElement>) => {
-      const s = useCanvasStore.getState();
-      if (s.isGenerating) return;
-      if (s.tool === "hand") {
-        modeRef.current = { kind: "pan", startClientX: e.clientX, startClientY: e.clientY, ox0: s.view.ox, oy0: s.view.oy };
-        setPanning(true);
-        return;
-      }
-      const wx = worldX(e.clientX);
-      const wy = worldY(e.clientY);
-      if (s.tool !== "select") {
-        if (s.tool === "text") {
-          // 编辑中再点击不放新字（否则双击会堆叠创建两个空文字）
-          if (s.editingText) return;
-          const el = makeElement("text", wx, wy - 8, 60, 22, { text: "" });
-          s.addElement(el);
-          modeRef.current = { kind: "idle" };
-          s.setEditingText(el.id);
-          return;
-        }
-        if (s.tool === "arrow" || s.tool === "polyline") {
-          // 箭头起点吸附到逻辑节点锚点：起点落在锚点附近 12px 内则精确对齐（记录锚点 id 供 arrow 的 startId）
-          const startAnchor = s.tool === "arrow" ? nearestAnchor(s.doc.elements, { x: wx, y: wy }) : null;
-          const sx = startAnchor ? startAnchor.x : wx;
-          const sy = startAnchor ? startAnchor.y : wy;
-          modeRef.current = { kind: "draw-line", tool: s.tool, startX: sx, startY: sy, points: [{ x: sx, y: sy }] };
-          setAnchorHint(startAnchor);
-          return;
-        }
-        modeRef.current = { kind: "draw-shape", tool: s.tool as ShapeType | "rounded" | "logic", startX: wx, startY: wy, x: wx, y: wy };
-        return;
-      }
-      const target = (e.target as Element).closest("[data-element-id]");
-      if (target) {
-        const id = target.getAttribute("data-element-id")!;
-        const el = s.doc.elements.find((x) => x.id === id);
-        if (el && s.tool === "select") {
-          // Shift 只追加（点击已选元素保持选区）：toggle 移除会让"点已选元素拖动"变成该元素
-          // 原地不动、其他元素在动（用户报的"拖动乱动"）。取消选择走空白点击清空。
-          const next = s.selection.includes(id) ? s.selection : e.shiftKey ? [...s.selection, id] : [id];
-          if (!s.selection.includes(id)) s.setSelection(next);
-          const start = new Map<string, { x: number; y: number }>();
-          for (const eid of next) {
-            const ee = s.doc.elements.find((x) => x.id === eid);
-            if (ee) start.set(eid, { x: ee.x, y: ee.y });
-          }
-          modeRef.current = { kind: "move", startX: wx, startY: wy, start, moved: false };
-          return;
-        }
-      }
-      if (s.tool === "select") {
-        modeRef.current = { kind: "rubber", startX: wx, startY: wy, x: wx, y: wy, additive: e.shiftKey };
-      }
-    },
-    [worldX, worldY]
-  );
-
-  const onPointerMove = useCallback(
-    (e: React.PointerEvent<SVGSVGElement>) => {
+  // 拖动/绘制期间的全局指针跟踪：事件挂在 window 上——指针移出画布甚至移出窗口，
+  // 浏览器仍把 pointermove 派发给 window，元素持续跟随鼠标（"要时刻检测鼠标位置"）。
+  const onWindowMove = useCallback(
+    (e: PointerEvent) => {
       const m = modeRef.current;
       const wx = worldX(e.clientX);
       const wy = worldY(e.clientY);
-      if (m.kind === "idle") {
-        // 箭头工具悬停：高亮最近的逻辑节点锚点（阈值内），指引手动箭头对接
-        const s = useCanvasStore.getState();
-        setAnchorHint(s.tool === "arrow" ? nearestAnchor(s.doc.elements, { x: wx, y: wy }) : null);
-      } else if (m.kind === "pan") {
+      if (m.kind === "pan") {
         const s = useCanvasStore.getState();
         s.setView({ scale: s.view.scale, ox: m.ox0 + (e.clientX - m.startClientX), oy: m.oy0 + (e.clientY - m.startClientY) });
       } else if (m.kind === "move") {
@@ -114,8 +54,13 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
         const minY = Math.min(...boxes.map((b) => b.y));
         const others = s.doc.elements.filter((el) => !m.start.has(el.id));
         const snap = snapRect({ x: minX, y: minY, width: 0, height: 0 }, others);
-        // moveElements 不入历史（首次移动时已 commitHistory 一次）
-        s.moveElements([...m.start.keys()], dx + snap.dx, dy + snap.dy);
+        // 绝对目标 = 按下位置 + 指针位移 + 吸附偏移；moveElements 是相对移动，
+        // 每次只移动与上次的差值，否则连续 move 事件会累计放大（图形甩出鼠标位置）
+        const tx = dx + snap.dx;
+        const ty = dy + snap.dy;
+        s.moveElements([...m.start.keys()], tx - m.lastDx, ty - m.lastDy);
+        m.lastDx = tx;
+        m.lastDy = ty;
       } else if (m.kind === "rubber") {
         m.x = wx;
         m.y = wy;
@@ -158,7 +103,7 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
     [worldX, worldY]
   );
 
-  const onPointerUp = useCallback(() => {
+  const endDrag = useCallback(() => {
     const m = modeRef.current;
     const s = useCanvasStore.getState();
     if (m.kind === "pan") {
@@ -213,7 +158,104 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
       setPreview(null);
     }
     modeRef.current = { kind: "idle" };
-  }, []);
+    window.removeEventListener("pointermove", onWindowMove);
+    window.removeEventListener("pointerup", endDrag);
+    window.removeEventListener("pointercancel", endDrag);
+  }, [onWindowMove]);
+
+  const startDrag = useCallback(() => {
+    // 先移除再挂载，保证幂等（重复 pointerdown 不叠加监听）
+    window.removeEventListener("pointermove", onWindowMove);
+    window.removeEventListener("pointerup", endDrag);
+    window.removeEventListener("pointercancel", endDrag);
+    window.addEventListener("pointermove", onWindowMove);
+    window.addEventListener("pointerup", endDrag);
+    window.addEventListener("pointercancel", endDrag);
+  }, [onWindowMove, endDrag]);
+
+  useEffect(
+    () => () => {
+      window.removeEventListener("pointermove", onWindowMove);
+      window.removeEventListener("pointerup", endDrag);
+      window.removeEventListener("pointercancel", endDrag);
+    },
+    [onWindowMove, endDrag]
+  );
+
+  const onPointerDown = useCallback(
+    (e: React.PointerEvent<SVGSVGElement>) => {
+      const s = useCanvasStore.getState();
+      if (s.isGenerating) return;
+      if (s.tool === "hand") {
+        modeRef.current = { kind: "pan", startClientX: e.clientX, startClientY: e.clientY, ox0: s.view.ox, oy0: s.view.oy };
+        setPanning(true);
+        startDrag();
+        return;
+      }
+      const wx = worldX(e.clientX);
+      const wy = worldY(e.clientY);
+      if (s.tool !== "select") {
+        if (s.tool === "text") {
+          // 编辑中再点击不放新字（否则双击会堆叠创建两个空文字）
+          if (s.editingText) return;
+          const el = makeElement("text", wx, wy - 8, 60, 22, { text: "" });
+          s.addElement(el);
+          modeRef.current = { kind: "idle" };
+          s.setEditingText(el.id);
+          return;
+        }
+        if (s.tool === "arrow" || s.tool === "polyline") {
+          // 箭头起点吸附到逻辑节点锚点：起点落在锚点附近 12px 内则精确对齐（记录锚点 id 供 arrow 的 startId）
+          const startAnchor = s.tool === "arrow" ? nearestAnchor(s.doc.elements, { x: wx, y: wy }) : null;
+          const sx = startAnchor ? startAnchor.x : wx;
+          const sy = startAnchor ? startAnchor.y : wy;
+          modeRef.current = { kind: "draw-line", tool: s.tool, startX: sx, startY: sy, points: [{ x: sx, y: sy }] };
+          setAnchorHint(startAnchor);
+          startDrag();
+          return;
+        }
+        modeRef.current = { kind: "draw-shape", tool: s.tool as ShapeType | "rounded" | "logic", startX: wx, startY: wy, x: wx, y: wy };
+        startDrag();
+        return;
+      }
+      const target = (e.target as Element).closest("[data-element-id]");
+      if (target) {
+        const id = target.getAttribute("data-element-id")!;
+        const el = s.doc.elements.find((x) => x.id === id);
+        if (el && s.tool === "select") {
+          // Shift 只追加（点击已选元素保持选区）：toggle 移除会让"点已选元素拖动"变成该元素
+          // 原地不动、其他元素在动（用户报的"拖动乱动"）。取消选择走空白点击清空。
+          const next = s.selection.includes(id) ? s.selection : e.shiftKey ? [...s.selection, id] : [id];
+          if (!s.selection.includes(id)) s.setSelection(next);
+          const start = new Map<string, { x: number; y: number }>();
+          for (const eid of next) {
+            const ee = s.doc.elements.find((x) => x.id === eid);
+            if (ee) start.set(eid, { x: ee.x, y: ee.y });
+          }
+          modeRef.current = { kind: "move", startX: wx, startY: wy, start, moved: false, lastDx: 0, lastDy: 0 };
+          startDrag();
+          return;
+        }
+      }
+      if (s.tool === "select") {
+        modeRef.current = { kind: "rubber", startX: wx, startY: wy, x: wx, y: wy, additive: e.shiftKey };
+        startDrag();
+      }
+    },
+    [worldX, worldY, startDrag]
+  );
+
+  // svg 上的 move/up 只处理空闲态（箭头悬停锚点高亮）；活动模式一律由 window 监听处理
+  const onPointerMove = useCallback(
+    (e: React.PointerEvent<SVGSVGElement>) => {
+      if (modeRef.current.kind !== "idle") return;
+      const s = useCanvasStore.getState();
+      setAnchorHint(s.tool === "arrow" ? nearestAnchor(s.doc.elements, { x: worldX(e.clientX), y: worldY(e.clientY) }) : null);
+    },
+    [worldX, worldY]
+  );
+
+  const onPointerUp = useCallback(() => {}, []);
 
   return { rubber, preview, panning, anchorHint, onPointerDown, onPointerMove, onPointerUp, modeRef };
 }

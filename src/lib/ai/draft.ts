@@ -1,5 +1,5 @@
 import { CANVAS_WIDTH, CANVAS_HEIGHT, clampRect, shapeExitPoint, anchorToward, type Point } from "@/lib/canvas/geometry";
-import { makeElement } from "@/lib/canvas/elements";
+import { makeElement, estimateTextSize } from "@/lib/canvas/elements";
 import type { CanvasDocument, CanvasElement, ElementType } from "@/lib/canvas/types";
 
 // updateElement 只接受白名单内的属性键，防止绕过工具层 schema 直接注入任意属性
@@ -99,6 +99,17 @@ export class DraftCanvas {
     const e = this.elements[idx];
     const patch = Object.fromEntries(PATCH_KEYS.filter((k) => k in args.patch).map((k) => [k, args.patch[k]]));
     const next = { ...e, ...patch } as CanvasElement;
+    // 文字/逻辑节点内容变化自动重算尺寸：文字按内容重算宽高，逻辑节点标题变长时框宽随标题扩展（与客户端行为一致）
+    if (next.type === "text" && ("text" in patch || "fontSize" in patch || "bold" in patch)) {
+      const size = estimateTextSize(next.text, next.fontSize, next.bold);
+      next.width = size.width;
+      next.height = size.height;
+    }
+    if (next.type === "logic" && ("text" in patch || "fontSize" in patch || "bold" in patch)) {
+      const size = estimateTextSize(next.text, next.fontSize, next.bold);
+      next.width = Math.max(next.width, size.width + 16);
+      next.height = Math.max(next.height, size.height + 10);
+    }
     next.width = Math.max(4, next.width);
     next.height = Math.max(4, next.height);
     next.x = Math.min(Math.max(next.x, 0), CANVAS_WIDTH - next.width);

@@ -21,12 +21,23 @@ export function newId(): string {
 export const DEFAULT_FILL = "#ffffff";
 export const DEFAULT_STROKE = "#2f2f2f";
 
-export function estimateTextSize(text: string, fontSize: number): { width: number; height: number } {
+// 逐字符宽度估算（em 单位）：CJK 全角 1，拉丁按常见字体实际占比分类，加粗再放大 6%
+function charWidthEm(ch: string): number {
+  if (/[一-鿿　-〿＀-￯]/.test(ch)) return 1;
+  if (/[A-Z]/.test(ch)) return 0.68;
+  if (/[a-z]/.test(ch)) return 0.55;
+  if (/[0-9]/.test(ch)) return 0.6;
+  if (ch === " ") return 0.32;
+  if (/[.,!?;:，。！？；：、]/.test(ch)) return 0.3;
+  if (/[()\[\]{}（）【】]/.test(ch)) return 0.5;
+  if (/[-_/\\|~^+=*]/.test(ch)) return 0.4;
+  return 0.6;
+}
+
+export function estimateTextSize(text: string, fontSize: number, bold = false): { width: number; height: number } {
   let w = 0;
-  for (const ch of text) {
-    w += /[一-鿿　-〿＀-￯]/.test(ch) ? 1 : 0.6;
-  }
-  return { width: Math.max(w * fontSize, 8), height: fontSize * 1.4 };
+  for (const ch of text) w += charWidthEm(ch);
+  return { width: Math.max(w * fontSize * (bold ? 1.06 : 1), 8), height: fontSize * 1.4 };
 }
 
 // 按填充色亮度取对比文字色（亮底深字、暗底白字）；logic 节点标题用
@@ -99,7 +110,7 @@ export function makeElement(
     case "text": {
       const t = extra.text ?? "文字";
       const fontSize = extra.fontSize ?? 16;
-      const size = estimateTextSize(t, fontSize);
+      const size = estimateTextSize(t, fontSize, extra.bold ?? false);
       return {
         ...base,
         type: "text",
@@ -117,7 +128,7 @@ export function makeElement(
       // 逻辑节点：圆角矩形 + 内置居中标题；尺寸不足时扩展以容纳标题
       const t = extra.text ?? "逻辑";
       const fontSize = extra.fontSize ?? 14;
-      const size = estimateTextSize(t, fontSize);
+      const size = estimateTextSize(t, fontSize, extra.bold ?? false);
       return {
         ...base,
         type: "logic",

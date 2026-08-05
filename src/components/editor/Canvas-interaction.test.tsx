@@ -38,6 +38,22 @@ describe("Canvas 交互", () => {
     expect(useCanvasStore.getState().doc.elements[0].y).toBe(10);
   });
 
+  it("拖动中指针移出画布（后续事件派发到 window）仍持续跟随：图形位置与鼠标增量严格一致", () => {
+    const a = makeElement("rect", 10, 10, 100, 60);
+    useCanvasStore.getState().addElement(a);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const el = document.querySelector("[data-element-id]")!;
+    fireEvent.pointerDown(el, { clientX: 50, clientY: 30, button: 0 });
+    // 模拟指针移出 svg：浏览器把 pointermove/up 派发给 window（React 的 svg 监听收不到）
+    fireEvent.pointerMove(window, { clientX: 120, clientY: 80, buttons: 1 });
+    fireEvent.pointerMove(window, { clientX: 140, clientY: 100, buttons: 1 });
+    fireEvent.pointerUp(window, { clientX: 140, clientY: 100 });
+    const e = useCanvasStore.getState().doc.elements[0];
+    // 指针位移 90,70 → 元素跟随 90,70（按下位置 (10,10) 不变，绝对增量跟踪）
+    expect(e.x).toBe(100);
+    expect(e.y).toBe(80);
+  });
+
   it("拖动中滚轮缩放被锁定（避免视口变化导致换算基准错乱、元素不跟手）", () => {
     const a = makeElement("rect", 10, 10, 100, 60);
     useCanvasStore.getState().addElement(a);

@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { CanvasDocument, CanvasElement, ToolType } from "./types";
 import { createHistory, pushHistory, undo as undoHistory, redo as redoHistory, type HistoryState } from "./history";
 import { loadProjects, makeProject, defaultProjectName, saveProjects, type CanvasProject } from "./projects";
+import { estimateTextSize } from "./elements";
 
 function maxZIndex(elements: CanvasElement[]): number {
   let max = 0;
@@ -101,7 +102,22 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => {
         doc.elements = doc.elements.map((e) => {
           if (e.id !== id) return e;
           changed = true;
-          return { ...e, ...patch } as CanvasElement;
+          const next = { ...e, ...patch } as CanvasElement;
+          // 文字内容/字号/加粗变化 → 重算文字宽高（选中框与视觉一致）；
+          // 逻辑节点标题变长 → 框宽随标题扩展（左侧固定），保证"文字与框大小匹配"
+          if (next.type === "text" && ("text" in patch || "fontSize" in patch || "bold" in patch)) {
+            const size = estimateTextSize(next.text, next.fontSize, next.bold);
+            return { ...next, width: size.width, height: size.height };
+          }
+          if (next.type === "logic" && ("text" in patch || "fontSize" in patch || "bold" in patch)) {
+            const size = estimateTextSize(next.text, next.fontSize, next.bold);
+            return {
+              ...next,
+              width: Math.max(next.width, size.width + 16),
+              height: Math.max(next.height, size.height + 10),
+            };
+          }
+          return next;
         });
         if (!changed) return { doc };
         return { ...syncProject(s, doc, pushHistory(s.history, s.doc)) };

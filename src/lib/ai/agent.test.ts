@@ -4,6 +4,8 @@ import { DraftCanvas } from "./draft";
 import { buildTools } from "./tools";
 import { runAgent } from "./agent";
 import { CANVAS_WIDTH } from "../canvas/geometry";
+import { estimateTextSize } from "../canvas/elements";
+import type { LogicElement, TextElement } from "../canvas/types";
 
 // vi.mock 工厂被提升执行时引用外部变量会 TDZ 报错，必须用 vi.hoisted 创建 mock；
 // 只替换 generateText，保留真实的 tool（tools.ts 依赖它构造工具对象）
@@ -132,6 +134,22 @@ describe("DraftCanvas", () => {
     const res = d.updateElement({ id: r.id!, patch: { bold: true, fontSize: 30, align: "right" } });
     expect(res.ok).toBe(true);
     expect(d.serialize().elements[0]).toMatchObject({ bold: true, fontSize: 30, align: "right" });
+  });
+
+  it("updateElement 改文字后自动重算文字宽高（与框大小匹配）", () => {
+    const d = new DraftCanvas([]);
+    const r = d.createElement({ type: "text", x: 10, y: 10, width: 50, height: 20, text: "A", fontSize: 20 });
+    d.updateElement({ id: r.id!, patch: { text: "你好世界" } });
+    const t = d.serialize().elements[0] as TextElement;
+    expect(t.width).toBeCloseTo(80);
+  });
+
+  it("updateElement 改逻辑节点标题后自动扩框容纳（与框大小匹配）", () => {
+    const d = new DraftCanvas([]);
+    const l = d.createElement({ type: "logic", x: 10, y: 10, width: 80, height: 40, text: "A", fontSize: 16 });
+    d.updateElement({ id: l.id!, patch: { text: "这是一个很长的标题" } });
+    const el = d.serialize().elements.find((e) => e.id === l.id)! as LogicElement;
+    expect(el.width).toBeGreaterThanOrEqual(estimateTextSize("这是一个很长的标题", 16).width + 16);
   });
 
   it("文字元素自动置顶：先建文字再建框，文字仍显示在框之上", () => {

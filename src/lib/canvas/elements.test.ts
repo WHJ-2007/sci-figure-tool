@@ -35,9 +35,15 @@ describe("elements", () => {
     expect(t.text).toBe("你好");
   });
 
-  it("estimateTextSize 中文字符按 1.0 倍字号、拉丁按 0.6 倍估算", () => {
-    const { width } = estimateTextSize("Ab你好", 16);
-    expect(width).toBeCloseTo(16 * (0.6 + 0.6 + 1 + 1));
+  it("estimateTextSize 逐字符估算：CJK=1em、大写 0.68、小写 0.55、空格 0.32、加粗 ×1.06", () => {
+    expect(estimateTextSize("你好世界", 20).width).toBeCloseTo(80);
+    expect(estimateTextSize("ABCD", 20).width).toBeCloseTo(20 * 0.68 * 4);
+    expect(estimateTextSize("abcd", 20).width).toBeCloseTo(20 * 0.55 * 4);
+    expect(estimateTextSize("1234", 20).width).toBeCloseTo(20 * 0.6 * 4);
+    expect(estimateTextSize("A b", 20).width).toBeCloseTo(20 * (0.68 + 0.32 + 0.55));
+    expect(estimateTextSize("你好", 20, true).width).toBeCloseTo(40 * 1.06);
+    // 与字号线性：字号翻倍宽度翻倍
+    expect(estimateTextSize("Transformer", 24).width).toBeCloseTo(2 * estimateTextSize("Transformer", 12).width);
   });
 
   it("矩形不携带其他元素的专属字段（无字段泄漏）", () => {
