@@ -8,19 +8,23 @@ import EditorHost from "@/components/editor/EditorHost";
 
 export default function Home() {
   return (
-    <main className="flex h-full w-full flex-col">
-      <EditorHost>
+    <EditorHost>
+      <main className="flex h-full w-full flex-col">
         <Toolbar />
         <div className="flex min-h-0 flex-1">
-        <div className="min-w-0 flex-1">
-          <Canvas viewportWidth={1200} viewportHeight={800} />
+          <div className="min-w-0 flex-1">
+            <Canvas viewportWidth={1200} viewportHeight={800} />
+          </div>
+          <div className="flex w-80 flex-col border-l border-gray-200">
+            <div className="max-h-[45%] overflow-y-auto border-b border-gray-200">
+              <PropertyPanel />
+            </div>
+            <div className="min-h-0 flex-1">
+              <ChatPanel />
+            </div>
+          </div>
         </div>
-        <div className="flex w-80 flex-col border-l border-gray-200">
-          <PropertyPanel />
-          <ChatPanel />
-        </div>
-      </div>
-      </EditorHost>
-    </main>
+      </main>
+    </EditorHost>
   );
 }

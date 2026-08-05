@@ -50,4 +50,27 @@ Element.prototype.hasPointerCapture = () => false;
 // jsdom 的 getBoundingClientRect 恒返回 0：画布坐标换算依赖它，桩成左上角为原点的矩形
 Element.prototype.getBoundingClientRect = () =>
   ({ left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+
+// jsdom 未实现 Element.scrollTo：聊天面板自动滚动用，桩掉即可（滚动语义由真实浏览器保证）
+Element.prototype.scrollTo = () => {};
+
+// jsdom 未实现 Blob.stream()（也无 arrayBuffer）：NDJSON 流测试的 mockStream 依赖它，
+// 用 FileReader（jsdom 已实现）读出内容再包装成流
+if (typeof Blob.prototype.stream !== "function") {
+  Blob.prototype.stream = function () {
+    const self = this;
+    return new ReadableStream<Uint8Array<ArrayBuffer>>({
+      async start(c) {
+        const buf = await new Promise<ArrayBuffer>((resolve, reject) => {
+          const fr = new FileReader();
+          fr.onload = () => resolve(fr.result as ArrayBuffer);
+          fr.onerror = () => reject(fr.error);
+          fr.readAsArrayBuffer(self);
+        });
+        c.enqueue(new Uint8Array(buf));
+        c.close();
+      },
+    });
+  };
+}
 }
