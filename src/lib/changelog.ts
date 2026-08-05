@@ -21,6 +21,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       "设置页：API Key/模型/Base URL 配置（localStorage 存储）、测试连接（/api/test-key 验证 Key）",
       "AI 智能体：服务端草稿（DraftCanvas）、5 个工具（createElement/updateElement/deleteElement/listElements/clearCanvas）、agent 循环（多轮工具调用上限 20 步 + 流式进度）、/api/chat NDJSON SSE 流、系统提示词（科研制图规范）",
       "聊天面板与 AI 生成流：对话式一键生成（NDJSON 流式读取进度与应用画布）、生成中画布锁定",
+      "首次运行引导：未配置 API Key 时顶部显示引导条（前往设置页/可关闭）",
     ],
   },
 ];
