@@ -13,8 +13,14 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
   const setView = useCanvasStore((s) => s.setView);
   const svgRef = useRef<SVGSVGElement>(null);
 
-  const worldX = useCallback((clientX: number) => (clientX - view.ox) / view.scale, [view]);
-  const worldY = useCallback((clientY: number) => (clientY - view.oy) / view.scale, [view]);
+  const worldX = useCallback((clientX: number) => {
+    const rect = svgRef.current?.getBoundingClientRect();
+    return (clientX - (rect?.left ?? 0) - view.ox) / view.scale;
+  }, [view]);
+  const worldY = useCallback((clientY: number) => {
+    const rect = svgRef.current?.getBoundingClientRect();
+    return (clientY - (rect?.top ?? 0) - view.oy) / view.scale;
+  }, [view]);
 
   const { rubber, onPointerDown, onPointerMove, onPointerUp } = usePointerInteraction(worldX, worldY);
 

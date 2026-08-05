@@ -1,4 +1,5 @@
 import { useCanvasStore } from "@/lib/canvas/store";
+import type { CanvasElement } from "@/lib/canvas/types";
 
 const HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const;
 const HANDLE_POS: Record<(typeof HANDLES)[number], { x: number; y: number }> = {
@@ -17,15 +18,17 @@ export default function SelectionOverlay({ scale }: { scale: number }) {
   const selection = useCanvasStore((s) => s.selection);
   if (selection.length === 0) return null;
   const H = 8 / scale;
-  const sel = selection.map((id) => doc.elements.find((e) => e.id === id)).filter(Boolean) as any[];
+  const sel = selection.map((id) => doc.elements.find((e) => e.id === id)).filter((e): e is CanvasElement => Boolean(e));
 
   return (
     <>
       {sel.map((e) => {
         const cx = e.x + e.width / 2;
         const cy = e.y + e.height / 2;
+        // 选中框必须随元素旋转（与 ElementShape 的 rotate 一致），否则旋转后虚线框与元素脱离
+        const rot = e.rotation ? `rotate(${e.rotation} ${cx} ${cy})` : undefined;
         return (
-          <g key={e.id} pointerEvents="none">
+          <g key={e.id} pointerEvents="none" transform={rot}>
             <rect
               x={e.x}
               y={e.y}
@@ -83,8 +86,9 @@ export default function SelectionOverlay({ scale }: { scale: number }) {
   );
 }
 
-function handleDown(ev: React.PointerEvent, e: any, handle: string, scale: number) {
+function handleDown(ev: React.PointerEvent, e: CanvasElement, handle: (typeof HANDLES)[number], scale: number) {
   const s = useCanvasStore.getState();
+  if (s.isGenerating) return;
   s.commitHistory(); // 缩放前提交快照（手势前状态），一次缩放 = 一步撤销
   const rect = { x: e.x, y: e.y, width: e.width, height: e.height };
   const startX = ev.clientX;
@@ -111,13 +115,17 @@ function handleDown(ev: React.PointerEvent, e: any, handle: string, scale: numbe
   const onUp = () => {
     window.removeEventListener("pointermove", onMove);
     window.removeEventListener("pointerup", onUp);
+    window.removeEventListener("pointercancel", onUp);
   };
   window.addEventListener("pointermove", onMove);
   window.addEventListener("pointerup", onUp);
+  window.addEventListener("pointercancel", onUp);
 }
 
-function rotateDown(ev: React.PointerEvent, e: any) {
-  useCanvasStore.getState().commitHistory(); // 旋转前提交快照（手势前状态），一次旋转 = 一步撤销
+function rotateDown(ev: React.PointerEvent, e: CanvasElement) {
+  const s = useCanvasStore.getState();
+  if (s.isGenerating) return;
+  s.commitHistory(); // 旋转前提交快照（手势前状态），一次旋转 = 一步撤销
   const cx = e.x + e.width / 2;
   const cy = e.y + e.height / 2;
   const onMove = (me: PointerEvent) => {
@@ -132,7 +140,9 @@ function rotateDown(ev: React.PointerEvent, e: any) {
   const onUp = () => {
     window.removeEventListener("pointermove", onMove);
     window.removeEventListener("pointerup", onUp);
+    window.removeEventListener("pointercancel", onUp);
   };
   window.addEventListener("pointermove", onMove);
   window.addEventListener("pointerup", onUp);
+  window.addEventListener("pointercancel", onUp);
 }

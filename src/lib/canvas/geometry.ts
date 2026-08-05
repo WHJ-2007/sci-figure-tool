@@ -1,7 +1,7 @@
 import type { CanvasElement } from "./types";
 
-// 旋转约定：本模块所有几何计算均假设元素未旋转（rotation 字段存在于数据模型但尚未在 UI 中暴露）。
-// 后续任务若开放旋转，必须同步更新 shapePoints / pointInPolygon / hitTestElement / clampRect / snapRect 等函数。
+// 旋转约定：旋转已由 UI 暴露（旋转手柄），但本模块的几何命中/吸附仍按未旋转处理——
+// 矩形框旋转后命中/吸附会有偏差，后续任务如需精确命中，需按旋转后坐标计算。
 
 export interface Rect { x: number; y: number; width: number; height: number }
 export interface Point { x: number; y: number }

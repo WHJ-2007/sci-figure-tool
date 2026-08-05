@@ -70,6 +70,24 @@ describe("Canvas 交互", () => {
     expect(e.rotation).toBeCloseTo(90, 0);
   });
 
+  it("群组拖动吸附到其他元素边缘", () => {
+    const a = makeElement("rect", 0, 100, 40, 40);
+    const b = makeElement("rect", 50, 100, 40, 40);
+    const anchor = makeElement("rect", 100, 0, 40, 40);
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().addElement(b);
+    useCanvasStore.getState().addElement(anchor);
+    useCanvasStore.getState().setSelection([a.id, b.id]);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    // 命中 a（DOM 首序），a 已在选择中 → 保持多选群组
+    const el = document.querySelector("[data-element-id]")!;
+    // 拖 95px：组 bbox minX=95，距 anchor 左边 100 差 5px（<6 阈值）→ 吸附 dx=5 → 实际位移 100
+    drag(el, { x: 20, y: 120 }, { x: 115, y: 120 });
+    const doc = useCanvasStore.getState().doc.elements;
+    expect(doc.find((e) => e.id === a.id)!.x).toBe(100); // 0 + 95 + 5(snap)
+    expect(doc.find((e) => e.id === b.id)!.x).toBe(150); // 50 + 95 + 5
+  });
+
   it("空白点击清空选择", () => {
     const a = makeElement("rect", 10, 10, 100, 60);
     useCanvasStore.getState().addElement(a);
