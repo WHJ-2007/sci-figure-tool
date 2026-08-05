@@ -22,12 +22,12 @@ export function undo(h: HistoryState, doc: CanvasDocument): { history: HistorySt
   if (h.past.length === 0) return null;
   const past = [...h.past];
   const prev = past.pop()!;
-  return { history: { past, future: [...h.future, structuredClone(doc)], limit: h.limit }, doc: prev };
+  return { history: { past, future: [...h.future, structuredClone(doc)], limit: h.limit }, doc: structuredClone(prev) };
 }
 
 export function redo(h: HistoryState, doc: CanvasDocument): { history: HistoryState; doc: CanvasDocument } | null {
   if (h.future.length === 0) return null;
   const future = [...h.future];
   const next = future.pop()!;
-  return { history: { past: [...h.past, structuredClone(doc)], future, limit: h.limit }, doc: next };
+  return { history: { past: [...h.past, structuredClone(doc)], future, limit: h.limit }, doc: structuredClone(next) };
 }

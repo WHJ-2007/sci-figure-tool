@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createHistory, pushHistory, undo, redo } from "./history";
+import { makeElement } from "./elements";
 import type { CanvasDocument } from "./types";
 
 function doc(elements: CanvasDocument["elements"]): CanvasDocument {
@@ -11,12 +12,12 @@ describe("history", () => {
     let h = createHistory();
     const d1 = doc([]);
     h = pushHistory(h, d1);
-    const d2 = doc([]);
+    const d2 = doc([makeElement("rect", 0, 0, 100, 60, { id: "x" })]);
     const after = undo(h, d2);
     expect(after).not.toBeNull();
     expect(after!.doc.elements).toEqual([]);
     const redone = redo(after!.history, after!.doc);
-    expect(redone!.doc.elements).toEqual(d2.elements);
+    expect(redone!.doc).toEqual(d2);
   });
 
   it("快照为深拷贝，后续修改不影响历史", () => {
@@ -36,5 +37,20 @@ describe("history", () => {
 
   it("无可撤销时 undo 返回 null", () => {
     expect(undo(createHistory(), doc([]))).toBeNull();
+  });
+
+  it("无可重做时 redo 返回 null", () => {
+    expect(redo(createHistory(), doc([]))).toBeNull();
+  });
+
+  it("撤销后 push 清空未来栈，redo 不可用", () => {
+    let h = createHistory();
+    h = pushHistory(h, doc([]));
+    const after = undo(h, doc([]));
+    expect(after).not.toBeNull();
+    expect(after!.history.future.length).toBeGreaterThan(0);
+    h = pushHistory(after!.history, doc([]));
+    expect(h.future).toHaveLength(0);
+    expect(redo(h, doc([]))).toBeNull();
   });
 });
