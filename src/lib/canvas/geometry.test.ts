@@ -125,11 +125,17 @@ describe("snapRect", () => {
     expect(offs.dx).toBe(0);
     expect(offs.dy).toBe(0);
   });
-  it("排除自身：不吸附到自己的旧位置", () => {
-    const self = makeElement("rect", 94, 0, 50, 50) as CanvasElement;
-    const offs = snapRect(self, [self], 6, self.id);
-    expect(offs.dx).toBe(0);
+  it("排除自身：不因自身旧位置而失效，仍吸附到邻元素", () => {
+    const self = makeElement("rect", 95, 100, 50, 50) as CanvasElement;
+    const neighbor = makeElement("rect", 100, 0, 50, 50) as CanvasElement;
+    // 自身旧位置 x=95（若不过滤自身，d=0 会把 best 置 0、压制一切吸附）；
+    // 邻元素左边 x=100 距自身左边 5px，在阈值 6px 内 → 应吸附 dx=5
+    const offs = snapRect(self, [self, neighbor], 6, self.id);
+    expect(offs.dx).toBe(5);
     expect(offs.dy).toBe(0);
+    // 无邻元素（仅自身）时不吸附——保留原测试意图
+    const alone = snapRect(self, [self], 6);
+    expect(alone).toEqual({ dx: 0, dy: 0 });
   });
 });
 
