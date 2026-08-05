@@ -40,14 +40,15 @@ export function elementToSvg(e: CanvasElement): string {
       const head = arrowHeadPoints(prev.x, prev.y, last.x, last.y)
         .map((p) => `${p.x},${p.y}`)
         .join(" ");
-      return `<g><polyline points="${pts}" fill="none" stroke="${e.stroke}" stroke-width="${e.strokeWidth}" opacity="${e.opacity}"/><polygon points="${head}" fill="${e.stroke}" opacity="${e.opacity}"/></g>`;
+      return `<g${rot}><polyline points="${pts}" fill="none" stroke="${e.stroke}" stroke-width="${e.strokeWidth}" opacity="${e.opacity}"/><polygon points="${head}" fill="${e.stroke}" opacity="${e.opacity}"/></g>`;
     }
     case "text": {
       const anchor = e.align === "left" ? "start" : e.align === "right" ? "end" : "middle";
       const tx = e.align === "left" ? e.x : e.align === "right" ? e.x + e.width : e.x + e.width / 2;
       const weight = e.bold ? ' font-weight="bold"' : "";
       const style = e.italic ? ' font-style="italic"' : "";
-      return `<text ${attrs} x="${tx}" y="${e.y + e.height / 2}" text-anchor="${anchor}" dominant-baseline="middle" font-size="${e.fontSize}" font-family="${e.fontFamily}"${weight}${style}${rot}>${esc(e.text)}</text>`;
+      const textAttrs = `fill="${e.fill}" opacity="${e.opacity}"`;
+      return `<text ${textAttrs} x="${tx}" y="${e.y + e.height / 2}" text-anchor="${anchor}" dominant-baseline="middle" font-size="${e.fontSize}" font-family="${e.fontFamily}"${weight}${style}${rot}>${esc(e.text)}</text>`;
     }
   }
 }
@@ -75,7 +76,8 @@ export async function svgToPngDataUrl(svg: string, width: number, height: number
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
-    const ctx = canvas.getContext("2d")!;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("无法创建画布上下文");
     ctx.drawImage(img, 0, 0, width, height);
     return canvas.toDataURL("image/png");
   } finally {
