@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 import { DraftCanvas } from "./draft";
 import { buildTools } from "./tools";
 import { runAgent } from "./agent";
+import { CANVAS_WIDTH } from "../canvas/geometry";
 
 // vi.mock 工厂被提升执行时引用外部变量会 TDZ 报错，必须用 vi.hoisted 创建 mock；
 // 只替换 generateText，保留真实的 tool（tools.ts 依赖它构造工具对象）
@@ -36,6 +37,40 @@ describe("DraftCanvas", () => {
     expect(d.serialize().elements[0].fill).toBe("#ff0000");
     d.deleteElement({ id: r.id! });
     expect(d.serialize().elements).toHaveLength(0);
+  });
+
+  it("updateElement 对不存在的 id 报错", () => {
+    const d = new DraftCanvas([]);
+    const res = d.updateElement({ id: "missing", patch: { x: 10 } });
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/不存在/);
+  });
+
+  it("deleteElement 对不存在的 id 报错", () => {
+    const d = new DraftCanvas([]);
+    const res = d.deleteElement({ id: "missing" });
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/不存在/);
+  });
+
+  it("updateElement 忽略白名单外的键", () => {
+    const d = new DraftCanvas([]);
+    const r = d.createElement({ type: "rect", x: 0, y: 0, width: 100, height: 60 });
+    const res = d.updateElement({ id: r.id!, patch: { zIndex: 999, evil: true } as unknown as Record<string, unknown> });
+    expect(res.ok).toBe(true);
+    const el = d.serialize().elements[0];
+    expect(el.zIndex).toBe(1);
+    expect("evil" in el).toBe(false);
+  });
+
+  it("updateElement 先钳最小尺寸再钳位置，缩小宽度的元素不越界", () => {
+    const d = new DraftCanvas([]);
+    const r = d.createElement({ type: "rect", x: 0, y: 0, width: 100, height: 50 });
+    const res = d.updateElement({ id: r.id!, patch: { x: 1598, width: 2 } });
+    expect(res.ok).toBe(true);
+    const el = d.serialize().elements[0];
+    expect(el.width).toBe(4);
+    expect(el.x).toBe(CANVAS_WIDTH - 4);
   });
 
   it("listElements 返回可序列化摘要", () => {

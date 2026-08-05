@@ -5,7 +5,12 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
-  const body = await req.json();
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return Response.json({ error: "请求体无效" }, { status: 400 });
+  }
   const { messages, canvas, apiKey, baseURL, model } = body as {
     messages: { role: "user" | "assistant"; content: string }[];
     canvas: CanvasDocument;

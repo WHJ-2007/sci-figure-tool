@@ -2,6 +2,9 @@ import { CANVAS_WIDTH, CANVAS_HEIGHT, clampRect } from "@/lib/canvas/geometry";
 import { makeElement } from "@/lib/canvas/elements";
 import type { CanvasDocument, CanvasElement, ElementType } from "@/lib/canvas/types";
 
+// updateElement 只接受白名单内的属性键，防止绕过工具层 schema 直接注入任意属性
+const PATCH_KEYS = ["x", "y", "width", "height", "fill", "stroke", "strokeWidth", "rotation", "text", "fontSize", "opacity"] as const;
+
 export interface CreateArgs {
   type: string;
   x: number;
@@ -57,7 +60,7 @@ export class DraftCanvas {
       });
     }
     this.elements.push(el);
-    this.activity.push(`创建${typeName(el.type)} (${Math.round(r.x)}, ${Math.round(r.y)}, ${Math.round(r.width)}×${Math.round(r.height)})${el.type === "text" ? `：${(el as any).text}` : ""}`);
+    this.activity.push(`创建${typeName(el.type)} (${Math.round(r.x)}, ${Math.round(r.y)}, ${Math.round(r.width)}×${Math.round(r.height)})${"text" in el ? `：${el.text}` : ""}`);
     return { ok: true, id: el.id };
   }
 
@@ -65,11 +68,12 @@ export class DraftCanvas {
     const idx = this.elements.findIndex((e) => e.id === args.id);
     if (idx < 0) return { ok: false, error: `元素不存在: ${args.id}` };
     const e = this.elements[idx];
-    const next = { ...e, ...args.patch } as CanvasElement;
-    next.x = Math.min(Math.max(next.x, 0), CANVAS_WIDTH - next.width);
-    next.y = Math.min(Math.max(next.y, 0), CANVAS_HEIGHT - next.height);
+    const patch = Object.fromEntries(PATCH_KEYS.filter((k) => k in args.patch).map((k) => [k, args.patch[k]]));
+    const next = { ...e, ...patch } as CanvasElement;
     next.width = Math.max(4, next.width);
     next.height = Math.max(4, next.height);
+    next.x = Math.min(Math.max(next.x, 0), CANVAS_WIDTH - next.width);
+    next.y = Math.min(Math.max(next.y, 0), CANVAS_HEIGHT - next.height);
     this.elements[idx] = next;
     const changed = Object.keys(args.patch).join(", ");
     this.activity.push(`修改元素 ${e.id.slice(0, 6)}：${changed}`);
@@ -92,7 +96,7 @@ export class DraftCanvas {
       y: Math.round(e.y),
       width: Math.round(e.width),
       height: Math.round(e.height),
-      text: e.type === "text" ? (e as any).text : undefined,
+      text: "text" in e ? e.text : undefined,
       fill: e.fill,
       stroke: e.stroke,
       rotation: e.rotation,
