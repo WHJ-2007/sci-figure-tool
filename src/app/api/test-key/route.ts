@@ -2,7 +2,15 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { generateText } from "ai";
 
 export async function POST(req: Request) {
-  const { apiKey, baseURL, model } = (await req.json()) as { apiKey: string; baseURL: string; model: string };
+  let apiKey = "", baseURL = "", model = "";
+  try {
+    const body = (await req.json()) as { apiKey?: string; baseURL?: string; model?: string };
+    apiKey = body.apiKey ?? "";
+    baseURL = body.baseURL ?? "";
+    model = body.model ?? "";
+  } catch {
+    return Response.json({ ok: false, error: "请求体无效" }, { status: 400 });
+  }
   if (!apiKey) {
     return Response.json({ ok: false, error: "未填写 API Key" }, { status: 400 });
   }

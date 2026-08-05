@@ -1,12 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { loadSettings, saveSettings, DEFAULT_SETTINGS } from "@/lib/settings";
 
 export default function SettingsPage() {
-  const [form, setForm] = useState(loadSettings());
+  const [form, setForm] = useState({ ...DEFAULT_SETTINGS });
   const [status, setStatus] = useState<string>("");
+  const [testing, setTesting] = useState(false);
+
+  useEffect(() => {
+    setForm(loadSettings());
+  }, []);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -15,6 +20,8 @@ export default function SettingsPage() {
   };
 
   const test = async () => {
+    if (testing) return;
+    setTesting(true);
     setStatus("测试中…");
     try {
       const res = await fetch("/api/test-key", {
@@ -26,6 +33,8 @@ export default function SettingsPage() {
       setStatus(data.ok ? "连接成功：" + data.text : "失败：" + data.error);
     } catch (err) {
       setStatus("请求失败：" + String(err));
+    } finally {
+      setTesting(false);
     }
   };
 
@@ -56,7 +65,7 @@ export default function SettingsPage() {
         </label>
         <div className="flex gap-2">
           <button type="submit" className="rounded bg-blue-600 px-4 py-1.5 text-sm text-white hover:bg-blue-700">保存</button>
-          <button type="button" onClick={test} className="rounded border border-gray-300 px-4 py-1.5 text-sm hover:bg-gray-100">测试连接</button>
+          <button type="button" onClick={test} disabled={testing} className="rounded border border-gray-300 px-4 py-1.5 text-sm hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50">测试连接</button>
           <Link href="/" className="ml-auto self-center text-sm text-gray-500 hover:underline">← 返回画布</Link>
         </div>
         {status && <p className="text-sm text-gray-600">{status}</p>}
