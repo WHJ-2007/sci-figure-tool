@@ -18,6 +18,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       "绘制工具：形状/箭头/折线拖拽创建、文字工具点击创建、双击文字编辑（TextEditor）",
       "工具栏与属性面板：工具切换、撤销/重做、导出、属性编辑（填充/边框/线宽/透明度/文字/字号/圆角/旋转）、多选对齐与分布；编辑器主页布局",
       "快捷键：Delete/Backspace 删除、Ctrl+Z/Y 撤销重做、Ctrl+D 复制（编辑文字时快捷键不拦截）",
+      "设置页：API Key/模型/Base URL 配置（localStorage 存储）、测试连接（/api/test-key 验证 Key）",
     ],
   },
 ];
