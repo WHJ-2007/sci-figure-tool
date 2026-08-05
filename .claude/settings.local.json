@@ -4,7 +4,12 @@
       "Bash(bash *)",
       "Bash(git init *)",
       "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(npm --version)",
+      "Bash(npm install *)",
+      "Bash(npm view *)",
+      "Bash(npm run *)",
+      "Bash(node -e \"const p=require\\('./package-lock.json'\\); const pk=p.packages; for \\(const k of ['node_modules/next','node_modules/react','node_modules/ai','node_modules/@ai-sdk/openai-compatible','node_modules/tailwindcss','node_modules/@tailwindcss/postcss','node_modules/zod','node_modules/zustand','node_modules/vitest','node_modules/typescript','node_modules/jsdom']\\) console.log\\(k.replace\\('node_modules/',''\\), pk[k]?.version\\)\")"
     ]
   }
 }
