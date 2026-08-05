@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import FirstRunHint from "./FirstRunHint";
 import { saveSettings } from "@/lib/settings";
 
@@ -15,5 +15,11 @@ describe("FirstRunHint", () => {
     saveSettings({ apiKey: "test-key", model: "deepseek-chat", baseURL: "https://api.deepseek.com" });
     render(<FirstRunHint />);
     expect(screen.queryByText(/设置页/)).not.toBeInTheDocument();
+  });
+
+  it("点击 × 关闭引导", () => {
+    render(<FirstRunHint />);
+    fireEvent.click(screen.getByRole("button", { name: "关闭提示" }));
+    expect(screen.queryByText(/尚未配置/)).not.toBeInTheDocument();
   });
 });
