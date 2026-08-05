@@ -17,6 +17,7 @@ describe("GenerationToast", () => {
       useCanvasStore.setState({ activity: ["创建矩形", "创建箭头"] });
     });
     expect(screen.getByTestId("generation-toast")).toBeInTheDocument();
+    expect(screen.getByTestId("generation-toast").classList.contains("active:scale-[0.97]")).toBe(true);
     expect(screen.getByText(/创建箭头/)).toBeInTheDocument();
     expect(screen.queryByText(/创建矩形/)).toBeNull();
     // 无活动时显示兜底文案

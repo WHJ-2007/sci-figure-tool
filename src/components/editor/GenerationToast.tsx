@@ -28,7 +28,7 @@ export default function GenerationToast() {
       type="button"
       data-testid="generation-toast"
       onClick={() => document.getElementById("chat-input")?.focus()}
-      className={`fixed bottom-4 left-4 z-50 max-w-xs rounded-lg border border-white/40 bg-white/70 px-3 py-2 text-left text-sm text-gray-800 shadow-lg backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 ${
+      className={`fixed bottom-4 left-4 z-50 max-w-xs rounded-lg border border-white/40 bg-white/70 px-3 py-2 text-left text-sm text-gray-800 shadow-lg backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 active:scale-[0.97] ${
         visible ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
       }`}
     >

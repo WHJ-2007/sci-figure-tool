@@ -7,11 +7,16 @@ body {
   background: linear-gradient(135deg, #7dd3fc 0%, #e0f2fe 35%, #f5f3ff 70%, #c7d2fe 100%);
 }
 
-/* 可点击元素悬浮动效：克制地 1px 上浮 + 柔阴影；禁用态不生效 */
+/* 可点击元素动效：悬浮克制地 1px 上浮 + 柔阴影；按下下沉 + 轻微缩放变暗；禁用态不生效 */
 .lift {
-  transition: transform 150ms ease, box-shadow 150ms ease;
+  transition: transform 150ms ease, box-shadow 150ms ease, filter 150ms ease;
 }
 .lift:not(:disabled):hover {
   transform: translateY(-1px);
   box-shadow: 0 2px 8px rgb(15 23 42 / 0.12);
+}
+.lift:not(:disabled):active {
+  transform: translateY(1px) scale(0.97);
+  box-shadow: 0 1px 3px rgb(15 23 42 / 0.1);
+  filter: brightness(0.96);
 }
