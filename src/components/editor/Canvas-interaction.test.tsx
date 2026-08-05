@@ -88,7 +88,7 @@ describe("Canvas 交互", () => {
     expect(doc.find((e) => e.id === b.id)!.x).toBe(150); // 50 + 95 + 5
   });
 
-  it("Shift+点击追加多选，再点已选元素移出", () => {
+  it("Shift+点击追加多选；再次 shift+点击已选元素保持选区（不移除，避免拖动乱动）", () => {
     const a = makeElement("rect", 10, 10, 100, 60);
     const b = makeElement("ellipse", 200, 200, 40, 30);
     useCanvasStore.getState().addElement(a);
@@ -103,10 +103,32 @@ describe("Canvas 交互", () => {
     fireEvent.pointerDown(els[1], { clientX: 220, clientY: 220, button: 0, shiftKey: true });
     fireEvent.pointerUp(els[1], { clientX: 220, clientY: 220 });
     expect(useCanvasStore.getState().selection).toEqual([a.id, b.id]);
-    // shift+点击 a → 移出
+    // 再次 shift+点击已选 a → 保持 [a,b]（点击已选元素后拖动必须跟手，toggle 移除会让"点它拖它"变成别的元素动）
     fireEvent.pointerDown(els[0], { clientX: 50, clientY: 30, button: 0, shiftKey: true });
     fireEvent.pointerUp(els[0], { clientX: 50, clientY: 30 });
-    expect(useCanvasStore.getState().selection).toEqual([b.id]);
+    expect(useCanvasStore.getState().selection).toEqual([a.id, b.id]);
+  });
+
+  it("Shift+点击追加多选后不松手继续拖动被点击元素：整组跟手移动（回归修复：点 B 拖 B 却只有 A 动）", () => {
+    const a = makeElement("rect", 10, 10, 100, 60);
+    const b = makeElement("ellipse", 200, 200, 40, 30);
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().addElement(b);
+    useCanvasStore.getState().setSelection([a.id]);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const els = document.querySelectorAll("[data-element-id]");
+    // shift+点击 b 追加到 [a]
+    fireEvent.pointerDown(els[1], { clientX: 220, clientY: 220, button: 0, shiftKey: true });
+    fireEvent.pointerUp(els[1], { clientX: 220, clientY: 220 });
+    expect(useCanvasStore.getState().selection).toEqual([a.id, b.id]);
+    // 不松 shift 直接按住 b 拖动 30px：b 必须在选区内并跟手移动
+    fireEvent.pointerDown(els[1], { clientX: 220, clientY: 220, button: 0, shiftKey: true });
+    fireEvent.pointerMove(els[1], { clientX: 250, clientY: 220, buttons: 1 });
+    fireEvent.pointerUp(els[1], { clientX: 250, clientY: 220 });
+    const doc = useCanvasStore.getState().doc.elements;
+    expect(doc.find((e) => e.id === b.id)!.x).toBe(230);
+    expect(doc.find((e) => e.id === a.id)!.x).toBe(40);
+    expect(useCanvasStore.getState().selection).toEqual([a.id, b.id]);
   });
 
   it("Shift+空白框选追加到现有选区", () => {

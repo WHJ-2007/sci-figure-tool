@@ -57,17 +57,10 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
         const id = target.getAttribute("data-element-id")!;
         const el = s.doc.elements.find((x) => x.id === id);
         if (el && s.tool === "select") {
-          // Shift：toggle 加入/移出多选；普通点击：未选中则单选，已选中则保持群组
-          let next: string[];
-          if (e.shiftKey) {
-            next = s.selection.includes(id) ? s.selection.filter((x) => x !== id) : [...s.selection, id];
-            s.setSelection(next);
-          } else {
-            next = s.selection.includes(id) ? s.selection : [id];
-            if (!s.selection.includes(id)) s.setSelection([id]);
-          }
-          // shift 移出最后一个元素后选区为空，无物可拖
-          if (next.length === 0) return;
+          // Shift 只追加（点击已选元素保持选区）：toggle 移除会让"点已选元素拖动"变成该元素
+          // 原地不动、其他元素在动（用户报的"拖动乱动"）。取消选择走空白点击清空。
+          const next = s.selection.includes(id) ? s.selection : e.shiftKey ? [...s.selection, id] : [id];
+          if (!s.selection.includes(id)) s.setSelection(next);
           const start = new Map<string, { x: number; y: number }>();
           for (const eid of next) {
             const ee = s.doc.elements.find((x) => x.id === eid);
