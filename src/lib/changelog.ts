@@ -19,6 +19,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       "工具栏与属性面板：工具切换、撤销/重做、导出、属性编辑（填充/边框/线宽/透明度/文字/字号/圆角/旋转）、多选对齐与分布；编辑器主页布局",
       "快捷键：Delete/Backspace 删除、Ctrl+Z/Y 撤销重做、Ctrl+D 复制（编辑文字时快捷键不拦截）",
       "设置页：API Key/模型/Base URL 配置（localStorage 存储）、测试连接（/api/test-key 验证 Key）",
+      "AI 智能体：服务端草稿（DraftCanvas）、5 个工具（createElement/updateElement/deleteElement/listElements/clearCanvas）、agent 循环（多轮工具调用上限 20 步 + 流式进度）、/api/chat NDJSON SSE 流、系统提示词（科研制图规范）",
     ],
   },
 ];

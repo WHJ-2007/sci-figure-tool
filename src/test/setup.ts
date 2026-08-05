@@ -6,6 +6,8 @@ import { cleanup } from "@testing-library/react";
 // 多个 Canvas 实例并存（文字编辑器的两个 textarea 互相抢焦点触发 blur→commit）。
 afterEach(cleanup);
 
+// 以下 jsdom 专有桩仅对 DOM 环境生效（node 环境的测试如 agent.test.ts 不依赖 DOM）
+if (typeof window !== "undefined") {
 // 版本守卫：jsdom 未来版本若原生支持 PointerEvent 则用原生，不再覆盖
 if (typeof window.PointerEvent === "undefined") {
   // jsdom 未实现 PointerEvent：补一个继承 MouseEvent 的构造器，让指针事件的 clientX/clientY/pointerId 正常传递
@@ -48,3 +50,4 @@ Element.prototype.hasPointerCapture = () => false;
 // jsdom 的 getBoundingClientRect 恒返回 0：画布坐标换算依赖它，桩成左上角为原点的矩形
 Element.prototype.getBoundingClientRect = () =>
   ({ left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+}
