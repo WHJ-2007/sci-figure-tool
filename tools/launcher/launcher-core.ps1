@@ -41,7 +41,12 @@ function Save-PidFile([int]$pidValue) {
 function Load-PidFile {
     $f = Get-PidFilePath
     if (-not (Test-Path $f)) { return $null }
-    $raw = Get-Content $f -Raw
+    try {
+        $raw = Get-Content $f -Raw
+    } catch {
+        # 文件被瞬时占用（如并发 Save-PidFile）：按"读取失败"处理，不删除文件
+        return $null
+    }
     if (-not $raw) { Remove-PidFile; return $null }
     $v = $raw.Trim()
     if ($v -match '^\d{1,8}$') { return [int]$v }
@@ -56,7 +61,9 @@ function Remove-PidFile {
 
 function Is-ProcessAlive([int]$processId) {
     if ($processId -le 0) { return $false }
-    return [bool](Get-Process -Id $processId -ErrorAction SilentlyContinue)
+    # 仅认可 cmd/node 进程：防止 PID 复用后把无关进程误报为"运行中"
+    $proc = Get-Process -Id $processId -ErrorAction SilentlyContinue
+    return [bool]($proc -and $proc.ProcessName -in @('cmd', 'node'))
 }
 
 function Get-PortInUse {
@@ -77,13 +84,21 @@ function Start-DevServer {
 function Stop-DevServer {
     $pidValue = Load-PidFile
     if ($pidValue) {
-        # 结束整棵进程树（npm → next）
+        # 结束整棵进程树（cmd → npm → next）
         $proc = Get-Process -Id $pidValue -ErrorAction SilentlyContinue
-        if ($proc) {
+        if ($proc -and $proc.ProcessName -in @('cmd', 'node')) {
             taskkill /PID $pidValue /T /F | Out-Null
+            if ($LASTEXITCODE -eq 1) {
+                # 拒绝访问：PID 可能仍存活，保留 PID 文件（不删除可能仍有效的 PID）
+                return $false
+            }
+            Remove-PidFile
+            return $true
         }
+        # 进程不存在，或 PID 已被系统复用给无关进程（非 cmd/node）：
+        # 仅清理过期 PID 文件并返回 $false —— 没有我们启动的进程在运行，如实报告
         Remove-PidFile
-        return $true
+        return $false
     }
     return $false
 }

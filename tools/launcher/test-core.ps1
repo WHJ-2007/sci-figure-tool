@@ -18,9 +18,11 @@ function Test-Done {
 
 . "$PSScriptRoot\launcher-core.ps1"
 
-# BOM 编码
-$bytes = [System.IO.File]::ReadAllBytes((Join-Path $PSScriptRoot "launcher-core.ps1"))
-Assert-True "launcher-core.ps1 为 UTF-8 BOM" ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
+# BOM 编码（三个 .ps1 均须为 UTF-8 BOM，否则 PS 5.1 下中文串损坏）
+foreach ($name in @('launcher-core.ps1', 'test-core.ps1', 'check-launcher.ps1')) {
+    $bytes = [System.IO.File]::ReadAllBytes((Join-Path $PSScriptRoot $name))
+    Assert-True ("$name 为 UTF-8 BOM") ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
+}
 
 # 路径推导（工具目录 tools/launcher → 项目根）
 $expectRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
