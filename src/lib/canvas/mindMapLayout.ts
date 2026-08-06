@@ -101,7 +101,7 @@ function makeCurve(start: Point, end: Point, color: string): CanvasElement {
   const py = dx / len;
   const mid = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
   const side = (800 - mid.x) * px + (470 - mid.y) * py;
-  const curvature = (side >= 0 ? 1 : -1) * 0.4;
+  const curvature = (side < 0 ? 1 : -1) * 0.4;
   const el = makeElement("curve", start.x, start.y, end.x - start.x, end.y - start.y, {
     curvature,
     stroke: color === "#ffffff" ? "#2f2f2f" : color,

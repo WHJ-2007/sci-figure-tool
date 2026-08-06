@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { layoutMindMap } from "./mindMapLayout";
+import { curveControl } from "./geometry";
 import type { CanvasElement } from "./types";
 
 describe("mindMapLayout", () => {
@@ -41,6 +42,34 @@ describe("mindMapLayout", () => {
     expect(a2.fill).toBe(a.fill);
     // 曲线：主题→A、A→A1、A→A2 共 3 条
     expect(els.filter((e) => e.type === "curve")).toHaveLength(3);
+  });
+
+  it("子分支曲线控制点凸向远离画布中心一侧", () => {
+    // 注：单子分支时子与父同角度，弦过画布中心（oProj=0）无法判定符号；
+    // 用两子分支保证 A→A2 弦非径向，控制点与中心投影必须异号。
+    const els = layoutMindMap({
+      topic: "T",
+      branches: [{ keyword: "A", children: [{ keyword: "A1" }, { keyword: "A2" }] }],
+    });
+    const a = els.find((e) => e.type === "logic" && e.text === "A")!;
+    const a2 = els.find((e) => e.type === "text" && e.text === "A2")!;
+    // 找 A→A2 的曲线：终点 = A2 中心（主题→A 的曲线终点 = A 中心，端点可区分）
+    const curve = els.find((e): e is Extract<CanvasElement, { type: "curve" }> => {
+      if (e.type !== "curve") return false;
+      const ex = e.x + e.width, ey = e.y + e.height;
+      return Math.hypot(ex - (a2.x + a2.width / 2), ey - (a2.y + a2.height / 2)) < 1;
+    })!;
+    const c = curveControl(curve);
+    const start = { x: curve.x, y: curve.y };
+    const end = { x: curve.x + curve.width, y: curve.y + curve.height };
+    const mid = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+    const dx = end.x - start.x, dy = end.y - start.y;
+    const len = Math.hypot(dx, dy);
+    const nx = -dy / len, ny = dx / len; // 弦法线
+    const cProj = (c.x - mid.x) * nx + (c.y - mid.y) * ny;   // 控制点投影
+    const oProj = (800 - mid.x) * nx + (470 - mid.y) * ny;   // 画布中心投影
+    // 控制点与画布中心必须在弦的异侧（凸向远离中心）
+    expect(cProj * oProj).toBeLessThan(0);
   });
 
   it("每个一级分支颜色不同（5 色调色板循环）", () => {
