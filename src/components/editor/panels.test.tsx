@@ -110,4 +110,30 @@ describe("PropertyPanel", () => {
     expect(eb.x).toBe(150);
     expect(ec.x).toBe(300);
   });
+
+  it("预设科研色板点击设置填充色", () => {
+    const a = makeElement("rect", 0, 0, 100, 60);
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().setSelection([a.id]);
+    render(<PropertyPanel />);
+    fireEvent.click(screen.getByLabelText("预设色 #f0fff0"));
+    expect(useCanvasStore.getState().doc.elements[0].fill).toBe("#f0fff0");
+  });
+
+  it("线宽滑块与数值输入双向同步", () => {
+    const a = makeElement("rect", 0, 0, 100, 60);
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().setSelection([a.id]);
+    render(<PropertyPanel />);
+    fireEvent.change(screen.getByLabelText("线宽"), { target: { value: "5" } });
+    expect(useCanvasStore.getState().doc.elements[0].strokeWidth).toBe(5);
+  });
+
+  it("类型徽章显示中文类型名", () => {
+    const a = makeElement("logic", 0, 0, 100, 60, { text: "多头注意力" });
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().setSelection([a.id]);
+    render(<PropertyPanel />);
+    expect(screen.getByText("逻辑节点")).toBeInTheDocument();
+  });
 });
