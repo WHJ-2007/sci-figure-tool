@@ -131,29 +131,51 @@ export default function Toolbar() {
     const name = window.prompt("画布名称", p?.name ?? "");
     if (name && name.trim()) renameProject(currentProjectId, name.trim());
   };
-  const onDelete = () => deleteProject(currentProjectId);
 
   const shapeActive = SHAPE_TOOL_SET.has(tool);
 
   return (
     <>
-      {/* 顶栏：画布管理 + 导出 + 设置（工具/编辑沉到左侧坞） */}
+      {/* 顶栏：画布标签页 + 导出 + 设置（工具/编辑沉到左侧坞） */}
       <div className="relative z-40 flex items-center gap-1 border-b border-white/40 bg-white/60 px-2 py-1 backdrop-blur-md">
-        <select
-          value={currentProjectId}
-          onChange={(e) => setCurrentProject(e.target.value)}
-          title="切换画布"
-          className="lift h-8 max-w-[9rem] rounded border border-white/40 bg-white/60 px-1 text-sm outline-none"
-        >
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-        <button title="新建画布" onClick={createProject} className="lift h-8 w-8 rounded hover:bg-gray-100">+</button>
-        <button title="重命名画布" onClick={onRename} className="lift h-8 w-8 rounded hover:bg-gray-100">✎</button>
-        <button title="删除画布" onClick={onDelete} className="lift h-8 w-8 rounded hover:bg-gray-100">✕</button>
+        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+          {projects.map((p) => {
+            const active = p.id === currentProjectId;
+            return (
+              <div
+                key={p.id}
+                data-testid="project-tab"
+                data-active={active ? "true" : undefined}
+                className={`flex h-8 shrink-0 items-center gap-1 rounded-lg border px-2 text-sm ${
+                  active ? "border-blue-400 bg-blue-600 text-white" : "border-white/60 bg-white/40 text-gray-600 hover:bg-white/70"
+                }`}
+              >
+                <button
+                  title={`切换到 ${p.name}`}
+                  onClick={() => setCurrentProject(p.id)}
+                  className={`lift max-w-[8rem] truncate ${active ? "" : "hover:text-blue-600"}`}
+                >
+                  {p.name}
+                </button>
+                <button
+                  title={`删除画布 ${p.name}`}
+                  onClick={() => deleteProject(p.id)}
+                  className="lift flex h-4 w-4 shrink-0 items-center justify-center rounded text-xs leading-none hover:bg-red-500 hover:text-white"
+                >
+                  ×
+                </button>
+              </div>
+            );
+          })}
+          <button
+            title="新建画布"
+            onClick={createProject}
+            className="lift flex h-8 w-8 shrink-0 items-center justify-center rounded border border-dashed border-white/60 bg-white/40 text-gray-600 hover:bg-white/70"
+          >
+            +
+          </button>
+        </div>
+        <button title="重命名画布" onClick={onRename} className="lift h-8 w-8 shrink-0 rounded hover:bg-gray-100">✎</button>
         <span className="mx-1 h-6 w-px bg-gray-200" />
         <button title="导出 SVG" onClick={() => exportSvgFile(doc)} className="lift rounded px-2 py-1 text-sm hover:bg-gray-100">SVG</button>
         <button title="导出 PNG" onClick={() => exportPng(doc).catch(console.error)} className="lift rounded px-2 py-1 text-sm hover:bg-gray-100">PNG</button>
