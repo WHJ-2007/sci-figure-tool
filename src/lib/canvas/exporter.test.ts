@@ -30,19 +30,20 @@ describe("exporter", () => {
     expect(elementToSvg(a)).toContain("<polygon");
   });
 
-  it("elementToSvg 带折点的箭头输出 polyline 折线与箭头多边形", () => {
-    const a = makeElement("arrow", 0, 0, 200, 0, { midPoints: [{ x: 100, y: 40 }] });
+  it("elementToSvg 带折点的箭头输出 polyline 折线与箭头多边形（折点为相对坐标）", () => {
+    // 起点 (50,30)，折点相对 (100,40) → 世界 (150,70)；终点 x2 = 50+200 = 250
+    const a = makeElement("arrow", 50, 30, 200, 0, { midPoints: [{ x: 100, y: 40 }] });
     const out = elementToSvg(a);
     expect(out).toContain("<polyline");
-    expect(out).toContain('points="0,0 100,40 200,0"');
+    expect(out).toContain('points="50,30 150,70 250,30"');
     expect(out).toContain("<polygon");
     expect(out).not.toContain("<line");
   });
 
   it("elementToSvg 平滑折点输出 Catmull-Rom path（与渲染一致）", () => {
-    const a = makeElement("arrow", 0, 0, 200, 0, { midPoints: [{ x: 100, y: 40, smooth: true }] });
+    const a = makeElement("arrow", 50, 30, 200, 0, { midPoints: [{ x: 100, y: 40, smooth: true }] });
     const out = elementToSvg(a);
-    expect(out).toContain("<path d=\"M 0 0 C");
+    expect(out).toContain("<path d=\"M 50 30 C");
     expect(out).toContain('stroke-linejoin="round"');
     expect(out).not.toContain("<polyline");
     expect(out).toContain("<polygon");
@@ -170,21 +171,19 @@ describe("exporter", () => {
     expect(svg).toContain('transform="translate(60 40) rotate(45) scale(-1 1) translate(-60 -40)"');
   });
 
-  it("serializeSVG 缺省背景输出白色背景 rect（所见即所得）", () => {
-    const svg = serializeSVG({ width: 1600, height: 1000, elements: [] });
-    expect(svg).toContain('<rect width="1600" height="1000" fill="#ffffff"/>');
+  it("serializeSVG 不输出画布背景（导出透明，忽略背景样式）", () => {
+    // 缺省、none、纯色、渐变背景均不输出任何背景 rect/defs
+    for (const background of [undefined, "none", "#ff0000", "linear:#eef4ff,#fdf2f8"]) {
+      const svg = serializeSVG({ width: 1600, height: 1000, background, elements: [] });
+      expect(svg).not.toContain("<rect");
+      expect(svg).not.toContain("linearGradient");
+    }
   });
 
-  it("serializeSVG background none 不输出背景 rect", () => {
-    const svg = serializeSVG({ width: 1600, height: 1000, background: "none", elements: [] });
-    expect(svg).not.toContain('width="1600" height="1000" fill="#ffffff"');
-  });
-
-  it("serializeSVG 渐变背景输出 linearGradient defs 与 url 引用", () => {
-    const svg = serializeSVG({ width: 1600, height: 1000, background: "linear:#eef4ff,#fdf2f8", elements: [] });
-    expect(svg).toContain('<linearGradient id="canvas-bg-grad"');
-    expect(svg).toContain('stop-color="#eef4ff"');
-    expect(svg).toContain('stop-color="#fdf2f8"');
-    expect(svg).toContain('fill="url(#canvas-bg-grad)"');
+  it("serializeSVG 透明背景下元素正常输出", () => {
+    const a = makeElement("rect", 10, 20, 100, 60, { fill: "#ff0000" });
+    const svg = serializeSVG({ width: 1600, height: 1000, background: "#ffffff", elements: [a] });
+    expect(svg).toContain('x="10"');
+    expect(svg).toContain('fill="#ff0000"');
   });
 });

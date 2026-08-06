@@ -192,16 +192,17 @@ describe("canvas store", () => {
     ]);
   });
 
-  it("moveElements 平移带折点的箭头：折点跟随，相对位置不变", () => {
+  it("moveElements 平移带折点的箭头：折点为相对坐标，整体移动无需改动", () => {
     const a = makeElement("arrow", 100, 100, 200, 0, { midPoints: [{ x: 200, y: 60, smooth: true }, { x: 250, y: 40 }] });
     useCanvasStore.getState().addElement(a);
     useCanvasStore.getState().moveElements([a.id], 30, -20);
     const moved = useCanvasStore.getState().doc.elements[0] as ArrowElement;
     expect(moved.x).toBe(130);
     expect(moved.y).toBe(80);
+    // 相对坐标原样保留：箭头移动后折点自动跟随（世界位置 = 新起点 + 相对偏移）
     expect(moved.midPoints).toEqual([
-      { x: 230, y: 40, smooth: true },
-      { x: 280, y: 20 },
+      { x: 200, y: 60, smooth: true },
+      { x: 250, y: 40 },
     ]);
   });
 

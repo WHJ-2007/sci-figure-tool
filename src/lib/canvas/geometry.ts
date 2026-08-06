@@ -204,10 +204,15 @@ export function distToSegment(p: Point, a: Point, b: Point): number {
   return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
 }
 
-// 箭头完整点列：起点 → 中间折点… → 终点（无折点时即直线两点）
+// 箭头完整点列（世界坐标）：起点 → 中间折点… → 终点（无折点时即直线两点）。
+// 折点存相对坐标（相对箭头起点），输出时偏移 e.x/e.y
 export function arrowPoints(e: CanvasElement): Point[] {
   if (e.type !== "arrow") return [{ x: e.x, y: e.y }, { x: e.x + e.width, y: e.y + e.height }];
-  const pts = [{ x: e.x, y: e.y }, ...(e.midPoints ?? []), { x: e.x + e.width, y: e.y + e.height }];
+  const pts = [
+    { x: e.x, y: e.y },
+    ...(e.midPoints ?? []).map((m) => ({ x: e.x + m.x, y: e.y + m.y, smooth: m.smooth })),
+    { x: e.x + e.width, y: e.y + e.height },
+  ];
   return pts;
 }
 
@@ -250,9 +255,9 @@ function lineBounds(e: CanvasElement): Rect {
     return { x: Math.min(...xs), y: Math.min(...ys), width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) };
   }
   if (e.type === "arrow" && (e.midPoints?.length ?? 0) > 0) {
-    // 带折点的箭头：包围盒须覆盖全部折点（对齐/分布/吸附用）
-    const xs = [e.x, e.x + e.width, ...e.midPoints!.map((p) => p.x)];
-    const ys = [e.y, e.y + e.height, ...e.midPoints!.map((p) => p.y)];
+    // 带折点的箭头：包围盒须覆盖全部折点（对齐/分布/吸附用）；折点为相对坐标需偏移
+    const xs = [e.x, e.x + e.width, ...e.midPoints!.map((p) => e.x + p.x)];
+    const ys = [e.y, e.y + e.height, ...e.midPoints!.map((p) => e.y + p.y)];
     return { x: Math.min(...xs), y: Math.min(...ys), width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) };
   }
   if (e.type === "curve") {

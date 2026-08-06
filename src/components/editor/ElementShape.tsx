@@ -1,5 +1,5 @@
 import type { CanvasElement } from "@/lib/canvas/types";
-import { shapePoints, arrowHeadPoints, curveControl, arrowPathD } from "@/lib/canvas/geometry";
+import { shapePoints, arrowHeadPoints, curveControl, arrowPathD, arrowPoints } from "@/lib/canvas/geometry";
 import { contrastTextColor, elementTransform } from "@/lib/canvas/elements";
 
 export default function ElementShape({ e, locked = false }: { e: CanvasElement; locked?: boolean }) {
@@ -41,7 +41,7 @@ function renderBody(
       const y2 = e.y + e.height;
       // 带折点的箭头：折线路径 + 箭头方向取末段（起点→折点…→终点）
       if ((e.midPoints?.length ?? 0) > 0) {
-        const pts = [{ x: e.x, y: e.y }, ...e.midPoints!, { x: x2, y: y2 }];
+        const pts = arrowPoints(e);
         const ptsStr = pointsToString(pts);
         const last = pts[pts.length - 1];
         const prev = pts[pts.length - 2] ?? pts[0];

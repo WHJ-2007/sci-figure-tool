@@ -325,12 +325,18 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
       }
       if (s.tool === "select") {
         if (e.button === 2) {
-          // 右键落在选中箭头上不进多选框选：交给 contextmenu 处理折点增删
+          // 右键落在任意箭头上不进多选框选：交给 contextmenu 选中并处理折点增删
           // （否则右键点击会在 pointerup 清空选择，折点操作找不到目标）
-          const sel = s.selection.length === 1 ? s.doc.elements.find((x) => x.id === s.selection[0]) : null;
-          if (sel?.type === "arrow" && !s.aiLockedIds.includes(sel.id) && hitTestElement(sel, { x: wx, y: wy }, 14 / s.view.scale)) {
-            return;
-          }
+          // DOM 命中优先（真实点击命中元素节点）；几何兜底（测试直接派发到 svg 节点）
+          const t = (e.target as Element).closest("[data-element-id]");
+          const tid = t?.getAttribute("data-element-id") ?? null;
+          const tel = tid ? s.doc.elements.find((x) => x.id === tid) : null;
+          const onArrow =
+            (tel?.type === "arrow" && !s.aiLockedIds.includes(tid!)) ||
+            s.doc.elements.some(
+              (x) => x.type === "arrow" && !s.aiLockedIds.includes(x.id) && hitTestElement(x, { x: wx, y: wy }, 14 / s.view.scale)
+            );
+          if (onArrow) return;
           // 右键拖动 = 多选框选（原 rubber 逻辑）
           modeRef.current = { kind: "rubber", startX: wx, startY: wy, x: wx, y: wy, additive: e.shiftKey };
           lastRightClickRef.current = { x: wx, y: wy, dragged: false };

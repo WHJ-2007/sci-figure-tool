@@ -149,45 +149,48 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
     [worldX, worldY]
   );
 
-  // 右键菜单：单箭头选中 → 折点菜单（新建平滑/尖锐/删除）；右键空白画布 → 画布样式菜单
+  // 右键菜单：指针下的任意箭头（无论是否已选中）→ 选中并弹折点菜单（新建平滑/尖锐/删除）；
+  // 右键空白画布 → 画布样式菜单
   const onContextMenu = useCallback(
     (e: React.MouseEvent<SVGSVGElement>) => {
       e.preventDefault();
       const s = useCanvasStore.getState();
-      if (s.selection.length === 1) {
-        const sel = s.doc.elements.find((x) => x.id === s.selection[0]);
-        if (sel?.type === "arrow" && !s.aiLockedIds.includes(sel.id)) {
-          const p = { x: worldX(e.clientX), y: worldY(e.clientY) };
-          const tol = 14 / s.view.scale;
-          const mid = sel.midPoints ?? [];
-          for (let i = 0; i < mid.length; i++) {
-            if (Math.hypot(p.x - mid[i].x, p.y - mid[i].y) <= tol) {
-              setArrowMenu({
-                kind: "midpoint",
-                midIndex: i,
-                x: Math.min(e.clientX, window.innerWidth - 176),
-                y: Math.min(e.clientY, window.innerHeight - 64),
-              });
-              return;
-            }
+      const p = { x: worldX(e.clientX), y: worldY(e.clientY) };
+      const tol = 14 / s.view.scale;
+      // 自顶向下找指针下的未锁定箭头（重叠时取最上层）
+      for (const el of [...s.doc.elements].sort((a, b) => b.zIndex - a.zIndex)) {
+        if (el.type !== "arrow" || s.aiLockedIds.includes(el.id)) continue;
+        const mid = el.midPoints ?? [];
+        for (let i = 0; i < mid.length; i++) {
+          if (Math.hypot(p.x - (el.x + mid[i].x), p.y - (el.y + mid[i].y)) <= tol) {
+            if (s.selection.length !== 1 || s.selection[0] !== el.id) s.setSelection([el.id]);
+            setArrowMenu({
+              kind: "midpoint",
+              midIndex: i,
+              x: Math.min(e.clientX, window.innerWidth - 176),
+              y: Math.min(e.clientY, window.innerHeight - 64),
+            });
+            return;
           }
-          const pts = arrowPoints(sel);
-          for (let i = 1; i < pts.length; i++) {
-            if (distToSegment(p, pts[i - 1], pts[i]) <= tol) {
-              const proj = projectOnSegment(p, pts[i - 1], pts[i]);
-              setArrowMenu({
-                kind: "segment",
-                insertAt: i - 1,
-                point: proj,
-                x: Math.min(e.clientX, window.innerWidth - 176),
-                y: Math.min(e.clientY, window.innerHeight - 112),
-              });
-              return;
-            }
-          }
-          // 右键点在箭头附近（如空白容差内）不弹样式菜单——箭头折点操作优先
-          if (hitTestElement(sel, p, 12 / s.view.scale)) return;
         }
+        const pts = arrowPoints(el);
+        for (let i = 1; i < pts.length; i++) {
+          if (distToSegment(p, pts[i - 1], pts[i]) <= tol) {
+            if (s.selection.length !== 1 || s.selection[0] !== el.id) s.setSelection([el.id]);
+            const proj = projectOnSegment(p, pts[i - 1], pts[i]);
+            setArrowMenu({
+              kind: "segment",
+              insertAt: i - 1,
+              // 折点为相对坐标（相对箭头起点）
+              point: { x: proj.x - el.x, y: proj.y - el.y },
+              x: Math.min(e.clientX, window.innerWidth - 176),
+              y: Math.min(e.clientY, window.innerHeight - 112),
+            });
+            return;
+          }
+        }
+        // 右键点在箭头附近（如空白容差内）不弹样式菜单——箭头折点操作优先
+        if (hitTestElement(el, p, 12 / s.view.scale)) return;
       }
       // 右键元素（非箭头）不弹画布样式菜单；右键拖拽多选后（lastRightClickRef.dragged）也不弹
       if ((e.target as Element).closest("[data-element-id]")) return;

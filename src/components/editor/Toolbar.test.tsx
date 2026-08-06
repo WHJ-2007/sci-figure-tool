@@ -96,7 +96,7 @@ describe("Toolbar 画布管理", () => {
 });
 
 describe("Toolbar 悬浮坞", () => {
-  it("顶栏只有画布标签/导出/设置；坞内撤销/重做最上，依次选择/图形/逻辑/图表", () => {
+  it("顶栏只有画布标签/导出/设置；坞内撤销/重做最上，依次选择/图形/文本框/逻辑/图表", () => {
     render(<Toolbar />);
     expect(screen.getAllByTestId("project-tab").length).toBeGreaterThan(0);
     expect(screen.getByTitle("导出")).toBeInTheDocument();
@@ -105,7 +105,7 @@ describe("Toolbar 悬浮坞", () => {
     expect(screen.queryByTitle("重命名画布")).toBeNull();
     const dock = screen.getByTitle("撤销").closest(".fixed")!;
     const titles = [...dock.querySelectorAll("button")].map((b) => b.getAttribute("title"));
-    expect(titles).toEqual(["撤销", "重做", "选择", "图形", "逻辑", "图表", "导入"]);
+    expect(titles).toEqual(["撤销", "重做", "选择", "图形", "文本框", "逻辑", "图表", "导入"]);
     // 子工具默认收在气泡里
     expect(screen.queryByTitle("矩形")).toBeNull();
   });
@@ -143,12 +143,14 @@ describe("Toolbar 悬浮坞", () => {
     expect(screen.queryByTitle("导出 PNG")).toBeNull();
   });
 
-  it("点击图形按钮展开图案气泡（无逻辑分区），再点关闭（toggle）", () => {
+  it("点击图形按钮展开图案气泡（无逻辑分区/文字，文本框是独立按钮），再点关闭（toggle）", () => {
     render(<Toolbar />);
     fireEvent.click(screen.getByTitle("图形"));
     expect(screen.getByText("图案")).toBeInTheDocument();
     expect(screen.getByTitle("矩形")).toBeInTheDocument();
-    expect(screen.getByTitle("文字")).toBeInTheDocument();
+    expect(screen.getByTitle("折线")).toBeInTheDocument();
+    // 文字已从图案气泡移出：与图形并列的独立分类（常驻坞按钮）
+    expect(screen.queryByTitle("文字")).toBeNull();
     expect(screen.queryByText("逻辑")).toBeNull();
     expect(screen.queryByTitle("逻辑节点")).toBeNull();
     fireEvent.click(screen.getByTitle("图形"));
@@ -176,12 +178,24 @@ describe("Toolbar 悬浮坞", () => {
     expect(screen.queryByTitle("矩形")).toBeNull();
   });
 
-  it("图形按钮图标固定为描边矩形，不随子工具变化；组内工具时高亮", () => {
+  it("图形按钮图标固定为描边圆形，不随子工具变化；组内工具时高亮", () => {
     useCanvasStore.getState().setTool("hexagon");
     render(<Toolbar />);
     const btn = screen.getByTitle("图形");
-    expect(btn.querySelector("rect")).not.toBeNull();
+    expect(btn.querySelector("circle")).not.toBeNull();
     expect(btn.classList.contains("bg-blue-100")).toBe(true);
+  });
+
+  it("文本框按钮：独立常驻分类，点击切到文字工具并高亮", () => {
+    render(<Toolbar />);
+    const btn = screen.getByTitle("文本框");
+    expect(btn.querySelector("svg")).not.toBeNull();
+    expect(btn.classList.contains("bg-blue-100")).toBe(false);
+    fireEvent.click(btn);
+    expect(useCanvasStore.getState().tool).toBe("text");
+    expect(btn.classList.contains("bg-blue-100")).toBe(true);
+    // 文本框不是图形组：图形按钮不高亮
+    expect(screen.getByTitle("图形").classList.contains("bg-blue-100")).toBe(false);
   });
 
   it("选择按钮为光标 SVG 图标；点击切回选择工具并高亮", () => {

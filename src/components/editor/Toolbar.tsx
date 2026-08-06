@@ -57,10 +57,17 @@ const CURSOR_ICON = (
   </svg>
 );
 
-// 图形图标：圆角矩形描边（图案工具组入口）
+// 图形图标：圆形描边（图案工具组入口，与文本框按钮并列）
 const SHAPE_ICON = (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true">
-    <rect x="4" y="6" width="16" height="12" rx="1.5" />
+    <circle cx="12" cy="12" r="8" />
+  </svg>
+);
+
+// 文本框图标：字母 T 字形（描边风格，与图形/逻辑等常驻按钮一致）
+const TEXT_ICON = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+    <path d="M5 6h14M12 6v12" />
   </svg>
 );
 
@@ -88,7 +95,7 @@ interface ToolItem {
   label: ReactNode;
 }
 
-// 工具分组：图案 = 所有图形/标注（含箭头连线）
+// 工具分组：图案 = 所有图形/标注（含箭头连线；文本框是独立分类，见左侧坞"文本框"按钮）
 const SHAPE_TOOLS: ToolItem[] = [
   { title: "矩形", tool: "rect", label: "▢" },
   { title: "圆角矩形", tool: "rounded", label: "▭" },
@@ -98,7 +105,6 @@ const SHAPE_TOOLS: ToolItem[] = [
   { title: "六边形", tool: "hexagon", label: "⬡" },
   { title: "箭头", tool: "arrow", label: "→" },
   { title: "折线", tool: "polyline", label: "↯" },
-  { title: "文字", tool: "text", label: "T" },
 ];
 const SHAPE_TOOL_SET = new Set(SHAPE_TOOLS.map((t) => t.tool));
 
@@ -253,7 +259,7 @@ export default function Toolbar() {
         </div>
         <Link href="/settings" className="lift flex h-8 w-8 items-center justify-center rounded hover:bg-gray-100" title="设置">{SETTINGS_ICON}</Link>
       </div>
-      {/* 左侧悬浮玻璃坞：撤销/重做最上，下面依次选择/图形/逻辑/图表 */}
+      {/* 左侧悬浮玻璃坞：撤销/重做最上，下面依次选择/图形/文本框/逻辑/图表 */}
       {/* top-[4.625rem]（74px）= 顶栏 41px（h-8 + py-1 + border-b）+ FirstRunHint 33px（py-1.5 + text-sm + border-b），坞落在提示条下方 */}
       <div className="fixed left-4 top-[4.625rem] z-40 flex flex-col items-center gap-1 rounded-2xl border border-white/50 bg-white/70 p-1.5 shadow-xl backdrop-blur-md">
         <button title="撤销" onClick={undo} disabled={isGenerating} className="lift flex h-9 w-9 items-center justify-center rounded hover:bg-gray-100 disabled:bg-transparent disabled:opacity-40">{UNDO_ICON}</button>
@@ -290,6 +296,15 @@ export default function Toolbar() {
             </div>
           )}
         </div>
+        <button
+          title="文本框"
+          onClick={() => setTool("text")}
+          className={`lift flex h-9 w-9 items-center justify-center rounded ${
+            tool === "text" ? "bg-blue-100 text-blue-700 ring-1 ring-blue-400" : "hover:bg-gray-100"
+          }`}
+        >
+          {TEXT_ICON}
+        </button>
         <button
           title="逻辑"
           onClick={() => setTool("logic")}

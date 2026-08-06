@@ -1,5 +1,5 @@
 import type { CanvasDocument, CanvasElement } from "./types";
-import { shapePoints, arrowHeadPoints, curveControl, arrowPathD } from "./geometry";
+import { shapePoints, arrowHeadPoints, curveControl, arrowPathD, arrowPoints } from "./geometry";
 import { contrastTextColor, elementTransform } from "./elements";
 
 const XML_ESCAPE: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" };
@@ -28,9 +28,9 @@ export function elementToSvg(e: CanvasElement): string {
     case "arrow": {
       const x2 = e.x + e.width;
       const y2 = e.y + e.height;
-      // 带折点的箭头：折线路径 + 箭头方向取末段
+      // 带折点的箭头：折线路径 + 箭头方向取末段（折点为相对坐标，arrowPoints 转世界坐标）
       if ((e.midPoints?.length ?? 0) > 0) {
-        const pts = [{ x: e.x, y: e.y }, ...e.midPoints!, { x: x2, y: y2 }];
+        const pts = arrowPoints(e);
         const last = pts[pts.length - 1];
         const prev = pts[pts.length - 2] ?? pts[0];
         const head = arrowHeadPoints(prev.x, prev.y, last.x, last.y)
@@ -104,29 +104,13 @@ export function elementToSvg(e: CanvasElement): string {
   }
 }
 
-// 画布背景输出：缺省纯白（所见即所得）；"none" 透明不画；"linear:#c1,#c2" 对角渐变
-function backgroundSvg(doc: CanvasDocument): string {
-  const bg = doc.background ?? "#ffffff";
-  if (bg === "none") return "";
-  if (bg.startsWith("linear:")) {
-    const [c1, c2] = bg.slice(7).split(",");
-    if (!c1 || !c2) return `<rect width="${doc.width}" height="${doc.height}" fill="#ffffff"/>`;
-    return (
-      `<defs><linearGradient id="canvas-bg-grad" x1="0" y1="0" x2="1" y2="1">` +
-      `<stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/>` +
-      `</linearGradient></defs><rect width="${doc.width}" height="${doc.height}" fill="url(#canvas-bg-grad)"/>`
-    );
-  }
-  return `<rect width="${doc.width}" height="${doc.height}" fill="${bg}"/>`;
-}
-
 export function serializeSVG(doc: CanvasDocument): string {
   const body = [...doc.elements]
     .sort((a, b) => a.zIndex - b.zIndex)
     .map(elementToSvg)
     .join("\n");
-  const bg = backgroundSvg(doc);
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${doc.width}" height="${doc.height}" viewBox="0 0 ${doc.width} ${doc.height}">\n${bg}${bg ? "\n" : ""}${body}\n</svg>`;
+  // 导出图片不带画布背景：背景属于编辑态样式，用户要求导出完全透明
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${doc.width}" height="${doc.height}" viewBox="0 0 ${doc.width} ${doc.height}">\n${body}\n</svg>`;
 }
 
 export async function svgToPngDataUrl(svg: string, width: number, height: number): Promise<string> {

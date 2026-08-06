@@ -18,9 +18,9 @@ const HANDLE_POS: Record<(typeof HANDLES)[number], { x: number; y: number }> = {
 // 真实包围盒：arrow 负向拖拽时 width/height 为负，polyline 创建时宽高为 0，需归一化
 export function boundsOf(e: CanvasElement): { x: number; y: number; width: number; height: number } {
   if (e.type === "arrow") {
-    // 带折点的箭头包围盒覆盖全部折点；无折点时与原归一化语义一致
-    const xs = [e.x, e.x + e.width, ...(e.midPoints ?? []).map((p) => p.x)];
-    const ys = [e.y, e.y + e.height, ...(e.midPoints ?? []).map((p) => p.y)];
+    // 带折点的箭头包围盒覆盖全部折点（折点为相对坐标，偏移到世界坐标）；无折点时与原归一化语义一致
+    const xs = [e.x, e.x + e.width, ...(e.midPoints ?? []).map((p) => e.x + p.x)];
+    const ys = [e.y, e.y + e.height, ...(e.midPoints ?? []).map((p) => e.y + p.y)];
     const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
     return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
   }
@@ -40,6 +40,24 @@ export function boundsOf(e: CanvasElement): { x: number; y: number; width: numbe
     return { x: e.x - e.radius, y: e.y - e.radius, width: e.radius * 2, height: e.radius * 2 };
   }
   return { x: e.x, y: e.y, width: e.width, height: e.height };
+}
+
+// 指针 client 坐标 → 画布世界坐标（与手势模块同一换算）
+function worldOf(svg: Element, c: number, axis: "x" | "y"): number {
+  const r = svg.getBoundingClientRect();
+  const v = useCanvasStore.getState();
+  return ((c - (axis === "x" ? r.left : r.top)) - (axis === "x" ? v.view.ox : v.view.oy)) / v.view.scale;
+}
+
+function addWindowListeners(onMove: (me: PointerEvent) => void) {
+  const onUp = () => {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    window.removeEventListener("pointercancel", onUp);
+  };
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
+  window.addEventListener("pointercancel", onUp);
 }
 
 export default function SelectionOverlay({
@@ -81,54 +99,84 @@ export default function SelectionOverlay({
             />
             {e.type !== "curve" && e.type !== "sector" && (
               <>
-                {HANDLES.map((h) => {
-                  // 箭头只保留 e/w 缩放手柄：其余手柄盖在箭头命中层上会挡住选择/拖动
-                  if (e.type === "arrow" && h !== "e" && h !== "w") return null;
-                  const p = HANDLE_POS[h];
-                  // 手柄中心外移 H（8/scale）到包围盒之外：点元素本体（含边缘）只触发拖动；
-                  // 否则手柄压在元素边上，AI 生成的小元素（40x30）边缘全被手柄覆盖，拖动会误触缩放/旋转（"乱飞"）
-                  const cx = b.x + p.x * b.width + (p.x - 0.5) * 2 * H;
-                  const cy = b.y + p.y * b.height + (p.y - 0.5) * 2 * H;
-                  return (
+                {e.type === "arrow" ? (
+                  // 箭头是端点式逻辑（不是图案式缩放）：起点/终点两个可拖动端点，
+                  // 允许拖到另一端产生负宽高（翻转箭头）；无 8 向缩放/旋转手柄
+                  <>
+                    {(["start", "end"] as const).map((h) => {
+                      const p = h === "start" ? { x: e.x, y: e.y } : { x: e.x + e.width, y: e.y + e.height };
+                      return (
+                        <circle
+                          key={h}
+                          data-handle={h}
+                          data-element-id={e.id}
+                          cx={p.x}
+                          cy={p.y}
+                          r={H / 2}
+                          fill="#ffffff"
+                          stroke="#2563eb"
+                          strokeWidth={1.5 / scale}
+                          style={{ cursor: "move", pointerEvents: "all" }}
+                          onPointerDown={(ev) => {
+                            ev.stopPropagation();
+                            if (h === "start") startDown(ev, e);
+                            else endDown(ev, e);
+                          }}
+                        />
+                      );
+                    })}
+                  </>
+                ) : (
+                  <>
+                    {HANDLES.map((h) => {
+                      const p = HANDLE_POS[h];
+                      // 手柄中心外移 H（8/scale）到包围盒之外：点元素本体（含边缘）只触发拖动；
+                      // 否则手柄压在元素边上，AI 生成的小元素（40x30）边缘全被手柄覆盖，拖动会误触缩放/旋转（"乱飞"）
+                      const hx = b.x + p.x * b.width + (p.x - 0.5) * 2 * H;
+                      const hy = b.y + p.y * b.height + (p.y - 0.5) * 2 * H;
+                      return (
+                        <rect
+                          key={h}
+                          data-handle={h}
+                          data-element-id={e.id}
+                          x={hx - H / 2}
+                          y={hy - H / 2}
+                          width={H}
+                          height={H}
+                          fill="#ffffff"
+                          stroke="#2563eb"
+                          strokeWidth={1.5 / scale}
+                          style={{ cursor: "nwse-resize", pointerEvents: "all" }}
+                          onPointerDown={(ev) => {
+                            ev.stopPropagation();
+                            handleDown(ev, e, h);
+                          }}
+                        />
+                      );
+                    })}
                     <rect
-                      key={h}
-                      data-handle={h}
+                      data-handle="rotate"
                       data-element-id={e.id}
                       x={cx - H / 2}
-                      y={cy - H / 2}
+                      y={b.y - H - 14 / scale}
                       width={H}
                       height={H}
+                      rx={H / 2}
                       fill="#ffffff"
                       stroke="#2563eb"
                       strokeWidth={1.5 / scale}
-                      style={{ cursor: "nwse-resize", pointerEvents: "all" }}
+                      style={{ cursor: "grab", pointerEvents: "all" }}
                       onPointerDown={(ev) => {
                         ev.stopPropagation();
-                        handleDown(ev, e, h, scale);
+                        rotateDown(ev, e);
                       }}
                     />
-                  );
-                })}
-                <rect
-                  data-handle="rotate"
-                  data-element-id={e.id}
-                  x={cx - H / 2}
-                  y={b.y - H - 14 / scale}
-                  width={H}
-                  height={H}
-                  rx={H / 2}
-                  fill="#ffffff"
-                  stroke="#2563eb"
-                  strokeWidth={1.5 / scale}
-                  style={{ cursor: "grab", pointerEvents: "all" }}
-                  onPointerDown={(ev) => {
-                    ev.stopPropagation();
-                    rotateDown(ev, e);
-                  }}
-                />
+                  </>
+                )}
               </>
             )}
-            {/* 箭头折点手柄：平滑折点=圆点、尖锐折点=方点；可单独拖动改变折点位置；右键折点删除（右键线段插入由 Canvas 的 contextmenu 处理） */}
+            {/* 箭头折点手柄：平滑折点=圆点、尖锐折点=方点；折点为相对坐标，渲染时偏移起点；
+                可单独拖动改变折点位置；右键折点删除（右键线段插入由 Canvas 的 contextmenu 处理） */}
             {e.type === "arrow" &&
               (e.midPoints ?? []).map((mp, i) =>
                 mp.smooth ? (
@@ -136,8 +184,8 @@ export default function SelectionOverlay({
                     key={`mid-${i}`}
                     data-midpoint={i}
                     data-element-id={e.id}
-                    cx={mp.x}
-                    cy={mp.y}
+                    cx={e.x + mp.x}
+                    cy={e.y + mp.y}
                     r={H / 2}
                     fill="#ffffff"
                     stroke="#2563eb"
@@ -153,8 +201,8 @@ export default function SelectionOverlay({
                     key={`mid-${i}`}
                     data-midpoint={i}
                     data-element-id={e.id}
-                    x={mp.x - H / 2}
-                    y={mp.y - H / 2}
+                    x={e.x + mp.x - H / 2}
+                    y={e.y + mp.y - H / 2}
                     width={H}
                     height={H}
                     fill="#ffffff"
@@ -198,23 +246,16 @@ export default function SelectionOverlay({
   );
 }
 
-function handleDown(ev: React.PointerEvent, e: CanvasElement, handle: (typeof HANDLES)[number], scale: number) {
+function handleDown(ev: React.PointerEvent, e: CanvasElement, handle: (typeof HANDLES)[number]) {
   const s = useCanvasStore.getState();
   // AI 非阻塞：AI 正在编辑的元素锁定——缩放手柄不可拖动
   if (s.aiLockedIds.includes(e.id)) return;
   s.commitHistory(); // 缩放前提交快照（手势前状态），一次缩放 = 一步撤销
   const rect = { x: e.x, y: e.y, width: e.width, height: e.height };
-  const startX = ev.clientX;
-  const startY = ev.clientY;
   const svg = (ev.target as Element).closest("svg")!;
-  const world = (c: number, axis: "x" | "y") => {
-    const r = svg.getBoundingClientRect();
-    const v = useCanvasStore.getState();
-    return ((c - (axis === "x" ? r.left : r.top)) - (axis === "x" ? v.view.ox : v.view.oy)) / v.view.scale;
-  };
   const onMove = (me: PointerEvent) => {
-    const wx = world(me.clientX, "x");
-    const wy = world(me.clientY, "y");
+    const wx = worldOf(svg, me.clientX, "x");
+    const wy = worldOf(svg, me.clientY, "y");
     let { x, y, width, height } = rect;
     if (handle.includes("e")) width = wx - x;
     if (handle.includes("w")) { width = x + width - wx; x = wx; }
@@ -225,17 +266,51 @@ function handleDown(ev: React.PointerEvent, e: CanvasElement, handle: (typeof HA
     // 缩放逐帧更新不入历史（onDown 时已 commitHistory 一次）
     useCanvasStore.getState().updateElementFast(e.id, { x, y, width, height });
   };
-  const onUp = () => {
-    window.removeEventListener("pointermove", onMove);
-    window.removeEventListener("pointerup", onUp);
-    window.removeEventListener("pointercancel", onUp);
-  };
-  window.addEventListener("pointermove", onMove);
-  window.addEventListener("pointerup", onUp);
-  window.addEventListener("pointercancel", onUp);
+  addWindowListeners(onMove);
 }
 
-// 拖动箭头中间折点：只改该折点世界坐标，箭头两端与其余折点不动（相对位置改变）
+// 拖动箭头起点：终点固定，起点跟随指针；折点保持世界位置不变（相对坐标随新起点重算）
+function startDown(ev: React.PointerEvent, e: CanvasElement) {
+  // 仅箭头有起点手柄（调用点已按 arrow 渲染该手柄）
+  if (e.type !== "arrow") return;
+  const s = useCanvasStore.getState();
+  if (s.aiLockedIds.includes(e.id)) return;
+  s.commitHistory(); // 拖动前提交快照，一次拖动 = 一步撤销
+  const x2 = e.x + e.width;
+  const y2 = e.y + e.height;
+  const svg = (ev.target as Element).closest("svg")!;
+  // 折点原世界位置（相对坐标 + 旧起点）；拖动起点时世界位置不变 → 相对坐标随新起点重算
+  const mids = (e.midPoints ?? []).map((m) => ({ ...m, x: e.x + m.x, y: e.y + m.y }));
+  const onMove = (me: PointerEvent) => {
+    const wx = worldOf(svg, me.clientX, "x");
+    const wy = worldOf(svg, me.clientY, "y");
+    useCanvasStore.getState().updateElementFast(e.id, {
+      x: wx,
+      y: wy,
+      width: x2 - wx,
+      height: y2 - wy,
+      midPoints: mids.map((m) => (m.smooth ? { x: m.x - wx, y: m.y - wy, smooth: true } : { x: m.x - wx, y: m.y - wy })),
+    });
+  };
+  addWindowListeners(onMove);
+}
+
+// 拖动箭头终点：起点固定，终点跟随指针（折点为相对坐标，无需改动）
+function endDown(ev: React.PointerEvent, e: CanvasElement) {
+  const s = useCanvasStore.getState();
+  if (s.aiLockedIds.includes(e.id)) return;
+  s.commitHistory(); // 拖动前提交快照，一次拖动 = 一步撤销
+  const svg = (ev.target as Element).closest("svg")!;
+  const onMove = (me: PointerEvent) => {
+    useCanvasStore.getState().updateElementFast(e.id, {
+      width: worldOf(svg, me.clientX, "x") - e.x,
+      height: worldOf(svg, me.clientY, "y") - e.y,
+    });
+  };
+  addWindowListeners(onMove);
+}
+
+// 拖动箭头中间折点：只改该折点相对箭头起点的坐标，箭头两端与其余折点不动（相对位置改变）
 function midDown(ev: React.PointerEvent, e: CanvasElement, i: number) {
   // 仅箭头有折点（调用点已按 arrow 渲染该手柄）
   if (e.type !== "arrow" || !e.midPoints) return;
@@ -244,24 +319,14 @@ function midDown(ev: React.PointerEvent, e: CanvasElement, i: number) {
   if (s.aiLockedIds.includes(e.id)) return;
   s.commitHistory(); // 拖动前提交快照，一次拖动 = 一步撤销
   const svg = (ev.target as Element).closest("svg")!;
-  const world = (c: number, axis: "x" | "y") => {
-    const r = svg.getBoundingClientRect();
-    const v = useCanvasStore.getState();
-    return ((c - (axis === "x" ? r.left : r.top)) - (axis === "x" ? v.view.ox : v.view.oy)) / v.view.scale;
-  };
   const onMove = (me: PointerEvent) => {
     useCanvasStore.getState().updateElementFast(e.id, {
-      midPoints: e.midPoints!.map((m, j) => (j === i ? { ...m, x: world(me.clientX, "x"), y: world(me.clientY, "y") } : m)),
+      midPoints: e.midPoints!.map((m, j) =>
+        j === i ? { ...m, x: worldOf(svg, me.clientX, "x") - e.x, y: worldOf(svg, me.clientY, "y") - e.y } : m
+      ),
     });
   };
-  const onUp = () => {
-    window.removeEventListener("pointermove", onMove);
-    window.removeEventListener("pointerup", onUp);
-    window.removeEventListener("pointercancel", onUp);
-  };
-  window.addEventListener("pointermove", onMove);
-  window.addEventListener("pointerup", onUp);
-  window.addEventListener("pointercancel", onUp);
+  addWindowListeners(onMove);
 }
 
 function rotateDown(ev: React.PointerEvent, e: CanvasElement) {
@@ -273,21 +338,12 @@ function rotateDown(ev: React.PointerEvent, e: CanvasElement) {
   const b = boundsOf(e);
   const cx = b.x + b.width / 2;
   const cy = b.y + b.height / 2;
+  const svg = (ev.target as Element).closest("svg")!;
   const onMove = (me: PointerEvent) => {
-    const svg = (ev.target as Element).closest("svg")!;
-    const r = svg.getBoundingClientRect();
-    const v = useCanvasStore.getState();
-    const wx = (me.clientX - r.left - v.view.ox) / v.view.scale;
-    const wy = (me.clientY - r.top - v.view.oy) / v.view.scale;
+    const wx = worldOf(svg, me.clientX, "x");
+    const wy = worldOf(svg, me.clientY, "y");
     const deg = (Math.atan2(wy - cy, wx - cx) * 180) / Math.PI + 90;
     useCanvasStore.getState().updateElementFast(e.id, { rotation: Math.round(deg) });
   };
-  const onUp = () => {
-    window.removeEventListener("pointermove", onMove);
-    window.removeEventListener("pointerup", onUp);
-    window.removeEventListener("pointercancel", onUp);
-  };
-  window.addEventListener("pointermove", onMove);
-  window.addEventListener("pointerup", onUp);
-  window.addEventListener("pointercancel", onUp);
+  addWindowListeners(onMove);
 }

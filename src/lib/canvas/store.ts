@@ -181,10 +181,7 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => {
           if (e.type === "polyline") {
             return { ...e, x: e.x + dx, y: e.y + dy, points: e.points.map((p) => ({ x: p.x + dx, y: p.y + dy })) };
           }
-          if (e.type === "arrow" && (e.midPoints?.length ?? 0) > 0) {
-            // 折点跟随整体移动：折点与箭头相对位置不变
-            return { ...e, x: e.x + dx, y: e.y + dy, midPoints: e.midPoints!.map((m) => ({ ...m, x: m.x + dx, y: m.y + dy })) };
-          }
+          // 箭头折点为相对坐标，整体移动时自动跟随（x/y 平移即够）
           return { ...e, x: e.x + dx, y: e.y + dy };
         });
         return { ...syncProject(s, doc, s.history) };
