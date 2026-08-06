@@ -76,6 +76,7 @@ export interface CanvasStore {
   deleteElements: (ids: string[]) => void;
   moveElements: (ids: string[], dx: number, dy: number) => void;
   reorderElements: (orderedIds: string[]) => void;
+  rotateSelection: (deg: number) => void;
   commitHistory: () => void;
   setSelection: (ids: string[]) => void;
   setTool: (t: ToolType) => void;
@@ -211,6 +212,41 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => {
         return { ...syncProject(s, doc, s.history) };
       }),
     commitHistory: () => set((s) => ({ ...syncProject(s, s.doc, pushHistory(s.history, s.doc)) })),
+    // 多选整体旋转：绕选中元素包围盒中心旋转，一步撤销；
+    // 位置随旋转（世界坐标），rotation 累加；polyline 点列与箭头折点（相对坐标）同步旋转
+    rotateSelection: (deg) =>
+      set((s) => {
+        if (s.selection.length < 2) return {};
+        const doc = structuredClone(s.doc);
+        const targets = doc.elements.filter((e) => s.selection.includes(e.id));
+        if (targets.length < 2) return {};
+        const minX = Math.min(...targets.map((e) => e.x));
+        const maxX = Math.max(...targets.map((e) => e.x + e.width));
+        const minY = Math.min(...targets.map((e) => e.y));
+        const maxY = Math.max(...targets.map((e) => e.y + e.height));
+        const cx = (minX + maxX) / 2;
+        const cy = (minY + maxY) / 2;
+        const rad = (deg * Math.PI) / 180;
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+        doc.elements = doc.elements.map((e) => {
+          if (!s.selection.includes(e.id)) return e;
+          const dx = e.x - cx;
+          const dy = e.y - cy;
+          const next = { ...e, x: cx + dx * cos - dy * sin, y: cy + dx * sin + dy * cos, rotation: e.rotation + deg } as CanvasElement;
+          if (next.type === "polyline") {
+            next.points = e.points.map((p) => ({
+              x: cx + (p.x - cx) * cos - (p.y - cy) * sin,
+              y: cy + (p.x - cx) * sin + (p.y - cy) * cos,
+            }));
+          }
+          if (next.type === "arrow" && next.midPoints) {
+            next.midPoints = next.midPoints.map((m) => ({ ...m, x: m.x * cos - m.y * sin, y: m.x * sin + m.y * cos }));
+          }
+          return next;
+        });
+        return { ...syncProject(s, doc, pushHistory(s.history, s.doc)) };
+      }),
 
     setSelection: (ids) => set({ selection: [...ids] }),
     setTool: (t) => set({ tool: t }),

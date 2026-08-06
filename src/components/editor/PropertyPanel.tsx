@@ -269,6 +269,8 @@ export default function PropertyPanel() {
             ))}
             <button onClick={() => applyDistribute("horizontal")} className="lift rounded-lg border border-white/60 bg-white/70 px-2 py-0.5 text-gray-600 shadow-sm hover:bg-white/90">横分布</button>
             <button onClick={() => applyDistribute("vertical")} className="lift rounded-lg border border-white/60 bg-white/70 px-2 py-0.5 text-gray-600 shadow-sm hover:bg-white/90">纵分布</button>
+            <button onClick={() => useCanvasStore.getState().rotateSelection(-15)} className="lift rounded-lg border border-white/60 bg-white/70 px-2 py-0.5 text-gray-600 shadow-sm hover:bg-white/90">左旋 15°</button>
+            <button onClick={() => useCanvasStore.getState().rotateSelection(15)} className="lift rounded-lg border border-white/60 bg-white/70 px-2 py-0.5 text-gray-600 shadow-sm hover:bg-white/90">右旋 15°</button>
           </div>
         </Section>
       )}

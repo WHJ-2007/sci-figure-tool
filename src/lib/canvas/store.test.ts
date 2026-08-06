@@ -514,3 +514,70 @@ describe("A5 画布切换：AI 锁定/基线随项目切换重置", () => {
     expect(useCanvasStore.getState().aiLockedIds).toEqual([]);
   });
 });
+
+describe("B4 多选旋转 rotateSelection", () => {
+  it("两个矩形绕包围盒中心旋转 90°，位置与 rotation 均更新", () => {
+    useCanvasStore.getState().addElement(makeElement("rect", 0, 0, 100, 60));
+    useCanvasStore.getState().addElement(makeElement("rect", 200, 0, 100, 60));
+    useCanvasStore.getState().setSelection([useCanvasStore.getState().doc.elements[0].id, useCanvasStore.getState().doc.elements[1].id]);
+    useCanvasStore.getState().rotateSelection(90);
+    const [a, b] = useCanvasStore.getState().doc.elements;
+    // 包围盒中心 (150,30)；A 左上角 (0,0)→(180,-120)（元素中心 (50,30)→(150,-70)）
+    expect(a.x).toBeCloseTo(180, 5);
+    expect(a.y).toBeCloseTo(-120, 5);
+    expect(a.rotation).toBeCloseTo(90, 5);
+    // B 左上角 (200,0)→(180,80)（元素中心 (250,30)→(150,130)）
+    expect(b.x).toBeCloseTo(180, 5);
+    expect(b.y).toBeCloseTo(80, 5);
+    expect(b.rotation).toBeCloseTo(90, 5);
+  });
+
+  it("polyline 点列绕包围盒中心旋转（世界坐标）", () => {
+    useCanvasStore.getState().addElement(makeElement("polyline", 0, 0, 0, 0, { points: [{ x: 0, y: 0 }, { x: 100, y: 0 }] }));
+    useCanvasStore.getState().addElement(makeElement("rect", 0, 100, 100, 60));
+    useCanvasStore.getState().setSelection(useCanvasStore.getState().doc.elements.map((e) => e.id));
+    useCanvasStore.getState().rotateSelection(90);
+    const pl = useCanvasStore.getState().doc.elements[0] as PolylineElement;
+    // 包围盒中心 (50,80)，(0,0)→(130,30)，(100,0)→(130,130)
+    expect(pl.points[0].x).toBeCloseTo(130, 5);
+    expect(pl.points[0].y).toBeCloseTo(30, 5);
+    expect(pl.points[1].x).toBeCloseTo(130, 5);
+    expect(pl.points[1].y).toBeCloseTo(130, 5);
+  });
+
+  it("箭头 midPoints 相对坐标随元素位置一起旋转", () => {
+    useCanvasStore.getState().addElement(makeElement("arrow", 0, 0, 100, 0, { midPoints: [{ x: 50, y: 40 }] }));
+    useCanvasStore.getState().addElement(makeElement("rect", 200, 0, 100, 60));
+    useCanvasStore.getState().setSelection(useCanvasStore.getState().doc.elements.map((e) => e.id));
+    useCanvasStore.getState().rotateSelection(90);
+    const arrow = useCanvasStore.getState().doc.elements[0] as ArrowElement;
+    // 包围盒中心 (150,30)；箭头起点 (0,0)→(180,-120)，折点世界 (50,40)→(140,-70)，相对 →(-40,50)
+    expect(arrow.x).toBeCloseTo(180, 5);
+    expect(arrow.y).toBeCloseTo(-120, 5);
+    expect(arrow.midPoints![0].x).toBeCloseTo(-40, 5);
+    expect(arrow.midPoints![0].y).toBeCloseTo(50, 5);
+  });
+
+  it("未选满两个元素时空操作", () => {
+    useCanvasStore.getState().addElement(makeElement("rect", 0, 0, 100, 60));
+    useCanvasStore.getState().setSelection([useCanvasStore.getState().doc.elements[0].id]);
+    const before = useCanvasStore.getState().doc;
+    useCanvasStore.getState().rotateSelection(45);
+    expect(useCanvasStore.getState().doc).toBe(before);
+  });
+
+  it("undo 一步恢复旋转前状态", () => {
+    useCanvasStore.getState().addElement(makeElement("rect", 0, 0, 100, 60));
+    useCanvasStore.getState().addElement(makeElement("rect", 200, 0, 100, 60));
+    useCanvasStore.getState().setSelection(useCanvasStore.getState().doc.elements.map((e) => e.id));
+    useCanvasStore.getState().rotateSelection(90);
+    useCanvasStore.getState().undo();
+    const [a, b] = useCanvasStore.getState().doc.elements;
+    expect(a.x).toBe(0);
+    expect(a.y).toBe(0);
+    expect(a.rotation).toBe(0);
+    expect(b.x).toBe(200);
+    expect(b.y).toBe(0);
+    expect(b.rotation).toBe(0);
+  });
+});

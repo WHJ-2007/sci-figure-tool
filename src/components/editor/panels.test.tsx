@@ -6,7 +6,7 @@ import ChatPanel from "./ChatPanel";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { makeElement } from "@/lib/canvas/elements";
 import { layoutChart, type ChartSpec } from "@/lib/canvas/chartLayout";
-import type { ArrowElement } from "@/lib/canvas/types";
+import type { ArrowElement, PolylineElement } from "@/lib/canvas/types";
 
 beforeEach(() => useCanvasStore.setState(useCanvasStore.getInitialState()));
 
@@ -332,5 +332,23 @@ describe("PropertyPanel", () => {
     render(<PropertyPanel />);
     fireEvent.click(screen.getByText("删除"));
     expect(useCanvasStore.getState().doc.elements).toHaveLength(0);
+  });
+
+  it("多选时排列卡出现左右旋转按钮，点击绕包围盒中心旋转 15°", () => {
+    const a = makeElement("rect", 0, 0, 100, 60);
+    const b = makeElement("rect", 200, 0, 100, 60);
+    useCanvasStore.getState().addElements([a, b]);
+    useCanvasStore.getState().setSelection([a.id, b.id]);
+    render(<PropertyPanel />);
+    fireEvent.click(screen.getByText("右旋 15°"));
+    // 包围盒 (0,0)-(300,60) 中心 (150,30)；a 中心 (50,30) 绕中心转 15°
+    const cos15 = Math.cos((15 * Math.PI) / 180);
+    const sin15 = Math.sin((15 * Math.PI) / 180);
+    const e = useCanvasStore.getState().doc.elements[0];
+    expect(e.x).toBeCloseTo(150 + (0 - 150) * cos15 - (0 - 30) * sin15, 5);
+    expect(e.y).toBeCloseTo(30 + (0 - 150) * sin15 + (0 - 30) * cos15, 5);
+    expect(e.rotation).toBeCloseTo(15, 5);
+    fireEvent.click(screen.getByText("左旋 15°"));
+    expect(useCanvasStore.getState().doc.elements[0].rotation).toBeCloseTo(0, 5);
   });
 });
