@@ -25,6 +25,27 @@ describe("exporter", () => {
     expect(elementToSvg(d)).toContain("<polygon");
   });
 
+  it("elementToSvg 五角星/十字输出 polygon", () => {
+    expect(elementToSvg(makeElement("star", 0, 0, 100, 100))).toContain("<polygon");
+    expect(elementToSvg(makeElement("cross", 0, 0, 100, 100))).toContain("<polygon");
+  });
+
+  it("elementToSvg 圆环输出 evenodd 双弧 path", () => {
+    const out = elementToSvg(makeElement("donut", 0, 0, 100, 100));
+    expect(out).toContain("<path");
+    expect(out).toContain('fill-rule="evenodd"');
+    expect(out).toContain("A 50 50 0 1 0");
+    expect(out).toContain("A 32.5 32.5 0 1 0");
+  });
+
+  it("elementToSvg 半圆输出上半圆弧 path", () => {
+    const out = elementToSvg(makeElement("half", 0, 0, 100, 100));
+    expect(out).toContain("<path");
+    expect(out).toContain("M 0 50");
+    expect(out).toContain("A 50 50 0 0 1 100 50");
+    expect(out).toContain("Z");
+  });
+
   it("elementToSvg 箭头含 line 与箭头多边形", () => {
     const a = makeElement("arrow", 0, 0, 100, 50);
     expect(elementToSvg(a)).toContain("<line");

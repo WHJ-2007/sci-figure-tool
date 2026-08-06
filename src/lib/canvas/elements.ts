@@ -6,6 +6,10 @@ import type {
   TriangleElement,
   DiamondElement,
   HexagonElement,
+  StarElement,
+  CrossElement,
+  DonutElement,
+  HalfElement,
   TextElement,
   ArrowElement,
   PolylineElement,
@@ -85,6 +89,10 @@ export type ElementExtras = Partial<RectElement> &
   Partial<TriangleElement> &
   Partial<DiamondElement> &
   Partial<HexagonElement> &
+  Partial<StarElement> &
+  Partial<CrossElement> &
+  Partial<DonutElement> &
+  Partial<HalfElement> &
   Partial<TextElement> &
   Partial<ArrowElement> &
   Partial<PolylineElement> &
@@ -135,6 +143,14 @@ export function makeElement(
       return { ...base, type: "diamond" } as CanvasElement;
     case "hexagon":
       return { ...base, type: "hexagon" } as CanvasElement;
+    case "star":
+      return { ...base, type: "star" } as CanvasElement;
+    case "cross":
+      return { ...base, type: "cross" } as CanvasElement;
+    case "donut":
+      return { ...base, type: "donut" } as CanvasElement;
+    case "half":
+      return { ...base, type: "half" } as CanvasElement;
     case "arrow":
       return { ...base, type: "arrow", startId: extra.startId, endId: extra.endId, head: extra.head, midPoints: extra.midPoints } as CanvasElement;
     case "polyline": {

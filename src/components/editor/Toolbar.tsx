@@ -110,6 +110,29 @@ const LINE_ICON = (
   </svg>
 );
 
+// 新图案图标：五角星 / 十字 / 圆环 / 半圆（描边风格，与线条图标一致）
+const STAR_ICON = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true">
+    <path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8L3.5 9.2l5.9-.9z" />
+  </svg>
+);
+const CROSS_ICON = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+    <path d="M10 4v6H4v4h6v6h4v-6h6v-4h-6V4z" />
+  </svg>
+);
+const DONUT_ICON = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+    <circle cx="12" cy="12" r="8" />
+    <circle cx="12" cy="12" r="4" />
+  </svg>
+);
+const HALF_ICON = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true">
+    <path d="M4 12a8 8 0 0 1 16 0z" />
+  </svg>
+);
+
 // 工具分组：图案 = 纯图形（箭头/线条是与图案平级的独立坞按钮；文本框是独立分类）
 const SHAPE_TOOLS: ToolItem[] = [
   { title: "矩形", tool: "rect", label: "▢" },
@@ -118,6 +141,10 @@ const SHAPE_TOOLS: ToolItem[] = [
   { title: "三角形", tool: "triangle", label: "△" },
   { title: "菱形", tool: "diamond", label: "◇" },
   { title: "六边形", tool: "hexagon", label: "⬡" },
+  { title: "五角星", tool: "star", label: STAR_ICON },
+  { title: "十字", tool: "cross", label: CROSS_ICON },
+  { title: "圆环", tool: "donut", label: DONUT_ICON },
+  { title: "半圆", tool: "half", label: HALF_ICON },
   { title: "线条", tool: "line", label: LINE_ICON },
 ];
 const SHAPE_TOOL_SET = new Set(SHAPE_TOOLS.map((t) => t.tool));

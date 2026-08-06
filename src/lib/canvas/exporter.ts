@@ -26,11 +26,31 @@ export function elementToSvg(e: CanvasElement): string {
       return `<ellipse ${attrs} cx="${e.x + e.width / 2}" cy="${e.y + e.height / 2}" rx="${e.width / 2}" ry="${e.height / 2}"${rot}${sh}/>`;
     case "triangle":
     case "diamond":
-    case "hexagon": {
+    case "hexagon":
+    case "star":
+    case "cross": {
       const pts = shapePoints(e.type, e)
         .map((p) => `${p.x},${p.y}`)
         .join(" ");
       return `<polygon ${attrs} points="${pts}"${rot}${sh}/>`;
+    }
+    case "donut": {
+      // 圆环：与画布渲染一致（evenodd 双弧，内孔 0.65）
+      const rx = e.width / 2;
+      const ry = e.height / 2;
+      const cx = e.x + rx;
+      const cy = e.y + ry;
+      const irx = rx * 0.65;
+      const iry = ry * 0.65;
+      const d = `M ${cx - rx} ${cy} A ${rx} ${ry} 0 1 0 ${cx + rx} ${cy} A ${rx} ${ry} 0 1 0 ${cx - rx} ${cy} M ${cx - irx} ${cy} A ${irx} ${iry} 0 1 0 ${cx + irx} ${cy} A ${irx} ${iry} 0 1 0 ${cx - irx} ${cy}`;
+      return `<path ${attrs} d="${d}" fill-rule="evenodd"${rot}${sh}/>`;
+    }
+    case "half": {
+      // 半圆（上半圆）：与画布渲染一致的 path
+      const rx = e.width / 2;
+      const ry = e.height / 2;
+      const cy = e.y + ry;
+      return `<path ${attrs} d="M ${e.x} ${cy} A ${rx} ${ry} 0 0 1 ${e.x + e.width} ${cy} Z"${rot}${sh}/>`;
     }
     case "arrow": {
       const x2 = e.x + e.width;

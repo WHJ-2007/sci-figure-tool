@@ -113,7 +113,7 @@ export class DraftCanvas {
   }
 
   createElement(args: CreateArgs): { ok: boolean; id?: string; error?: string } {
-    const allowed: ElementType[] = ["rect", "ellipse", "triangle", "diamond", "hexagon", "arrow", "polyline", "text", "logic"];
+    const allowed: ElementType[] = ["rect", "ellipse", "triangle", "diamond", "hexagon", "star", "cross", "donut", "half", "arrow", "polyline", "text", "logic"];
     if (!allowed.includes(args.type as ElementType)) return { ok: false, error: `未知元素类型: ${args.type}` };
     const w = Math.max(8, Number(args.width) || 8);
     const h = Math.max(8, Number(args.height) || 8);
@@ -423,7 +423,8 @@ function titleOf(el: CanvasElement): string {
 function typeName(t: string): string {
   const map: Record<string, string> = {
     rect: "矩形", ellipse: "椭圆", triangle: "三角形", diamond: "菱形",
-    hexagon: "六边形", arrow: "箭头", polyline: "折线", text: "文字", logic: "逻辑节点",
+    hexagon: "六边形", star: "五角星", cross: "十字", donut: "圆环", half: "半圆",
+    arrow: "箭头", polyline: "折线", text: "文字", logic: "逻辑节点",
     curve: "曲线", sector: "扇形",
   };
   return map[t] ?? t;

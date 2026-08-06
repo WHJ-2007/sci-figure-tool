@@ -172,6 +172,19 @@ describe("Toolbar 悬浮坞", () => {
     expect(screen.queryByTitle("矩形")).toBeNull();
   });
 
+  it("图案气泡含四个新图案：五角星/十字/圆环/半圆，可切换", () => {
+    render(<Toolbar />);
+    fireEvent.click(screen.getByTitle("图形"));
+    expect(screen.getByTitle("五角星")).toBeInTheDocument();
+    expect(screen.getByTitle("十字")).toBeInTheDocument();
+    expect(screen.getByTitle("圆环")).toBeInTheDocument();
+    expect(screen.getByTitle("半圆")).toBeInTheDocument();
+    fireEvent.click(screen.getByTitle("五角星"));
+    expect(useCanvasStore.getState().tool).toBe("star");
+    fireEvent.click(screen.getByTitle("圆环"));
+    expect(useCanvasStore.getState().tool).toBe("donut");
+  });
+
   it("气泡内点子工具切换工具但不关闭气泡；逻辑按钮直接切换", () => {
     render(<Toolbar />);
     fireEvent.click(screen.getByTitle("图形"));

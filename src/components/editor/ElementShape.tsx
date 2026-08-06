@@ -32,7 +32,28 @@ function renderBody(e: CanvasElement): React.ReactNode {
     case "triangle":
     case "diamond":
     case "hexagon":
+    case "star":
+    case "cross":
       return <polygon points={pointsToString(shapePoints(e.type, e))} fill={e.fill} fillOpacity={fillOpacityAttr} stroke={e.stroke} strokeOpacity={strokeOpacityAttr} strokeWidth={e.strokeWidth} />;
+    case "donut": {
+      // 圆环：外圆弧 + 内孔弧双 path，fillRule=evenodd 挖空（内孔 = 0.65 缩放椭圆）
+      const rx = e.width / 2;
+      const ry = e.height / 2;
+      const cx = e.x + rx;
+      const cy = e.y + ry;
+      const irx = rx * 0.65;
+      const iry = ry * 0.65;
+      const d = `M ${cx - rx} ${cy} A ${rx} ${ry} 0 1 0 ${cx + rx} ${cy} A ${rx} ${ry} 0 1 0 ${cx - rx} ${cy} M ${cx - irx} ${cy} A ${irx} ${iry} 0 1 0 ${cx + irx} ${cy} A ${irx} ${iry} 0 1 0 ${cx - irx} ${cy}`;
+      return <path d={d} fillRule="evenodd" fill={e.fill} fillOpacity={fillOpacityAttr} stroke={e.stroke} strokeOpacity={strokeOpacityAttr} strokeWidth={e.strokeWidth} />;
+    }
+    case "half": {
+      // 半圆（上半圆）：起点左端 → 上半弧 → 闭合弦
+      const rx = e.width / 2;
+      const ry = e.height / 2;
+      const cy = e.y + ry;
+      const d = `M ${e.x} ${cy} A ${rx} ${ry} 0 0 1 ${e.x + e.width} ${cy} Z`;
+      return <path d={d} fill={e.fill} fillOpacity={fillOpacityAttr} stroke={e.stroke} strokeOpacity={strokeOpacityAttr} strokeWidth={e.strokeWidth} />;
+    }
     case "arrow": {
       const x2 = e.x + e.width;
       const y2 = e.y + e.height;

@@ -35,6 +35,24 @@ describe("绘制工具", () => {
     expect(e.height).toBe(80);
   });
 
+  it.each([
+    ["star", "star"],
+    ["cross", "cross"],
+    ["donut", "donut"],
+    ["half", "half"],
+  ] as const)("%s 工具拖拽创建 %s 元素", (tool, type) => {
+    useCanvasStore.getState().setTool(tool);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const svg = document.querySelector("svg")!;
+    drag(svg, { x: 100, y: 100 }, { x: 250, y: 180 });
+    const e = useCanvasStore.getState().doc.elements[0];
+    expect(e.type).toBe(type);
+    expect(e.x).toBe(100);
+    expect(e.y).toBe(100);
+    expect(e.width).toBe(150);
+    expect(e.height).toBe(80);
+  });
+
   it("文字工具拖拽创建文本框并进入编辑", () => {
     useCanvasStore.getState().setTool("text");
     render(<Canvas viewportWidth={800} viewportHeight={600} />);

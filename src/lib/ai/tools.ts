@@ -2,7 +2,7 @@ import { z } from "zod";
 import { tool } from "ai";
 import type { DraftCanvas } from "./draft";
 
-const shapeType = z.enum(["rect", "ellipse", "triangle", "diamond", "hexagon", "arrow", "polyline", "text", "logic"]);
+const shapeType = z.enum(["rect", "ellipse", "triangle", "diamond", "hexagon", "star", "cross", "donut", "half", "arrow", "polyline", "text", "logic"]);
 
 // 递归分支 schema：显式类型参数避免 TS 循环引用（zod 支持 z.lazy 延迟求值）
 type MindMapBranchInput = { keyword: string; body?: string; fill?: string; children?: MindMapBranchInput[] };

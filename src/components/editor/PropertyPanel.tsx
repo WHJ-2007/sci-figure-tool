@@ -55,7 +55,8 @@ function ColorPicker({ value, onChange, ariaLabel }: { value: string; onChange: 
 
 const TYPE_NAMES: Record<ElementType | "rounded", string> = {
   rect: "矩形", rounded: "圆角矩形", ellipse: "椭圆", triangle: "三角形", diamond: "菱形",
-  hexagon: "六边形", arrow: "箭头", polyline: "折线", text: "文字", logic: "逻辑节点",
+  hexagon: "六边形", star: "五角星", cross: "十字", donut: "圆环", half: "半圆",
+  arrow: "箭头", polyline: "折线", text: "文字", logic: "逻辑节点",
   curve: "曲线", sector: "扇形", image: "图片",
 };
 

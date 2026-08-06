@@ -1,6 +1,6 @@
 import type { ChartSpec } from "./chartLayout";
 
-export type ShapeType = "rect" | "ellipse" | "triangle" | "diamond" | "hexagon";
+export type ShapeType = "rect" | "ellipse" | "triangle" | "diamond" | "hexagon" | "star" | "cross" | "donut" | "half";
 export type ElementType = ShapeType | "arrow" | "polyline" | "text" | "logic" | "curve" | "sector" | "image";
 export type ToolType = "select" | "rounded" | ElementType | "line";
 
@@ -44,6 +44,14 @@ export interface EllipseElement extends BaseElement { type: "ellipse"; }
 export interface TriangleElement extends BaseElement { type: "triangle"; }
 export interface DiamondElement extends BaseElement { type: "diamond"; }
 export interface HexagonElement extends BaseElement { type: "hexagon"; }
+// 五角星：外接圆半径 = max(w,h)/2，内径 0.382 倍（黄金比例内缩）
+export interface StarElement extends BaseElement { type: "star"; }
+// 十字：臂宽 = min(w,h)/3，臂厚 = min(w,h)/6（几何公式化，命中 = 12 点多边形）
+export interface CrossElement extends BaseElement { type: "cross"; }
+// 圆环（甜甜圈）：外圆 max(w,h)/2，内孔 0.65 倍（渲染 evenodd 双弧，命中 = 内外圆环带）
+export interface DonutElement extends BaseElement { type: "donut"; }
+// 半圆：上半圆（渲染 path M 起点 A 终点 Z，命中 = 上半圆盘）
+export interface HalfElement extends BaseElement { type: "half"; }
 
 export interface TextElement extends BaseElement {
   type: "text";
@@ -105,7 +113,7 @@ export interface ImageElement extends BaseElement {
   src: string;
 }
 
-export type CanvasElement = RectElement | EllipseElement | TriangleElement | DiamondElement | HexagonElement | TextElement | ArrowElement | PolylineElement | LogicElement | CurveElement | SectorElement | ImageElement;
+export type CanvasElement = RectElement | EllipseElement | TriangleElement | DiamondElement | HexagonElement | StarElement | CrossElement | DonutElement | HalfElement | TextElement | ArrowElement | PolylineElement | LogicElement | CurveElement | SectorElement | ImageElement;
 
 export interface CanvasDocument {
   width: number;

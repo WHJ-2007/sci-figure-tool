@@ -29,6 +29,27 @@ describe("shapePoints", () => {
     const cx = (pts[0].x + pts[3].x) / 2;
     expect(cx).toBeCloseTo(50);
   });
+  it("五角星 10 个顶点，外圈/内圈交替（内径 = 外径 × 0.382），首点朝上", () => {
+    const pts = shapePoints("star", { x: 0, y: 0, width: 100, height: 100 });
+    expect(pts).toHaveLength(10);
+    // 首点正上方（外圈顶点），第二点内圈
+    expect(pts[0].x).toBeCloseTo(50);
+    expect(pts[0].y).toBeCloseTo(0);
+    expect(Math.hypot(pts[0].x - 50, pts[0].y - 50)).toBeCloseTo(50);
+    expect(Math.hypot(pts[1].x - 50, pts[1].y - 50)).toBeCloseTo(50 * 0.382);
+    // 外圈顶点间距相等（72° 步进）
+    expect(Math.hypot(pts[2].x - 50, pts[2].y - 50)).toBeCloseTo(50);
+  });
+  it("十字 12 个顶点：臂宽 = min(w,h)/3，凹口深度 = min(w,h)/6", () => {
+    const pts = shapePoints("cross", { x: 0, y: 0, width: 120, height: 60 });
+    expect(pts).toHaveLength(12);
+    // min=60 → 臂宽 20、凹口 10；中心在 (60,30)
+    expect(pts[1].x - pts[0].x).toBeCloseTo(20);
+    expect(pts[0].y).toBeCloseTo(0);
+    expect(pts[2].y - pts[1].y).toBeCloseTo(20); // 顶臂下缘到凹口 = cy - aw = 30 - 10
+    expect(pts[3].x).toBeCloseTo(120);
+    expect(pts[6].y).toBeCloseTo(60);
+  });
 });
 
 describe("hitTestElement", () => {
@@ -247,5 +268,34 @@ describe("逻辑节点锚点", () => {
     expect(anchorToward(rot, { x: 160, y: 500 })?.side).toBe("right");
     const r = makeElement("rect", 0, 0, 100, 60);
     expect(anchorToward(r, { x: 10, y: 10 })).toBeNull();
+  });
+});
+
+describe("hitTestElement 新图案", () => {
+  it("圆环：环带命中、内孔与外圆外不命中", () => {
+    // 100×100：外圆 r=50，内孔 r=32.5（0.65×50）
+    const d = makeElement("donut", 0, 0, 100, 100);
+    expect(hitTestElement(d, { x: 50, y: 10 })).toBe(true); // 顶部环带（d=40 ∈ [32.5,50]）
+    expect(hitTestElement(d, { x: 50, y: 40 })).toBe(false); // 内孔（d=10 < 32.5）
+    expect(hitTestElement(d, { x: 110, y: 50 })).toBe(false); // 外圆外（d=60 > 50）
+  });
+  it("半圆：上半圆盘命中、下半圆与外圆外不命中", () => {
+    const h = makeElement("half", 0, 0, 100, 100);
+    expect(hitTestElement(h, { x: 50, y: 10 })).toBe(true); // 上半圆内
+    expect(hitTestElement(h, { x: 50, y: 60 })).toBe(false); // 圆心（50,50）下方 → 不命中
+    expect(hitTestElement(h, { x: 50, y: 100 })).toBe(false); // 底部矩形角（下半外）
+    expect(hitTestElement(h, { x: 5, y: 49 })).toBe(true); // 上半圆靠近边缘内
+  });
+  it("五角星内部命中、凹口与外不命中（多边形判定）", () => {
+    const s = makeElement("star", 0, 0, 100, 100);
+    expect(hitTestElement(s, { x: 50, y: 50 })).toBe(true); // 中心
+    expect(hitTestElement(s, { x: 50, y: 5 })).toBe(true); // 顶部外圈
+    expect(hitTestElement(s, { x: 140, y: 50 })).toBe(false); // 外
+  });
+  it("十字内部命中、凹角与外不命中（多边形判定）", () => {
+    const c = makeElement("cross", 0, 0, 100, 100);
+    expect(hitTestElement(c, { x: 50, y: 50 })).toBe(true); // 中心
+    expect(hitTestElement(c, { x: 5, y: 5 })).toBe(false); // 凹角（外）
+    expect(hitTestElement(c, { x: 110, y: 50 })).toBe(false);
   });
 });

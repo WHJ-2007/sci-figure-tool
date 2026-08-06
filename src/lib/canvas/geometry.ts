@@ -40,6 +40,35 @@ export function shapePoints(type: string, r: Rect): Point[] {
         { x, y: cy },
       ];
     }
+    case "star": {
+      // 五角星：10 点外接圆/内圆交替（内径 0.382R 黄金比例），首点朝上
+      const R = Math.max(w, h) / 2;
+      const r = R * 0.382;
+      const pts: Point[] = [];
+      for (let i = 0; i < 10; i++) {
+        const rad = -Math.PI / 2 + (i * Math.PI) / 5;
+        pts.push({ x: cx + Math.cos(rad) * (i % 2 === 0 ? R : r), y: cy + Math.sin(rad) * (i % 2 === 0 ? R : r) });
+      }
+      return pts;
+    }
+    case "cross": {
+      // 十字：12 点多边形，臂厚 aw = min(w,h)/6，臂宽 = min(w,h)/3（两侧各 1/3）
+      const aw = Math.min(w, h) / 6;
+      return [
+        { x: cx - aw, y },
+        { x: cx + aw, y },
+        { x: cx + aw, y: cy - aw },
+        { x: x + w, y: cy - aw },
+        { x: x + w, y: cy + aw },
+        { x: cx + aw, y: cy + aw },
+        { x: cx + aw, y: y + h },
+        { x: cx - aw, y: y + h },
+        { x: cx - aw, y: cy + aw },
+        { x, y: cy + aw },
+        { x, y: cy - aw },
+        { x: cx - aw, y: cy - aw },
+      ];
+    }
     default:
       return [
         { x, y },
@@ -327,9 +356,32 @@ export function hitTestElement(e: CanvasElement, p: Point, tolerance = HIT_TOLER
       if (Math.hypot(p.x - e.x, p.y - e.y) > e.radius + tolerance) return false;
       return angleInSector(Math.atan2(p.y - e.y, p.x - e.x), e.startAngle, e.endAngle);
     }
+    case "donut": {
+      // 圆环：归一化半径 d² ∈ [0.4225, 1]（内孔 = 0.65²），粗筛矩形后直接精确命中
+      const rx = e.width / 2;
+      const ry = e.height / 2;
+      if (rx <= 0 || ry <= 0) return false;
+      const dx = (p.x - (e.x + rx)) / rx;
+      const dy = (p.y - (e.y + ry)) / ry;
+      const d2 = dx * dx + dy * dy;
+      return d2 <= 1 && d2 >= 0.4225;
+    }
+    case "half": {
+      // 半圆（上半圆盘）：y 不高于圆心且在外圆内
+      const rx = e.width / 2;
+      const ry = e.height / 2;
+      if (rx <= 0 || ry <= 0) return false;
+      const cy = e.y + ry;
+      if (p.y > cy) return false;
+      const dx = (p.x - (e.x + rx)) / rx;
+      const dy = (p.y - cy) / ry;
+      return dx * dx + dy * dy <= 1;
+    }
     case "triangle":
     case "diamond":
     case "hexagon":
+    case "star":
+    case "cross":
       return pointInPolygon(p, shapePoints(e.type, r));
     default:
       return true; // rect / text：已通过扩展矩形粗筛
