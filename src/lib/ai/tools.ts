@@ -4,6 +4,17 @@ import type { DraftCanvas } from "./draft";
 
 const shapeType = z.enum(["rect", "ellipse", "triangle", "diamond", "hexagon", "arrow", "polyline", "text", "logic"]);
 
+// 递归分支 schema：显式类型参数避免 TS 循环引用（zod 支持 z.lazy 延迟求值）
+type MindMapBranchInput = { keyword: string; body?: string; fill?: string; children?: MindMapBranchInput[] };
+const branchSchema: z.ZodType<MindMapBranchInput> = z.lazy(() =>
+  z.object({
+    keyword: z.string().describe("分支关键词（实义语义名词，≤8 字）"),
+    body: z.string().optional().describe("分支要点（多行用 \\n 分隔，每行一个要点 ≤12 字，可省略）"),
+    fill: z.string().optional().describe("填充色（6 色调色板：蓝/绿/橙/紫/红/白，可省略自动配色，同分支同色系）"),
+    children: z.array(branchSchema).optional().describe("子分支（≤3 层）"),
+  })
+);
+
 export function buildTools(draft: DraftCanvas) {
   return {
     createElement: tool({
@@ -54,6 +65,18 @@ export function buildTools(draft: DraftCanvas) {
         direction: z.enum(["TB", "LR"]).optional().describe("布局方向：TB 自上而下（默认）、LR 从左到右"),
       }),
       execute: (args) => draft.applyGraph(args),
+    }),
+    applyMindMap: tool({
+      description:
+        "声明式一键生成思维导图：只需声明中心主题与分支层级（关键词/要点/子分支），系统自动完成放射布局——中心主题 + 曲线分支 + 关键词节点 + 每分支一色。" +
+        "思维导图一律优先用它。关键词必须是实义语义名词（≤8 字，如“数据预处理”“损失函数”），禁止“分支1”“子项2”等空泛词；" +
+        "整图 3~5 个一级分支、每分支 1~3 层子分支；分支要点用 body 展开（每行一个要点 ≤12 字）。",
+      inputSchema: z.object({
+        topic: z.string().describe("中心主题（简洁语义名词，≤8 字）"),
+        topicBody: z.string().optional().describe("主题副标题/要点（多行用 \\n 分隔，可省略）"),
+        branches: z.array(branchSchema).describe("一级分支（3~5 个）"),
+      }),
+      execute: (args) => draft.applyMindMap(args),
     }),
     connectElements: tool({
       description:

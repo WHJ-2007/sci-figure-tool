@@ -276,6 +276,35 @@ describe("DraftCanvas", () => {
     expect(l.width).toBeGreaterThanOrEqual(logicBoxSize("预处理", "去噪\n归一化", 14).width);
     expect(l.height).toBeGreaterThanOrEqual(logicBoxSize("预处理", "去噪\n归一化", 14).height);
   });
+
+  it("applyMindMap 生成中心主题 + 一级分支 + 曲线 + 子分支关键词", () => {
+    const d = new DraftCanvas([]);
+    const r = d.applyMindMap({
+      topic: "深度学习",
+      branches: [
+        { keyword: "数据处理", children: [{ keyword: "归一化" }] },
+        { keyword: "模型" },
+      ],
+    });
+    expect(r.ok).toBe(true);
+    const els = d.serialize().elements;
+    const logics = els.filter((e) => e.type === "logic");
+    expect(logics).toHaveLength(3); // 主题 + 2 个一级分支
+    const topic = logics.find((l) => l.text === "深度学习")!;
+    expect(topic.fontSize).toBe(18);
+    expect(topic.bold).toBe(true);
+    expect(els.filter((e) => e.type === "curve")).toHaveLength(3); // 主题→2 分支 + 数据→归一化
+    expect(els.filter((e) => e.type === "text")).toHaveLength(1);  // 子分支关键词
+    expect(d.flushActivity().join("")).toContain("思维导图");
+  });
+
+  it("applyMindMap 校验：空主题 / 空分支 / 分支过多报错且不创建元素", () => {
+    const d = new DraftCanvas([]);
+    expect(d.applyMindMap({ topic: "  ", branches: [] }).ok).toBe(false);
+    expect(d.applyMindMap({ topic: "T", branches: [] }).ok).toBe(false);
+    expect(d.applyMindMap({ topic: "T", branches: Array.from({ length: 9 }, (_, i) => ({ keyword: `b${i}` })) }).ok).toBe(false);
+    expect(d.serialize().elements).toHaveLength(0);
+  });
 });
 
 describe("tools", () => {

@@ -1,6 +1,8 @@
 import { CANVAS_WIDTH, CANVAS_HEIGHT, clampRect, shapeExitPoint, anchorToward, type Point } from "@/lib/canvas/geometry";
 import { makeElement, estimateTextSize, logicBoxSize } from "@/lib/canvas/elements";
 import { layoutGraph } from "@/lib/canvas/graphLayout";
+import { layoutMindMap } from "@/lib/canvas/mindMapLayout";
+import type { MindMapBranch } from "@/lib/canvas/mindMapLayout";
 import type { CanvasDocument, CanvasElement, ElementType } from "@/lib/canvas/types";
 
 // updateElement 只接受白名单内的属性键，防止绕过工具层 schema 直接注入任意属性
@@ -233,6 +235,31 @@ export class DraftCanvas {
       this.connectElements({ sourceId: idMap.get(e.from)!, targetId: idMap.get(e.to)! });
     }
     this.activity.push(`自动布局绘制 ${sized.length} 个节点、${args.edges.length} 条连线（${args.direction ?? "TB"}）`);
+    return { ok: true };
+  }
+
+  // 布局引擎产物直接入草稿（引擎坐标已规划且可能为负偏移，如向上的坐标轴箭头），不钳制
+  private pushElement(el: CanvasElement) {
+    this.elements.push(el);
+    this.ensureTextOnTop();
+    this.changed();
+  }
+
+  // 声明式思维导图：AI 只声明主题与分支层级，放射布局引擎产出元素（中心主题 + 曲线分支 + 关键词）
+  applyMindMap(args: { topic: string; topicBody?: string; branches: MindMapBranch[] }): { ok: boolean; error?: string } {
+    const topic = (args.topic ?? "").trim();
+    if (!topic) return { ok: false, error: "主题不能为空" };
+    if (!args.branches || args.branches.length === 0) return { ok: false, error: "至少需要一个一级分支" };
+    if (args.branches.length > 8) return { ok: false, error: "一级分支过多（最多 8 个）" };
+    const els = layoutMindMap({
+      topic,
+      topicBody: args.topicBody,
+      branches: args.branches,
+    });
+    for (const el of els) this.pushElement(el);
+    const nodes = els.filter((e) => e.type === "logic" || e.type === "text").length;
+    const curves = els.filter((e) => e.type === "curve").length;
+    this.activity.push(`思维导图已生成：主题「${topic}」+ ${args.branches.length} 个一级分支（${nodes} 个关键词、${curves} 条分支线）`);
     return { ok: true };
   }
 
