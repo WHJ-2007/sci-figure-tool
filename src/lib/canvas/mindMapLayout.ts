@@ -1,4 +1,4 @@
-import { makeElement } from "./elements";
+import { makeElement, newId, contrastTextColor } from "./elements";
 import { CANVAS_WIDTH, CANVAS_HEIGHT, curveControl, quadBezierBounds, type Point } from "./geometry";
 import type { CanvasElement } from "./types";
 
@@ -30,8 +30,6 @@ export function layoutMindMap(spec: MindMapSpec): CanvasElement[] {
   const n = spec.branches.length;
   const out: CanvasElement[] = [];
   const nodeEls: CanvasElement[] = [];
-  const idCounter = { i: 0 };
-  const uid = (prefix: string) => `${prefix}-${idCounter.i++}`;
 
   // 主题节点（先算尺寸用于锚点与曲线起点）
   const topicEl = makeElement("logic", 0, 0, 0, 0, {
@@ -43,7 +41,7 @@ export function layoutMindMap(spec: MindMapSpec): CanvasElement[] {
   }) as Extract<CanvasElement, { type: "logic" }>;
   topicEl.x = cx - topicEl.width / 2;
   topicEl.y = cy - topicEl.height / 2;
-  topicEl.id = uid("topic");
+  topicEl.id = newId();
   topicEl.zIndex = 2;
 
   // 一级分支：角度均分 360°
@@ -55,9 +53,9 @@ export function layoutMindMap(spec: MindMapSpec): CanvasElement[] {
     if (level === 1) {
       el = makeElement("logic", 0, 0, 0, 0, { text: b.keyword, body: b.body, fontSize: NODE_FONT, fill: color }) as Extract<CanvasElement, { type: "logic" }>;
     } else {
-      el = makeElement("text", 0, 0, 0, 0, { text: b.keyword, fontSize: NODE_FONT, fill: color }) as Extract<CanvasElement, { type: "text" }>;
+      el = makeElement("text", 0, 0, 0, 0, { text: b.keyword, fontSize: NODE_FONT, fill: contrastTextColor(color) }) as Extract<CanvasElement, { type: "text" }>;
     }
-    el.id = uid("node");
+    el.id = newId();
     el.x = center.x - el.width / 2;
     el.y = center.y - el.height / 2;
     el.zIndex = level === 1 ? 2 : 3;
@@ -108,7 +106,7 @@ function makeCurve(start: Point, end: Point, color: string): CanvasElement {
     strokeWidth: 2.5,
     zIndex: 1,
   });
-  el.id = `curve-${Math.random().toString(36).slice(2, 8)}`;
+  el.id = newId();
   return el;
 }
 

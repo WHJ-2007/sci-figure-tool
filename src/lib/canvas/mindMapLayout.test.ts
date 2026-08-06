@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { layoutMindMap } from "./mindMapLayout";
 import { curveControl } from "./geometry";
+import { contrastTextColor } from "./elements";
 import type { CanvasElement } from "./types";
 
 describe("mindMapLayout", () => {
@@ -37,9 +38,9 @@ describe("mindMapLayout", () => {
     const ang = (e: CanvasElement) => Math.atan2(e.y + e.height / 2 - 470, e.x + e.width / 2 - 800);
     expect(ang(a1)).toBeLessThan(ang(a));
     expect(ang(a2)).toBeGreaterThan(ang(a));
-    // 颜色继承：A1/A2 与 A 同填充色
-    expect(a1.fill).toBe(a.fill);
-    expect(a2.fill).toBe(a.fill);
+    // 颜色继承：A1/A2 文字色 = A 填充色的对比色（text.fill 是字形颜色，浅色分支色不可读）
+    expect(a1.fill).toBe(contrastTextColor(a.fill));
+    expect(a2.fill).toBe(contrastTextColor(a.fill));
     // 曲线：主题→A、A→A1、A→A2 共 3 条
     expect(els.filter((e) => e.type === "curve")).toHaveLength(3);
   });
