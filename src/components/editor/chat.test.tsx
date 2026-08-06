@@ -236,6 +236,57 @@ describe("ChatPanel", () => {
     fireEvent.click(screen.getByText("一键生成"));
     await waitFor(() => expect(screen.getByTestId("ai-typing")).toBeInTheDocument());
   });
+
+  it("AI 提问澄清：question 事件显示问题气泡与等待提示，回答后复用主流程继续生成", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(mockStream([{ type: "question", question: "请问要画柱状图还是折线图？" }]))
+      .mockResolvedValueOnce(
+        mockStream([
+          { type: "complete", canvas: { width: 1600, height: 1000, elements: [makeElement("rect", 0, 0, 50, 30)] }, summary: "画好了" },
+        ])
+      );
+    render(<ChatPanel />);
+    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "帮我画个图" } });
+    fireEvent.click(screen.getByText("一键生成"));
+    // 问题气泡 + 等待提示 + 输入框切换为回答提示
+    await waitFor(() => expect(screen.getByText(/柱状图还是折线图/)).toBeInTheDocument());
+    expect(screen.getByTestId("waiting-answer")).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText(/回答后继续生成/), { target: { value: "柱状图" } });
+    fireEvent.click(screen.getByText("一键生成"));
+    await waitFor(() => expect(screen.getByText(/画好了/)).toBeInTheDocument());
+    await waitFor(() => expect(useCanvasStore.getState().doc.elements).toHaveLength(1));
+    // 回答后等待提示消失
+    expect(screen.queryByTestId("waiting-answer")).toBeNull();
+    // 第二次请求上下文完整：问题（assistant）+ 回答（user）
+    const body2 = JSON.parse((vi.mocked(fetch).mock.calls[1][1] as RequestInit).body as string);
+    expect(body2.messages).toEqual([
+      { role: "user", content: "帮我画个图" },
+      { role: "assistant", content: "请问要画柱状图还是折线图？" },
+      { role: "user", content: "柱状图" },
+    ]);
+  });
+
+  it("AI 提问前若已画元素：恢复生成前基线（防呆丢弃 AI 变更）", async () => {
+    const base = makeElement("rect", 0, 0, 50, 30);
+    useCanvasStore.setState({ doc: { width: 1600, height: 1000, elements: [base] } });
+    vi.mocked(fetch).mockResolvedValueOnce(
+      mockStream([
+        {
+          type: "snapshot",
+          canvas: { width: 1600, height: 1000, elements: [base, makeElement("ellipse", 100, 100, 40, 40, { id: "e2" })] },
+          touched: ["e2"],
+        },
+        { type: "question", question: "请问要画什么？" },
+      ])
+    );
+    render(<ChatPanel />);
+    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "画图" } });
+    fireEvent.click(screen.getByText("一键生成"));
+    await waitFor(() => expect(screen.getByText(/请问要画什么/)).toBeInTheDocument());
+    // AI 的椭圆被丢弃，画布恢复为生成前仅一个矩形
+    await waitFor(() => expect(useCanvasStore.getState().doc.elements).toHaveLength(1));
+    expect(useCanvasStore.getState().doc.elements[0].type).toBe("rect");
+  });
 });
 
 describe("ChatPanel 画布级操作确认", () => {

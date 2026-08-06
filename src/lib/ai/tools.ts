@@ -152,6 +152,12 @@ export function buildTools(draft: DraftCanvas) {
       inputSchema: z.object({}),
       execute: () => draft.listElements(),
     }),
+    askUser: tool({
+      description:
+        "对需求不确定时向用户提问澄清（一次只问一个问题，禁止连问）：当用户需求缺少关键信息、无法确定图种/主题/数据/布局时使用，例如「图表没给数据也没说主题」「流程缺关键环节」「要对比哪些项」。调用后本轮立即停止绘制，等待用户回答后再继续；需求已明确时禁止提问。",
+      inputSchema: z.object({ question: z.string().describe("要问用户的问题（具体、可回答，只问一个问题）") }),
+      execute: () => "已向用户提问，本轮停止绘制，等待回答",
+    }),
     clearCanvas: tool({
       description: "清空整个画布，重新开始。仅当用户明确要求清空画布或重画时才使用。",
       inputSchema: z.object({}),

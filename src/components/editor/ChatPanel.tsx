@@ -38,6 +38,9 @@ export default function ChatPanel() {
   const [modes, setModes] = useState<AIMode[]>([]);
   const [confirmReq, setConfirmReq] = useState<{ sessionId: string; summary: string; pending: { id: string; description: string }[] } | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
+  // A3 提问澄清：AI 的 askUser 问题（问题已作为 assistant 消息入 messages，此状态驱动输入框提示/聚焦/副标）
+  const [waitingAnswer, setWaitingAnswer] = useState<string | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   // A5 画布守卫：记录本轮请求对应的画布 id，生成中切换画布 → 后续事件全部丢弃
   const requestProjectIdRef = useRef<string | null>(null);
   // AI 发起的画布切换（new-canvas 事件）：不当作"用户切画布"，对话会话保留
@@ -70,6 +73,7 @@ export default function ChatPanel() {
     setInput("");
     setError("");
     setConfirmReq(null);
+    setWaitingAnswer(null);
   }, [currentProjectId]);
 
   const selectAuto = () => {
@@ -91,12 +95,19 @@ export default function ChatPanel() {
     bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
   }, [messages]);
 
+  // A3 提问澄清：收到问题后聚焦输入框，等待用户回答
+  useEffect(() => {
+    if (waitingAnswer) inputRef.current?.focus();
+  }, [waitingAnswer]);
+
   const send = async () => {
     const text = input.trim();
     // 守卫用 getState()：避免订阅闭包在极端时序下被旧请求的 finally 误解锁；
     // 仍有未解决的确认项时禁止发起新生成，避免覆盖丢弃；pending 清空后 confirmReq 会被置 null，
     // 但保险起见同时校验 pending.length（防残留真值死锁聊天）
     if (!text || useCanvasStore.getState().isGenerating || (confirmReq && confirmReq.pending.length > 0)) return;
+    // 提问澄清的回答复用主流程：问题已在 messages 中，此处只追加回答，上下文完整 AI 会继续执行
+    setWaitingAnswer(null);
     const s = useCanvasStore.getState();
     requestProjectIdRef.current = s.currentProjectId;
     const settings = loadSettings();
@@ -180,6 +191,13 @@ export default function ChatPanel() {
             } else if (ev.type === "complete") {
               finalDoc = ev.canvas;
               summary = ev.summary ?? "";
+            } else if (ev.type === "question") {
+              // A3 提问澄清：若 AI 提问前已画了元素（不应发生）则按问题优先全部丢弃——恢复生成前基线；
+              // 问题作为 assistant 消息入对话，等待用户回答后走主流程继续生成
+              if (lastSnapshot) useCanvasStore.getState().applyAISnapshot(baseline);
+              lastSnapshot = null;
+              setMessages((m) => [...m, { role: "assistant", content: ev.question }]);
+              setWaitingAnswer(ev.question);
             } else if (ev.type === "confirm-request") {
               // 生成主体结束：把最后快照作为最终结果入历史（一步 undo 回到生成前），再弹确认框；
               // AI 文字回复先入对话（与 complete 分支的 summary 行为一致，空串不产生气泡）
@@ -320,6 +338,9 @@ export default function ChatPanel() {
             }`}
           >
             {m.content}
+            {m.role === "assistant" && waitingAnswer && m.content === waitingAnswer && (
+              <div data-testid="waiting-answer" className="mt-1 text-xs text-blue-600">等待你的回答…</div>
+            )}
           </div>
         ))}
         {isGenerating && messages.length > 0 && messages[messages.length - 1].role === "user" && (
@@ -334,10 +355,11 @@ export default function ChatPanel() {
       <div className="border-t border-white/50 p-3">
         <textarea
           id="chat-input"
+          ref={inputRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-          placeholder="描述你想画的图…（回车发送）"
+          placeholder={waitingAnswer ? "回答后继续生成…" : "描述你想画的图…（回车发送）"}
           rows={2}
           className="w-full resize-none rounded-xl border border-white/60 bg-white/60 px-3 py-2 text-sm text-gray-700 shadow-sm outline-none backdrop-blur-md focus:border-blue-400"
         />

@@ -470,6 +470,15 @@ describe("tools", () => {
     const res = await (tools as any).createElement.execute({ type: "nonsense", x: 0, y: 0, width: 10, height: 10 });
     expect(res.ok).toBe(false);
   });
+
+  it("askUser 工具：execute 无副作用，不写画布也不记活动日志", async () => {
+    const d = new DraftCanvas([]);
+    const tools = buildTools(d);
+    const res = await (tools as any).askUser.execute({ question: "请问要画什么数据？" });
+    expect(res).toContain("提问");
+    expect(d.serialize().elements).toHaveLength(0);
+    expect(d.flushActivity()).toHaveLength(0);
+  });
 });
 
 describe("DraftCanvas onChange", () => {
@@ -690,5 +699,34 @@ describe("runAgent", () => {
     expect(system).toContain("科研绘图");
     expect(system).toContain("思维导图");
     expect(system).toContain("图表制作");
+  });
+
+  it("askUser 工具调用：stopWhen 命中后主生成以 question 事件收尾，不发 complete/confirm-request", async () => {
+    mockGenerateText.mockImplementation(async ({ tools, stopWhen, onStepFinish }: any) => {
+      // 模拟 AI 提问前先画了元素（防呆场景）：元素操作照常执行，结果按问题优先丢弃
+      const res = await (tools as any).createElement.execute({ type: "rect", x: 10, y: 10, width: 100, height: 60 });
+      onStepFinish?.({ toolResults: [{ toolName: "createElement", result: res }] });
+      // 模拟 AI SDK 的 stopWhen 检测：askUser 命中立即停止，其他工具不命中
+      const stops = Array.isArray(stopWhen) ? stopWhen : [stopWhen];
+      expect(stops[0]({ steps: [{ toolCalls: [{ toolName: "askUser", input: { question: "请问这个图要表达什么主题？" } }] }] })).toBe(true);
+      expect(stops[0]({ steps: [{ toolCalls: [{ toolName: "createElement", input: { type: "rect" } }] }] })).toBe(false);
+      return { text: "需要先确认", steps: [{ toolCalls: [{ toolName: "askUser", input: { question: "请问这个图要表达什么主题？" } }] }] };
+    });
+    const events: any[] = [];
+    await runAgent({
+      messages: [{ role: "user", content: "帮我画个图" }],
+      canvas: { width: 1600, height: 1000, elements: [] },
+      apiKey: "sk-test",
+      baseURL: "https://api.deepseek.com",
+      model: "deepseek-chat",
+      onEvent: (ev) => events.push(ev),
+    });
+    const question = events.find((e) => e.type === "question");
+    expect(question).toBeDefined();
+    expect(question.question).toContain("主题");
+    expect(events.some((e) => e.type === "complete")).toBe(false);
+    expect(events.some((e) => e.type === "confirm-request")).toBe(false);
+    // 提问前画的元素不参与任何结果提交（无 complete 画布）
+    expect(events.every((e) => e.type !== "complete")).toBe(true);
   });
 });
