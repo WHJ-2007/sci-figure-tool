@@ -72,6 +72,9 @@ export function elementToSvg(e: CanvasElement): string {
       const textAttrs = `fill="${e.fill}" opacity="${e.opacity}"`;
       return `<text ${textAttrs} x="${tx}" y="${e.y + e.height / 2}" text-anchor="${anchor}" dominant-baseline="middle" font-size="${e.fontSize}" font-family="${e.fontFamily}"${weight}${style}${rot}>${esc(e.text)}</text>`;
     }
+    case "image":
+      // 位图图片：与画布渲染一致（拉伸填充 + 描边边框）
+      return `<g${rot}><image x="${e.x}" y="${e.y}" width="${e.width}" height="${e.height}" href="${esc(e.src)}" preserveAspectRatio="none" opacity="${e.opacity}"/><rect ${attrs} width="${e.width}" height="${e.height}" fill="none" stroke="${e.stroke}" stroke-width="${e.strokeWidth}" opacity="${e.opacity}"/></g>`;
     case "logic": {
       // 逻辑节点：圆角矩形 + 标题（顶部）+ 多行正文（小 2 号），布局与 logicBoxSize 公式一致
       const weight = e.bold ? ' font-weight="bold"' : "";

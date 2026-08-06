@@ -14,8 +14,12 @@ const CANVAS_HEIGHT = 1000;
 
 // localStorage 只存 [{id,name,doc}]，history 不持久化（刷新后撤销栈为空）
 export function saveProjects(projects: CanvasProject[]) {
-  const slim = projects.map(({ id, name, doc }) => ({ id, name, doc }));
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(slim));
+  try {
+    const slim = projects.map(({ id, name, doc }) => ({ id, name, doc }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(slim));
+  } catch {
+    // 容量不足（大图片 dataURL 超 localStorage 配额）静默降级：画布数据仍在内存
+  }
 }
 
 export function loadProjects(): CanvasProject[] | null {

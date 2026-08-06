@@ -1,7 +1,7 @@
 import type { ChartSpec } from "./chartLayout";
 
 export type ShapeType = "rect" | "ellipse" | "triangle" | "diamond" | "hexagon";
-export type ElementType = ShapeType | "arrow" | "polyline" | "text" | "logic" | "curve" | "sector";
+export type ElementType = ShapeType | "arrow" | "polyline" | "text" | "logic" | "curve" | "sector" | "image";
 export type ToolType = "select" | "rounded" | ElementType;
 
 export interface BaseElement {
@@ -78,7 +78,13 @@ export interface SectorElement extends BaseElement {
   endAngle: number;
 }
 
-export type CanvasElement = RectElement | EllipseElement | TriangleElement | DiamondElement | HexagonElement | TextElement | ArrowElement | PolylineElement | LogicElement | CurveElement | SectorElement;
+// 位图图片（用户导入，AI 不创建）：x/y=左上角，width/height=显示尺寸，src=dataURL；preserveAspectRatio=none 拉伸填充
+export interface ImageElement extends BaseElement {
+  type: "image";
+  src: string;
+}
+
+export type CanvasElement = RectElement | EllipseElement | TriangleElement | DiamondElement | HexagonElement | TextElement | ArrowElement | PolylineElement | LogicElement | CurveElement | SectorElement | ImageElement;
 
 export interface CanvasDocument {
   width: number;

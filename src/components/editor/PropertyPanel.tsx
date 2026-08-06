@@ -12,7 +12,7 @@ const PALETTE = ["#eef4ff", "#f0fff0", "#fff8e6", "#f3efff", "#ffeef0", "#ffffff
 const TYPE_NAMES: Record<ElementType | "rounded", string> = {
   rect: "矩形", rounded: "圆角矩形", ellipse: "椭圆", triangle: "三角形", diamond: "菱形",
   hexagon: "六边形", arrow: "箭头", polyline: "折线", text: "文字", logic: "逻辑节点",
-  curve: "曲线", sector: "扇形",
+  curve: "曲线", sector: "扇形", image: "图片",
 };
 
 function Section({ title, children }: { title: string; children: ReactNode }) {

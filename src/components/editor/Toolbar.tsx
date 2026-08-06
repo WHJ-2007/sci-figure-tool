@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { exportSvgFile, exportPng } from "@/lib/canvas/exporter";
+import { loadImageElement } from "@/lib/canvas/imageImport";
+import { CANVAS_WIDTH, CANVAS_HEIGHT } from "@/lib/canvas/geometry";
 import type { ToolType } from "@/lib/canvas/types";
 import ChartDialog from "./ChartDialog";
 
@@ -71,6 +73,15 @@ const EXPORT_ICON = (
   </svg>
 );
 
+// 导入图标：图片框 + 山与太阳（描边风格，与左坞其他图标一致）
+const IMPORT_ICON = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <circle cx="9" cy="9" r="2" />
+    <path d="M21 15l-5-5L5 21" />
+  </svg>
+);
+
 interface ToolItem {
   title: string;
   tool: ToolType;
@@ -119,6 +130,8 @@ export default function Toolbar() {
   const createProject = useCanvasStore((s) => s.createProject);
   const renameProject = useCanvasStore((s) => s.renameProject);
   const deleteProject = useCanvasStore((s) => s.deleteProject);
+  const addElement = useCanvasStore((s) => s.addElement);
+  const setSelection = useCanvasStore((s) => s.setSelection);
   const [open, setOpen] = useState<"shape" | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [tabMenu, setTabMenu] = useState<{ id: string; x: number; y: number } | null>(null);
@@ -126,6 +139,15 @@ export default function Toolbar() {
   const toolRef = useRef<HTMLDivElement>(null);
   const exportRef = useRef<HTMLDivElement>(null);
   const tabMenuRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // 导入外部图片：文件 → dataURL → 图片元素（画布中心），成功后选中
+  const onImportFile = async (file: File) => {
+    const el = await loadImageElement(file, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+    if (!el) return;
+    addElement(el);
+    setSelection([el.id]);
+  };
 
   // 非阻塞气泡：点击主按钮开/关、点击气泡外任意处关闭（pointerdown 优先于 click，先收气泡再落画布）
   useEffect(() => {
@@ -278,7 +300,20 @@ export default function Toolbar() {
           {LOGIC_ICON}
         </button>
         <button title="图表" onClick={() => setChartOpen(true)} className="lift flex h-9 w-9 items-center justify-center rounded hover:bg-gray-100">{CHART_ICON}</button>
+        <button title="导入" onClick={() => fileRef.current?.click()} className="lift flex h-9 w-9 items-center justify-center rounded hover:bg-gray-100">{IMPORT_ICON}</button>
       </div>
+      {/* 隐藏文件选择：导入按钮触发；选择后立即清空 value 允许重复导入同一文件 */}
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) void onImportFile(f);
+          e.target.value = "";
+        }}
+      />
       <ChartDialog open={chartOpen} onClose={() => setChartOpen(false)} />
       {/* 标签右键菜单：重命名画布（顶部 ✎ 按钮已移除，右键标签呼出） */}
       {tabMenu && (

@@ -12,6 +12,7 @@ import type {
   LogicElement,
   CurveElement,
   SectorElement,
+  ImageElement,
 } from "./types";
 
 export function newId(): string {
@@ -79,7 +80,8 @@ export type ElementExtras = Partial<RectElement> &
   Partial<PolylineElement> &
   Partial<LogicElement> &
   Partial<CurveElement> &
-  Partial<SectorElement>;
+  Partial<SectorElement> &
+  Partial<ImageElement>;
 
 export function makeElement(
   type: ElementType | "rounded",
@@ -174,5 +176,7 @@ export function makeElement(
         startAngle: extra.startAngle ?? 0,
         endAngle: extra.endAngle ?? Math.PI * 2,
       } as CanvasElement;
+    case "image":
+      return { ...base, type: "image", src: extra.src ?? "" } as CanvasElement;
   }
 }

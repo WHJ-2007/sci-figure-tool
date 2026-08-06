@@ -105,9 +105,20 @@ describe("Toolbar 悬浮坞", () => {
     expect(screen.queryByTitle("重命名画布")).toBeNull();
     const dock = screen.getByTitle("撤销").closest(".fixed")!;
     const titles = [...dock.querySelectorAll("button")].map((b) => b.getAttribute("title"));
-    expect(titles).toEqual(["撤销", "重做", "选择", "图形", "逻辑", "图表"]);
+    expect(titles).toEqual(["撤销", "重做", "选择", "图形", "逻辑", "图表", "导入"]);
     // 子工具默认收在气泡里
     expect(screen.queryByTitle("矩形")).toBeNull();
+  });
+
+  it("导入按钮为描边 SVG 图片图标；点击打开图片文件选择器", () => {
+    render(<Toolbar />);
+    const btn = screen.getByTitle("导入");
+    expect(btn.querySelector("svg")).not.toBeNull();
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    expect(input.accept).toBe("image/*");
+    const spy = vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => {});
+    fireEvent.click(btn);
+    expect(spy).toHaveBeenCalled();
   });
 
   it("导出菜单：点导出图标弹 SVG/PNG 选项，选择后调用对应导出并关闭菜单", () => {

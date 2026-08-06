@@ -1,9 +1,10 @@
 "use client";
 
-import { useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { makeElement } from "@/lib/canvas/elements";
 import { hitTestElement, logicAnchors } from "@/lib/canvas/geometry";
+import { loadImageElement } from "@/lib/canvas/imageImport";
 import type { CanvasElement } from "@/lib/canvas/types";
 import ElementShape from "./ElementShape";
 import SelectionOverlay, { boundsOf } from "./SelectionOverlay";
@@ -46,6 +47,47 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
 
   const { rubber, preview, panning, anchorHint, onPointerDown, onPointerMove, onPointerUp, modeRef, startTouchArrow } = usePointerInteraction(worldX, worldY);
 
+  // 图片导入：文件 → 图片元素并选中（失败静默）
+  const importImageFile = useCallback(async (file: File, cx: number, cy: number) => {
+    const el = await loadImageElement(file, cx, cy);
+    if (!el) return;
+    useCanvasStore.getState().addElement(el);
+    useCanvasStore.getState().setSelection([el.id]);
+  }, []);
+
+  // 拖入外部图片：落点 = 鼠标世界坐标
+  const onDragOver = (e: React.DragEvent) => {
+    e.preventDefault(); // 阻止浏览器默认打开文件，才允许 drop 触发
+  };
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith("image/"));
+    if (!files.length) return;
+    const p = { x: worldX(e.clientX), y: worldY(e.clientY) };
+    void importImageFile(files[0], p.x, p.y);
+  };
+
+  // Ctrl+V 粘贴图片：落点 = 当前视口中心的世界坐标（无鼠标位置可用）
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const s = useCanvasStore.getState();
+      if (s.editingText) return; // 文字编辑中不拦截
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const it of items) {
+        if (!it.type.startsWith("image/")) continue;
+        const file = it.getAsFile();
+        if (!file) continue;
+        e.preventDefault();
+        const v = s.view;
+        void importImageFile(file, (viewportWidth / 2 - v.ox) / v.scale, (viewportHeight / 2 - v.oy) / v.scale);
+        return;
+      }
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [importImageFile, viewportWidth, viewportHeight]);
+
   // 双击文字元素进入编辑（世界坐标命中，从顶层往下找）
   const onDoubleClick = useCallback(
     (e: React.MouseEvent<SVGSVGElement>) => {
@@ -85,7 +127,7 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
   const editing = doc.elements.find((e) => e.id === editingText && e.type === "text");
 
   return (
-    <div className="relative h-full w-full select-none overflow-hidden" onWheel={onWheel}>
+    <div className="relative h-full w-full select-none overflow-hidden" onWheel={onWheel} onDragOver={onDragOver} onDrop={onDrop}>
       {/* 玻璃面板包裹画布：半透明白 + 背景模糊 + 内高光描边 + 外投影，边缘体现玻璃质感 */}
       <div className="glass-canvas absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
       <svg

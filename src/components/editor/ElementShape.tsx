@@ -99,6 +99,14 @@ function renderBody(
         </text>
       );
     }
+    case "image":
+      // 位图图片：拉伸填充显示框 + 描边边框（白色图片在白画布上可见边界）
+      return (
+        <g>
+          <image href={e.src} x={e.x} y={e.y} width={e.width} height={e.height} preserveAspectRatio="none" opacity={e.opacity} />
+          <rect x={e.x} y={e.y} width={e.width} height={e.height} fill="none" stroke={e.stroke} strokeWidth={e.strokeWidth} opacity={e.opacity} />
+        </g>
+      );
     case "logic": {
       // 逻辑节点：圆角矩形 + 标题（顶部）+ 多行正文（小 2 号），布局与 logicBoxSize 公式一致
       const bodyFontSize = Math.max(10, e.fontSize - 2);
