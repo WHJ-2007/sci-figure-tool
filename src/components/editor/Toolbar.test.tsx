@@ -34,19 +34,17 @@ describe("Toolbar 画布管理", () => {
     expect(useCanvasStore.getState().projects[0].name).toBe("实验图");
   });
 
-  it("删除确认后删除当前画布并切到相邻画布", () => {
+  it("删除画布无需确认：直接删除当前画布并切到相邻画布", () => {
     const s = useCanvasStore.getState();
     const initialId = s.currentProjectId;
     s.createProject();
-    vi.stubGlobal("confirm", vi.fn(() => true));
     render(<Toolbar />);
     fireEvent.click(screen.getByTitle("删除画布"));
     expect(useCanvasStore.getState().projects).toHaveLength(1);
     expect(useCanvasStore.getState().currentProjectId).toBe(initialId);
   });
 
-  it("取消删除不生效；仅剩一张画布时删除也不生效", () => {
-    vi.stubGlobal("confirm", vi.fn(() => false));
+  it("仅剩一张画布时删除不生效", () => {
     render(<Toolbar />);
     fireEvent.click(screen.getByTitle("删除画布"));
     expect(useCanvasStore.getState().projects).toHaveLength(1);

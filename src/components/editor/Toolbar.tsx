@@ -125,10 +125,7 @@ export default function Toolbar() {
     const name = window.prompt("画布名称", p?.name ?? "");
     if (name && name.trim()) renameProject(currentProjectId, name.trim());
   };
-  const onDelete = () => {
-    if (!window.confirm("删除当前画布？")) return;
-    deleteProject(currentProjectId);
-  };
+  const onDelete = () => deleteProject(currentProjectId);
 
   const shapeActive = SHAPE_TOOL_SET.has(tool);
   const currentIcon = shapeActive
