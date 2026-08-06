@@ -36,11 +36,32 @@ describe("buildSystemPrompt 多模式", () => {
     expect(buildSystemPrompt()).toContain("画完必须自查");
   });
 
-  it("逻辑节点正文必填：公共节与科研规范都禁止空盒子", () => {
+  it("逻辑节点正文按语义判断：概念型只标题、过程型写要点，同图风格统一", () => {
     const p = buildSystemPrompt();
-    expect(p).toContain("逻辑节点（语义模块框）必须写正文");
-    expect(p).toContain("禁止只有标题的空盒子");
-    expect(p).toContain("正文用 body 参数写且必填");
+    expect(p).toContain("标题是否已经完整表达该节点的语义");
+    expect(p).toContain("概念/名词型节点");
+    expect(p).toContain("2~4 行要点正文");
+    expect(p).toContain("同一张图风格统一");
+    expect(p).toContain("禁止标题和正文都没有的空白空盒子");
+  });
+
+  it("含绘图世界观与统一操作说明书决策表", () => {
+    const p = buildSystemPrompt();
+    expect(p).toContain("绘图世界观");
+    expect(p).toContain("统一操作说明书");
+    expect(p).toContain("需求是流程/架构/机制图");
+    expect(p).toContain("需求是思维导图");
+    expect(p).toContain("需求是数据图表");
+  });
+
+  it("含简笔画配方（灯泡/放大镜等线条组合）且多模式分支同样包含", () => {
+    const p = buildSystemPrompt();
+    expect(p).toContain("简笔画与图示符号");
+    expect(p).toContain("灯泡");
+    expect(p).toContain("放大镜");
+    const multi = buildSystemPrompt(["sci", "chart"]);
+    expect(multi).toContain("绘图世界观");
+    expect(multi).toContain("简笔画与图示符号");
   });
 
   it("收尾话术简练：交代总数，不要求复述操作步骤", () => {
