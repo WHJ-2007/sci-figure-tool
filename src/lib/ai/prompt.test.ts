@@ -21,4 +21,15 @@ describe("buildSystemPrompt 多模式", () => {
     expect(p).not.toContain("【思维导图规范】");
     expect(p).not.toContain("自动识别");
   });
+
+  it("科研审美规范含硬数字（统一尺寸/间距/色板）", () => {
+    const p = buildSystemPrompt(["sci"]);
+    expect(p).toContain("150~180");
+    expect(p).toContain("20~60");
+    expect(p).toContain("#eef4ff");
+  });
+
+  it("公共节含画完自查规则", () => {
+    expect(buildSystemPrompt()).toContain("画完必须自查");
+  });
 });
