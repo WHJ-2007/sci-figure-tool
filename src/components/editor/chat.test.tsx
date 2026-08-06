@@ -167,16 +167,29 @@ describe("ChatPanel", () => {
     await waitFor(() => expect(screen.getByText(/生成中断/)).toBeInTheDocument());
   });
 
-  it("模式按钮默认自动，点击思维导图后请求体带 mode 且持久化", async () => {
+  it("点击具体模式后请求体带 modes 数组且持久化；自动互斥", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(mockStream([{ type: "complete", canvas: { width: 1600, height: 1000, elements: [] }, summary: "好" }]));
     render(<ChatPanel />);
     fireEvent.click(screen.getByText("思维导图"));
+    fireEvent.click(screen.getByText("图表制作"));
     fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "梳理概念" } });
     fireEvent.click(screen.getByText("一键生成"));
     await waitFor(() => expect(screen.getByText(/好/)).toBeInTheDocument());
     const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string);
-    expect(body.mode).toBe("mindmap");
-    expect(localStorage.getItem(`chartMode-${useCanvasStore.getState().currentProjectId}`)).toBe("mindmap");
+    expect(body.modes).toEqual(["mindmap", "chart"]);
+    expect(localStorage.getItem(`chartMode-${useCanvasStore.getState().currentProjectId}`)).toBe(JSON.stringify(["mindmap", "chart"]));
+  });
+
+  it("再点已选模式取消选中；点自动清空全部具体模式", async () => {
+    render(<ChatPanel />);
+    fireEvent.click(screen.getByText("思维导图"));
+    expect(screen.getByText("思维导图")).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByText("思维导图"));
+    expect(screen.getByText("思维导图")).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(screen.getByText("图表制作"));
+    fireEvent.click(screen.getByText("自动"));
+    expect(screen.getByText("自动")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("图表制作")).toHaveAttribute("aria-pressed", "false");
   });
 
   it("刷新后从 localStorage 恢复模式选择", () => {

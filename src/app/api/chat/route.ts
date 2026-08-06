@@ -11,13 +11,13 @@ export async function POST(req: Request) {
   } catch {
     return Response.json({ error: "请求体无效" }, { status: 400 });
   }
-  const { messages, canvas, apiKey, baseURL, model, mode } = body as {
+  const { messages, canvas, apiKey, baseURL, model, modes } = body as {
     messages: { role: "user" | "assistant"; content: string }[];
     canvas: CanvasDocument;
     apiKey: string;
     baseURL: string;
     model: string;
-    mode?: "auto" | "sci" | "mindmap" | "chart";
+    modes?: ("sci" | "mindmap" | "chart")[] | null;
   };
   if (!apiKey) {
     return Response.json({ error: "未配置 API Key，请先到设置页填写" }, { status: 400 });
@@ -27,7 +27,7 @@ export async function POST(req: Request) {
     async start(controller) {
       const send = (ev: unknown) => controller.enqueue(encoder.encode(JSON.stringify(ev) + "\n"));
       try {
-        await runAgent({ messages, canvas, apiKey, baseURL, model, mode, onEvent: send });
+        await runAgent({ messages, canvas, apiKey, baseURL, model, modes, onEvent: send });
       } catch (err) {
         send({ type: "error", message: err instanceof Error ? err.message : String(err) });
       } finally {

@@ -19,9 +19,7 @@ type ConfirmEvent =
   | { type: "snapshot"; canvas: CanvasDocument; touched: string[] }
   | { type: "confirm-done"; results: { id: string; description: string; approved: boolean }[] };
 
-type AIChatMode = "auto" | AIMode;
-const MODE_OPTIONS: { value: AIChatMode; label: string }[] = [
-  { value: "auto", label: "自动" },
+const MODE_OPTIONS: { value: AIMode; label: string }[] = [
   { value: "sci", label: "科研绘图" },
   { value: "mindmap", label: "思维导图" },
   { value: "chart", label: "图表制作" },
@@ -37,19 +35,38 @@ export default function ChatPanel() {
   const setGenerating = useCanvasStore((s) => s.setGenerating);
   const isGenerating = useCanvasStore((s) => s.isGenerating);
   const currentProjectId = useCanvasStore((s) => s.currentProjectId);
-  const [mode, setMode] = useState<AIChatMode>("auto");
+  const [auto, setAuto] = useState(true);
+  const [modes, setModes] = useState<AIMode[]>([]);
   const [confirmReq, setConfirmReq] = useState<{ sessionId: string; summary: string; pending: { id: string; description: string }[] } | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
 
-  // 模式选择按画布持久化：切换画布/刷新恢复
+  // 模式选择按画布持久化：切换画布/刷新恢复（新格式 JSON 数组；旧格式字符串 → 单模式；自动 = "auto"）
   useEffect(() => {
     const saved = localStorage.getItem(`chartMode-${currentProjectId}`);
-    setMode(saved === "sci" || saved === "mindmap" || saved === "chart" ? saved : "auto");
+    if (!saved) { setAuto(true); setModes([]); return; }
+    try {
+      const arr = JSON.parse(saved);
+      if (Array.isArray(arr)) {
+        const valid = arr.filter((m): m is AIMode => m === "sci" || m === "mindmap" || m === "chart");
+        if (valid.length === arr.length && valid.length > 0) { setAuto(false); setModes(valid); return; }
+      }
+    } catch { /* 旧格式字符串走下面 */ }
+    if (saved === "sci" || saved === "mindmap" || saved === "chart") { setAuto(false); setModes([saved]); return; }
+    setAuto(true);
+    setModes([]);
   }, [currentProjectId]);
 
-  const selectMode = (m: AIChatMode) => {
-    setMode(m);
-    localStorage.setItem(`chartMode-${currentProjectId}`, m);
+  const selectAuto = () => {
+    setAuto(true);
+    setModes([]);
+    localStorage.setItem(`chartMode-${currentProjectId}`, "auto");
+  };
+
+  const selectMode = (m: AIMode) => {
+    const next = modes.includes(m) ? modes.filter((x) => x !== m) : [...modes, m];
+    setAuto(false);
+    setModes(next);
+    localStorage.setItem(`chartMode-${currentProjectId}`, JSON.stringify(next));
   };
 
   useEffect(() => {
@@ -85,7 +102,7 @@ export default function ChatPanel() {
           apiKey: settings.apiKey,
           baseURL: settings.baseURL,
           model: settings.model,
-          mode,
+          modes: auto ? null : modes,
         }),
       });
       if (!res.ok) {
@@ -239,13 +256,22 @@ export default function ChatPanel() {
       </div>
       <div className="border-t border-white/50 p-3">
         <div className="mb-2 flex rounded-full border border-white/60 bg-white/50 p-0.5 shadow-sm backdrop-blur-md">
+          <button
+            onClick={selectAuto}
+            aria-pressed={auto}
+            className={`lift flex-1 rounded-full px-1 py-1 text-xs ${
+              auto ? "bg-blue-600 text-white shadow-sm" : "text-gray-500 hover:bg-white/70"
+            }`}
+          >
+            自动
+          </button>
           {MODE_OPTIONS.map((m) => (
             <button
               key={m.value}
-              onClick={() => selectMode(m.value)}
-              aria-pressed={mode === m.value}
+              onClick={() => selectMode(m.value as AIMode)}
+              aria-pressed={modes.includes(m.value as AIMode)}
               className={`lift flex-1 rounded-full px-1 py-1 text-xs ${
-                mode === m.value ? "bg-blue-600 text-white shadow-sm" : "text-gray-500 hover:bg-white/70"
+                modes.includes(m.value as AIMode) ? "bg-blue-600 text-white shadow-sm" : "text-gray-500 hover:bg-white/70"
               }`}
             >
               {m.label}

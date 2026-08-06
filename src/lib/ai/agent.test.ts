@@ -580,12 +580,12 @@ describe("runAgent", () => {
       apiKey: "sk-test",
       baseURL: "https://api.deepseek.com",
       model: "deepseek-chat",
-      mode: "mindmap",
+      modes: ["mindmap"],
       onEvent: (ev) => events.push(ev),
     });
     const system = mockGenerateText.mock.calls[0][0].system as string;
     expect(system).toContain("思维导图");
-    expect(system).toContain("强制");
+    expect(system).toContain("多图种组合");
     expect(system).not.toContain("自动识别");
   });
 

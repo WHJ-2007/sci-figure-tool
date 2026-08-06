@@ -1,7 +1,7 @@
 export type AIMode = "sci" | "mindmap" | "chart";
 
 // 公共节：画布规格与工具使用规范（三种模式通用）
-const COMMON = `你是一个图表智能体，支持三种绘图模式：科研绘图（流程图/架构图/机制图）、思维导图（中心主题+放射分支）、图表制作（数据图表/通用图示）。
+const COMMON = `你是一个图表智能体，支持三种绘图模式：科研绘图（流程图/架构图/机制图）、思维导图（中心主题+放射分支）、图表制作（数据图表/通用图示），并可在多种图种间组合。
 
 画布规格：宽 1600，高 1000。坐标系原点在左上角。所有元素必须落在画布内。
 
@@ -40,6 +40,10 @@ const CHART_SECTION = `【图表制作规范】
 3. 通用图示（时间轴/组织架构图/泳道图/维恩图）用 applyGraph 或 createElement 绘制：时间轴 = 箭头 + logic 节点 + 时间点文字；组织架构图 = applyGraph 树状分层；维恩图 = 两个 ellipse 交叠 + 交叠区文字
 4. 画完一两句大白话总结图表内容（如"画好了：柱状图对比了四个季度销售额，Q3 最高 150 万"）`;
 
+const COMBINE_SECTION = `【图种组合规范】
+你可以在本次选择的图种范围内自由组合，把多个图种组织进一次生成：例如科研绘图中可内嵌数据图表小节（用 applyChart 生成后放在流程旁边）、思维导图分支中可嵌入详细示意图、图表旁边可配流程图说明——以此类推，不限于这些例子，凡是能把内容讲得更清楚都可以组合。
+组合时注意：整体风格一致（同色板、同线宽、同字号体系、统一间距 20~60px）；每种图种都遵循各自的规范节；收尾总结时用一两句话说明组合了哪些图种、各自放在哪里。`;
+
 const AUTO_SECTION = `【模式自动识别】
 根据用户消息判断本次任务属于哪种模式，只使用对应模式的规范：
 - 流程图/架构图/算法框图/机制图/信号通路 → 科研绘图
@@ -47,9 +51,11 @@ const AUTO_SECTION = `【模式自动识别】
 - 数据可视化/柱状图/折线图/饼图/散点图/时间轴/组织架构/泳道/维恩 → 图表制作
 拿不准时按用户消息中提到的图种关键词判断，不要询问用户。`;
 
-export function buildSystemPrompt(mode?: AIMode): string {
-  if (mode === "sci") return COMMON + "\n\n【本次任务模式：科研绘图（强制）】\n" + SCI_SECTION;
-  if (mode === "mindmap") return COMMON + "\n\n【本次任务模式：思维导图（强制）】\n" + MINDMAP_SECTION;
-  if (mode === "chart") return COMMON + "\n\n【本次任务模式：图表制作（强制）】\n" + CHART_SECTION;
+export function buildSystemPrompt(modes?: AIMode[]): string {
+  if (modes && modes.length > 0) {
+    const names = modes.map((m) => (m === "sci" ? "科研绘图" : m === "mindmap" ? "思维导图" : "图表制作")).join("、");
+    const sections = modes.map((m) => (m === "sci" ? SCI_SECTION : m === "mindmap" ? MINDMAP_SECTION : CHART_SECTION));
+    return COMMON + `\n\n【本次任务模式：多图种组合（${names}，所选范围内自由组合）】\n` + sections.join("\n\n") + "\n\n" + COMBINE_SECTION;
+  }
   return COMMON + "\n\n" + AUTO_SECTION + "\n\n" + SCI_SECTION + "\n\n" + MINDMAP_SECTION + "\n\n" + CHART_SECTION;
 }

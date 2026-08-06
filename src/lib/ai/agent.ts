@@ -25,7 +25,7 @@ export async function runAgent(opts: {
   apiKey: string;
   baseURL: string;
   model: string;
-  mode?: "auto" | AIMode;
+  modes?: AIMode[] | null;
   onEvent: (ev: AgentEvent) => void;
 }): Promise<string> {
   const provider = createOpenAICompatible({ baseURL: opts.baseURL, apiKey: opts.apiKey, name: "deepseek" });
@@ -37,7 +37,7 @@ export async function runAgent(opts: {
   });
   const result = await generateText({
     model: provider(opts.model),
-    system: buildSystemPrompt(opts.mode === "auto" || opts.mode == null ? undefined : opts.mode),
+    system: buildSystemPrompt(opts.modes?.length ? opts.modes : undefined),
     messages: opts.messages,
     tools: buildTools(draft),
     // AI SDK v5 已移除 maxSteps，改用 stopWhen 限制多轮工具调用步数（默认只跑 1 步）
