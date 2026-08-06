@@ -1,5 +1,5 @@
 import type { CanvasElement } from "@/lib/canvas/types";
-import { shapePoints, arrowHeadPoints } from "@/lib/canvas/geometry";
+import { shapePoints, arrowHeadPoints, curveControl } from "@/lib/canvas/geometry";
 import { contrastTextColor } from "@/lib/canvas/elements";
 
 export default function ElementShape({ e }: { e: CanvasElement }) {
@@ -49,6 +49,29 @@ function renderBody(
           <polyline points={pointsToString(e.points)} fill="none" stroke={e.stroke} strokeWidth={e.strokeWidth} opacity={e.opacity} />
           <polygon points={pointsToString(arrowHeadPoints(prev.x, prev.y, last.x, last.y))} fill={e.stroke} opacity={e.opacity} />
         </g>
+      );
+    }
+    case "curve": {
+      const c = curveControl(e);
+      return (
+        <path
+          d={`M ${e.x} ${e.y} Q ${c.x} ${c.y} ${e.x + e.width} ${e.y + e.height}`}
+          fill="none"
+          stroke={e.stroke}
+          strokeWidth={e.strokeWidth}
+          opacity={e.opacity}
+        />
+      );
+    }
+    case "sector": {
+      const r = e.radius;
+      const sx = e.x + r * Math.cos(e.startAngle);
+      const sy = e.y + r * Math.sin(e.startAngle);
+      const ex = e.x + r * Math.cos(e.endAngle);
+      const ey = e.y + r * Math.sin(e.endAngle);
+      const largeArc = e.endAngle - e.startAngle > Math.PI ? 1 : 0;
+      return (
+        <path d={`M ${e.x} ${e.y} L ${sx} ${sy} A ${r} ${r} 0 ${largeArc} 1 ${ex} ${ey} Z`} {...common} />
       );
     }
     case "text": {

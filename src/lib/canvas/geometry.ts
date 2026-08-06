@@ -1,4 +1,4 @@
-import type { CanvasElement } from "./types";
+import type { CanvasElement, CurveElement } from "./types";
 
 // 旋转约定：旋转已由 UI 暴露（旋转手柄），但本模块的几何命中/吸附仍按未旋转处理——
 // 矩形框旋转后命中/吸附会有偏差，后续任务如需精确命中，需按旋转后坐标计算。
@@ -48,6 +48,68 @@ export function shapePoints(type: string, r: Rect): Point[] {
         { x, y: y + h },
       ];
   }
+}
+
+// —— curve / sector（AI 生成专用元素）——
+
+// 曲线控制点：起终点中点沿法线偏移 curvature×线长（法线取终点方向逆时针转 90°）
+export function curveControl(e: CurveElement): Point {
+  const dx = e.width;
+  const dy = e.height;
+  const len = Math.hypot(dx, dy) || 1;
+  const px = -dy / len;
+  const py = dx / len;
+  return { x: e.x + e.width / 2 + px * e.curvature * len, y: e.y + e.height / 2 + py * e.curvature * len };
+}
+
+// 二次贝塞尔精确包围盒：极值点 t = (p0 - p1) / (p0 - 2p1 + p2)
+export function quadBezierBounds(p0: Point, p1: Point, p2: Point): Rect {
+  const xs = [p0.x, p2.x];
+  const ys = [p0.y, p2.y];
+  for (const [a, b, c, isX] of [
+    [p0.x, p1.x, p2.x, true],
+    [p0.y, p1.y, p2.y, false],
+  ] as const) {
+    const denom = a - 2 * b + c;
+    if (denom === 0) continue;
+    const t = (a - b) / denom;
+    if (t > 0 && t < 1) {
+      const v = (1 - t) ** 2 * a + 2 * t * (1 - t) * b + t * t * c;
+      if (isX) xs.push(v);
+      else ys.push(v);
+    }
+  }
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  return { x: minX, y: minY, width: Math.max(maxX - minX, 1), height: Math.max(maxY - minY, 1) };
+}
+
+// 点到二次贝塞尔的近似距离（采样 16 段折线）
+function distToQuadCurve(p: Point, p0: Point, c: Point, p2: Point): number {
+  let best = Infinity;
+  let prev = p0;
+  for (let i = 1; i <= 16; i++) {
+    const t = i / 16;
+    const pt = {
+      x: (1 - t) ** 2 * p0.x + 2 * t * (1 - t) * c.x + t * t * p2.x,
+      y: (1 - t) ** 2 * p0.y + 2 * t * (1 - t) * c.y + t * t * p2.y,
+    };
+    best = Math.min(best, distToSegment(p, prev, pt));
+    prev = pt;
+  }
+  return best;
+}
+
+// 角度是否落在扇形区间（弧度；处理跨 0 与整圆）
+export function angleInSector(a: number, start: number, end: number): boolean {
+  if (end - start >= Math.PI * 2) return true;
+  const norm = (x: number) => ((x % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+  const s = norm(start);
+  const e = norm(end);
+  const t = norm(a);
+  return s <= e ? t >= s && t <= e : t >= s || t <= e;
 }
 
 // —— AI 自动连接：线段 from→to 与形状轮廓的求交 ——
@@ -148,6 +210,13 @@ function lineBounds(e: CanvasElement): Rect {
     const ys = e.points.map((p) => p.y);
     return { x: Math.min(...xs), y: Math.min(...ys), width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) };
   }
+  if (e.type === "curve") {
+    const c = curveControl(e);
+    return quadBezierBounds({ x: e.x, y: e.y }, c, { x: e.x + e.width, y: e.y + e.height });
+  }
+  if (e.type === "sector") {
+    return { x: e.x - e.radius, y: e.y - e.radius, width: e.radius * 2, height: e.radius * 2 };
+  }
   return { x: e.x, y: e.y, width: e.width, height: e.height };
 }
 
@@ -162,6 +231,10 @@ export function hitTestElement(e: CanvasElement, p: Point, tolerance = HIT_TOLER
   if (e.type === "polyline") {
     return e.points.some((pt, i) => i > 0 && distToSegment(p, e.points[i - 1], pt) <= tolerance);
   }
+  if (e.type === "curve") {
+    const c = curveControl(e);
+    return distToQuadCurve(p, { x: e.x, y: e.y }, c, { x: e.x + e.width, y: e.y + e.height }) <= tolerance;
+  }
   if (p.x < expanded.x || p.y < expanded.y || p.x > expanded.x + expanded.width || p.y > expanded.y + expanded.height) return false;
   switch (e.type) {
     case "ellipse": {
@@ -170,6 +243,10 @@ export function hitTestElement(e: CanvasElement, p: Point, tolerance = HIT_TOLER
       const dx = (p.x - (e.x + rx)) / rx;
       const dy = (p.y - (e.y + ry)) / ry;
       return dx * dx + dy * dy <= 1;
+    }
+    case "sector": {
+      if (Math.hypot(p.x - e.x, p.y - e.y) > e.radius + tolerance) return false;
+      return angleInSector(Math.atan2(p.y - e.y, p.x - e.x), e.startAngle, e.endAngle);
     }
     case "triangle":
     case "diamond":

@@ -133,10 +133,24 @@ export default function PropertyPanel() {
           </label>
         </div>
       )}
-      <div className="flex items-center gap-2">
-        <span className="text-gray-500/90">旋转</span>
-        <input type="number" aria-label="旋转" value={one.rotation} min={-360} max={360} onChange={(e) => patch({ rotation: Number(e.target.value) })} className="h-7 w-16 rounded-lg border border-white/60 bg-white/60 px-1.5 text-gray-700 shadow-sm outline-none focus:border-blue-300" />
-      </div>
+      {one.type === "curve" && (
+        <label className="flex items-center gap-2">
+          <span className="text-gray-500/90">弯曲度</span>
+          <input type="number" aria-label="弯曲度" value={one.curvature} min={-2} max={2} step={0.1} onChange={(e) => patch({ curvature: Number(e.target.value) } as Partial<CanvasElement>)} className="h-7 w-16 rounded-lg border border-white/60 bg-white/60 px-1.5 text-gray-700 shadow-sm outline-none focus:border-blue-300" />
+        </label>
+      )}
+      {one.type === "sector" && (
+        <div className="space-y-1 text-xs text-gray-500/90">
+          <div>圆心 ({Math.round(one.x)}, {Math.round(one.y)})　半径 {Math.round(one.radius)}</div>
+          <div>角度 {Math.round((one.startAngle * 180) / Math.PI)}° → {Math.round((one.endAngle * 180) / Math.PI)}°</div>
+        </div>
+      )}
+      {one.type !== "curve" && one.type !== "sector" && (
+        <div className="flex items-center gap-2">
+          <span className="text-gray-500/90">旋转</span>
+          <input type="number" aria-label="旋转" value={one.rotation} min={-360} max={360} onChange={(e) => patch({ rotation: Number(e.target.value) })} className="h-7 w-16 rounded-lg border border-white/60 bg-white/60 px-1.5 text-gray-700 shadow-sm outline-none focus:border-blue-300" />
+        </div>
+      )}
       <div className="flex gap-2">
         <button onClick={() => deleteElements(selection)} className="lift rounded-lg border border-red-200/70 bg-red-50/70 px-3 py-1 text-red-500 shadow-sm hover:bg-red-100/80">删除</button>
         <button onClick={() => setSelection([])} className="lift rounded-lg border border-white/60 bg-white/60 px-3 py-1 text-gray-600 shadow-sm hover:bg-white/90">取消选择</button>

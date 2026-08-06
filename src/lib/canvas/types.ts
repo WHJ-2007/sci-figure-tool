@@ -1,5 +1,5 @@
 export type ShapeType = "rect" | "ellipse" | "triangle" | "diamond" | "hexagon";
-export type ElementType = ShapeType | "arrow" | "polyline" | "text" | "logic";
+export type ElementType = ShapeType | "arrow" | "polyline" | "text" | "logic" | "curve" | "sector";
 export type ToolType = "select" | "rounded" | "hand" | ElementType;
 
 export interface BaseElement {
@@ -59,7 +59,22 @@ export interface LogicElement extends BaseElement {
   bold: boolean;
 }
 
-export type CanvasElement = RectElement | EllipseElement | TriangleElement | DiamondElement | HexagonElement | TextElement | ArrowElement | PolylineElement | LogicElement;
+// 贝塞尔曲线分支线（AI 生成专用）：x/y=起点，width/height=终点相对偏移，
+// 控制点 = 起终点中点沿法线偏移 curvature×线长（0=直线，正负号控制凸向）
+export interface CurveElement extends BaseElement {
+  type: "curve";
+  curvature: number;
+}
+
+// 饼图扇形（AI 生成专用）：x/y=圆心，radius + startAngle/endAngle（弧度，0 在 3 点钟方向顺时针）
+export interface SectorElement extends BaseElement {
+  type: "sector";
+  radius: number;
+  startAngle: number;
+  endAngle: number;
+}
+
+export type CanvasElement = RectElement | EllipseElement | TriangleElement | DiamondElement | HexagonElement | TextElement | ArrowElement | PolylineElement | LogicElement | CurveElement | SectorElement;
 
 export interface CanvasDocument {
   width: number;

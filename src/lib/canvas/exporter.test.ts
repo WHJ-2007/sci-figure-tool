@@ -101,4 +101,16 @@ describe("exporter", () => {
     expect(out).toContain("<polyline");
     expect(out).toContain('points="0,0 50,30 100,60"');
   });
+
+  it("elementToSvg 导出 curve（二次贝塞尔 Q）", () => {
+    const c = makeElement("curve", 0, 0, 100, 0, { curvature: 0, stroke: "#2f2f2f" });
+    const svg = elementToSvg(c);
+    expect(svg).toContain("M 0 0 Q 50 0 100 0");
+  });
+
+  it("elementToSvg 导出 sector（圆心+起边线+圆弧）", () => {
+    const s = makeElement("sector", 100, 100, 40, 40, { radius: 20, startAngle: 0, endAngle: Math.PI / 2 });
+    const svg = elementToSvg(s);
+    expect(svg).toContain("M 100 100 L 120 100 A 20 20 0 0 1 100 120 Z");
+  });
 });

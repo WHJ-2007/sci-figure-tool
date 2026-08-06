@@ -1,6 +1,6 @@
 import { Fragment } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
-import { logicAnchors, type Anchor } from "@/lib/canvas/geometry";
+import { logicAnchors, curveControl, type Anchor } from "@/lib/canvas/geometry";
 import type { CanvasElement } from "@/lib/canvas/types";
 
 const HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const;
@@ -25,6 +25,16 @@ function boundsOf(e: CanvasElement): { x: number; y: number; width: number; heig
     const xs = e.points.map((p) => p.x), ys = e.points.map((p) => p.y);
     const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
     return { x: minX, y: minY, width: Math.max(maxX - minX, 1), height: Math.max(maxY - minY, 1) };
+  }
+  if (e.type === "curve") {
+    const c = curveControl(e);
+    const xs = [e.x, c.x, e.x + e.width];
+    const ys = [e.y, c.y, e.y + e.height];
+    const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+    return { x: minX, y: minY, width: Math.max(maxX - minX, 1), height: Math.max(maxY - minY, 1) };
+  }
+  if (e.type === "sector") {
+    return { x: e.x - e.radius, y: e.y - e.radius, width: e.radius * 2, height: e.radius * 2 };
   }
   return { x: e.x, y: e.y, width: e.width, height: e.height };
 }
@@ -66,49 +76,53 @@ export default function SelectionOverlay({
               strokeDasharray={6 / scale}
               rx={e.type === "rect" ? e.rx : 0}
             />
-            {HANDLES.map((h) => {
-              const p = HANDLE_POS[h];
-              // 手柄中心外移 H（8/scale）到包围盒之外：点元素本体（含边缘）只触发拖动；
-              // 否则手柄压在元素边上，AI 生成的小元素（40x30）边缘全被手柄覆盖，拖动会误触缩放/旋转（"乱飞"）
-              const cx = b.x + p.x * b.width + (p.x - 0.5) * 2 * H;
-              const cy = b.y + p.y * b.height + (p.y - 0.5) * 2 * H;
-              return (
+            {e.type !== "curve" && e.type !== "sector" && (
+              <>
+                {HANDLES.map((h) => {
+                  const p = HANDLE_POS[h];
+                  // 手柄中心外移 H（8/scale）到包围盒之外：点元素本体（含边缘）只触发拖动；
+                  // 否则手柄压在元素边上，AI 生成的小元素（40x30）边缘全被手柄覆盖，拖动会误触缩放/旋转（"乱飞"）
+                  const cx = b.x + p.x * b.width + (p.x - 0.5) * 2 * H;
+                  const cy = b.y + p.y * b.height + (p.y - 0.5) * 2 * H;
+                  return (
+                    <rect
+                      key={h}
+                      data-handle={h}
+                      data-element-id={e.id}
+                      x={cx - H / 2}
+                      y={cy - H / 2}
+                      width={H}
+                      height={H}
+                      fill="#ffffff"
+                      stroke="#2563eb"
+                      strokeWidth={1.5 / scale}
+                      style={{ cursor: "nwse-resize", pointerEvents: "all" }}
+                      onPointerDown={(ev) => {
+                        ev.stopPropagation();
+                        handleDown(ev, e, h, scale);
+                      }}
+                    />
+                  );
+                })}
                 <rect
-                  key={h}
-                  data-handle={h}
+                  data-handle="rotate"
                   data-element-id={e.id}
                   x={cx - H / 2}
-                  y={cy - H / 2}
+                  y={b.y - H - 8 / scale}
                   width={H}
                   height={H}
+                  rx={H / 2}
                   fill="#ffffff"
                   stroke="#2563eb"
                   strokeWidth={1.5 / scale}
-                  style={{ cursor: "nwse-resize", pointerEvents: "all" }}
+                  style={{ cursor: "grab", pointerEvents: "all" }}
                   onPointerDown={(ev) => {
                     ev.stopPropagation();
-                    handleDown(ev, e, h, scale);
+                    rotateDown(ev, e);
                   }}
                 />
-              );
-            })}
-            <rect
-              data-handle="rotate"
-              data-element-id={e.id}
-              x={cx - H / 2}
-              y={b.y - H - 8 / scale}
-              width={H}
-              height={H}
-              rx={H / 2}
-              fill="#ffffff"
-              stroke="#2563eb"
-              strokeWidth={1.5 / scale}
-              style={{ cursor: "grab", pointerEvents: "all" }}
-              onPointerDown={(ev) => {
-                ev.stopPropagation();
-                rotateDown(ev, e);
-              }}
-            />
+              </>
+            )}
           </g>
           {anchors.length > 0 && (
             <g>

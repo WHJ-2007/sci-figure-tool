@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { makeElement, newId, estimateTextSize } from "./elements";
+import { hitTestElement } from "./geometry";
 import type { LogicElement, RectElement, TextElement } from "./types";
 
 describe("elements", () => {
@@ -75,5 +76,42 @@ describe("elements", () => {
       { x: 1, y: 2 },
       { x: 3, y: 4 },
     ]);
+  });
+});
+
+describe("curve / sector 元素类型", () => {
+  it("makeElement curve：默认 curvature 0.5", () => {
+    const c = makeElement("curve", 10, 20, 100, 60);
+    expect(c.type).toBe("curve");
+    if (c.type === "curve") {
+      expect(c.curvature).toBe(0.5);
+      expect(c.x).toBe(10);
+      expect(c.y).toBe(20);
+      expect(c.width).toBe(100);
+      expect(c.height).toBe(60);
+    }
+  });
+
+  it("makeElement sector：radius 与角度", () => {
+    const s = makeElement("sector", 100, 100, 40, 40, { radius: 20, startAngle: 0, endAngle: Math.PI / 2 });
+    expect(s.type).toBe("sector");
+    if (s.type === "sector") {
+      expect(s.radius).toBe(20);
+      expect(s.startAngle).toBe(0);
+      expect(s.endAngle).toBeCloseTo(Math.PI / 2);
+    }
+  });
+
+  it("hitTestElement 命中 curve 曲线附近，远处不命中", () => {
+    const c = makeElement("curve", 0, 0, 100, 0, { curvature: 0 }); // 直线段 (0,0)→(100,0)
+    expect(hitTestElement(c, { x: 50, y: 6 }, 8)).toBe(true);   // 线上 6px
+    expect(hitTestElement(c, { x: 50, y: 40 })).toBe(false);    // 远处
+  });
+
+  it("hitTestElement 命中 sector 扇形内，角度外/半径外不命中", () => {
+    const s = makeElement("sector", 0, 0, 20, 20, { radius: 10, startAngle: 0, endAngle: Math.PI / 2 });
+    expect(hitTestElement(s, { x: 7, y: 7 })).toBe(true);   // 45° 方向半径内
+    expect(hitTestElement(s, { x: -7, y: 7 })).toBe(false); // 135° 方向角度外
+    expect(hitTestElement(s, { x: 15, y: 15 })).toBe(false); // 半径外
   });
 });

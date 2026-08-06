@@ -1,5 +1,5 @@
 import type { CanvasDocument, CanvasElement } from "./types";
-import { shapePoints, arrowHeadPoints } from "./geometry";
+import { shapePoints, arrowHeadPoints, curveControl } from "./geometry";
 import { contrastTextColor } from "./elements";
 
 const XML_ESCAPE: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" };
@@ -42,6 +42,19 @@ export function elementToSvg(e: CanvasElement): string {
         .map((p) => `${p.x},${p.y}`)
         .join(" ");
       return `<g${rot}><polyline points="${pts}" fill="none" stroke="${e.stroke}" stroke-width="${e.strokeWidth}" opacity="${e.opacity}"/><polygon points="${head}" fill="${e.stroke}" opacity="${e.opacity}"/></g>`;
+    }
+    case "curve": {
+      const c = curveControl(e);
+      return `<path d="M ${e.x} ${e.y} Q ${c.x} ${c.y} ${e.x + e.width} ${e.y + e.height}" fill="none" stroke="${e.stroke}" stroke-width="${e.strokeWidth}" opacity="${e.opacity}"${rot}/>`;
+    }
+    case "sector": {
+      const r = e.radius;
+      const sx = e.x + r * Math.cos(e.startAngle);
+      const sy = e.y + r * Math.sin(e.startAngle);
+      const ex = e.x + r * Math.cos(e.endAngle);
+      const ey = e.y + r * Math.sin(e.endAngle);
+      const largeArc = e.endAngle - e.startAngle > Math.PI ? 1 : 0;
+      return `<path d="M ${e.x} ${e.y} L ${sx} ${sy} A ${r} ${r} 0 ${largeArc} 1 ${ex} ${ey} Z" ${attrs}${rot}/>`;
     }
     case "text": {
       const anchor = e.align === "left" ? "start" : e.align === "right" ? "end" : "middle";

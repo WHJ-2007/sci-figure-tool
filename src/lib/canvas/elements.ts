@@ -10,6 +10,8 @@ import type {
   ArrowElement,
   PolylineElement,
   LogicElement,
+  CurveElement,
+  SectorElement,
 } from "./types";
 
 export function newId(): string {
@@ -75,7 +77,9 @@ export type ElementExtras = Partial<RectElement> &
   Partial<TextElement> &
   Partial<ArrowElement> &
   Partial<PolylineElement> &
-  Partial<LogicElement>;
+  Partial<LogicElement> &
+  Partial<CurveElement> &
+  Partial<SectorElement>;
 
 export function makeElement(
   type: ElementType | "rounded",
@@ -160,5 +164,15 @@ export function makeElement(
         height: Math.max(height, size.height),
       } as CanvasElement;
     }
+    case "curve":
+      return { ...base, type: "curve", curvature: extra.curvature ?? 0.5 } as CanvasElement;
+    case "sector":
+      return {
+        ...base,
+        type: "sector",
+        radius: extra.radius ?? Math.max(width, height) / 2,
+        startAngle: extra.startAngle ?? 0,
+        endAngle: extra.endAngle ?? Math.PI * 2,
+      } as CanvasElement;
   }
 }

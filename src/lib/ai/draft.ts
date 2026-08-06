@@ -4,7 +4,7 @@ import { layoutGraph } from "@/lib/canvas/graphLayout";
 import type { CanvasDocument, CanvasElement, ElementType } from "@/lib/canvas/types";
 
 // updateElement 只接受白名单内的属性键，防止绕过工具层 schema 直接注入任意属性
-const PATCH_KEYS = ["x", "y", "width", "height", "fill", "stroke", "strokeWidth", "rotation", "text", "body", "fontSize", "opacity", "bold", "italic", "align", "fontFamily"] as const;
+const PATCH_KEYS = ["x", "y", "width", "height", "fill", "stroke", "strokeWidth", "rotation", "text", "body", "fontSize", "opacity", "bold", "italic", "align", "fontFamily", "curvature", "radius", "startAngle", "endAngle"] as const;
 
 export interface CreateArgs {
   type: string;
@@ -262,6 +262,7 @@ function typeName(t: string): string {
   const map: Record<string, string> = {
     rect: "矩形", ellipse: "椭圆", triangle: "三角形", diamond: "菱形",
     hexagon: "六边形", arrow: "箭头", polyline: "折线", text: "文字", logic: "逻辑节点",
+    curve: "曲线", sector: "扇形",
   };
   return map[t] ?? t;
 }
