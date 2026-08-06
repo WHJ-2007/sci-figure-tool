@@ -64,9 +64,11 @@ export default function ChatPanel() {
 
   const selectMode = (m: AIMode) => {
     const next = modes.includes(m) ? modes.filter((x) => x !== m) : [...modes, m];
-    setAuto(false);
+    // 全部具体模式取消后回到自动（与刷新恢复语义一致：auto 状态统一持久化 "auto"）
+    const isAuto = next.length === 0;
+    setAuto(isAuto);
     setModes(next);
-    localStorage.setItem(`chartMode-${currentProjectId}`, JSON.stringify(next));
+    localStorage.setItem(`chartMode-${currentProjectId}`, isAuto ? "auto" : JSON.stringify(next));
   };
 
   useEffect(() => {
@@ -268,10 +270,10 @@ export default function ChatPanel() {
           {MODE_OPTIONS.map((m) => (
             <button
               key={m.value}
-              onClick={() => selectMode(m.value as AIMode)}
-              aria-pressed={modes.includes(m.value as AIMode)}
+              onClick={() => selectMode(m.value)}
+              aria-pressed={modes.includes(m.value)}
               className={`lift flex-1 rounded-full px-1 py-1 text-xs ${
-                modes.includes(m.value as AIMode) ? "bg-blue-600 text-white shadow-sm" : "text-gray-500 hover:bg-white/70"
+                modes.includes(m.value) ? "bg-blue-600 text-white shadow-sm" : "text-gray-500 hover:bg-white/70"
               }`}
             >
               {m.label}

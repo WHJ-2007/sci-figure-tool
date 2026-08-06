@@ -197,6 +197,29 @@ describe("ChatPanel", () => {
     render(<ChatPanel />);
     expect(screen.getByText("图表制作")).toHaveAttribute("aria-pressed", "true");
   });
+
+  it("恢复新格式 JSON 数组；非法数组与全部取消后回到自动", () => {
+    localStorage.setItem(`chartMode-${useCanvasStore.getState().currentProjectId}`, JSON.stringify(["mindmap", "chart"]));
+    const { unmount } = render(<ChatPanel />);
+    expect(screen.getByText("思维导图")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("图表制作")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("自动")).toHaveAttribute("aria-pressed", "false");
+    unmount();
+
+    // 全部具体模式取消 → 自动并持久化 "auto"
+    localStorage.setItem(`chartMode-${useCanvasStore.getState().currentProjectId}`, JSON.stringify(["mindmap", "chart"]));
+    const { unmount: unmount2 } = render(<ChatPanel />);
+    fireEvent.click(screen.getByText("思维导图"));
+    fireEvent.click(screen.getByText("图表制作"));
+    expect(screen.getByText("自动")).toHaveAttribute("aria-pressed", "true");
+    expect(localStorage.getItem(`chartMode-${useCanvasStore.getState().currentProjectId}`)).toBe("auto");
+    unmount2();
+
+    // 非法内容 → 默认自动
+    localStorage.setItem(`chartMode-${useCanvasStore.getState().currentProjectId}`, "garbage{");
+    render(<ChatPanel />);
+    expect(screen.getByText("自动")).toHaveAttribute("aria-pressed", "true");
+  });
 });
 
 describe("ChatPanel 破坏性操作确认", () => {
