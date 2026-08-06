@@ -32,7 +32,7 @@ function SliderRow({
     <label className="flex items-center gap-2 text-xs text-gray-500">
       <span className="w-8 shrink-0">{label}</span>
       <input type="range" min={min} max={max} step={step} value={value} aria-label={ariaLabel} onChange={(e) => onChange(Number(e.target.value))} className="h-4 flex-1 accent-blue-500" />
-      <input type="number" min={min} max={max} step={step} value={value} aria-label={`${ariaLabel} 数值`} onChange={(e) => { if (e.target.value === "") return; onChange(Number(e.target.value)); }} className="h-6 w-12 rounded-md border border-white/70 bg-white/70 px-1 text-right text-xs text-gray-700 outline-none focus:border-blue-300" />
+      <input type="number" min={min} max={max} step={step} value={value} aria-label={`${ariaLabel} 数值`} onChange={(e) => { if (e.target.value === "") return; const v = Number(e.target.value); if (Number.isNaN(v)) return; onChange(Math.min(max, Math.max(min, v))); }} className="h-6 w-12 rounded-md border border-white/70 bg-white/70 px-1 text-right text-xs text-gray-700 outline-none focus:border-blue-300" />
     </label>
   );
 }
