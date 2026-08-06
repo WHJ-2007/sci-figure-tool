@@ -444,3 +444,73 @@ describe("箭头中间折点", () => {
     expect(e.height).toBe(-30); // 100 - 130（起点越过终点 → 负高翻转）
   });
 });
+
+describe("元素右键删除（B1）", () => {
+  it("右键普通元素（矩形）弹删除菜单，点删除后元素移除且选区清空", () => {
+    useCanvasStore.getState().addElement(makeElement("rect", 100, 100, 80, 50, { id: "r1" }));
+    useCanvasStore.getState().setSelection(["r1"]);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const svg = document.querySelector("svg")!;
+    fireEvent.contextMenu(svg, { clientX: 140, clientY: 125 }); // 矩形中心
+    expect(document.querySelector('[data-testid="arrow-context-menu"]')).toBeTruthy();
+    expect(document.querySelector('[data-testid="delete-element"]')).toBeTruthy();
+    // 普通元素菜单只有删除项，没有折点项
+    expect(document.querySelector('[data-testid="delete-midpoint"]')).toBeNull();
+    fireEvent.click(document.querySelector('[data-testid="delete-element"]')!);
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(0);
+    expect(useCanvasStore.getState().selection).toEqual([]);
+  });
+
+  it("右键线条（head none 箭头）弹折点菜单，底部带删除元素项，可整条删除", () => {
+    useCanvasStore.getState().addElement(makeElement("arrow", 100, 100, 200, 0, { id: "l1", head: "none" }));
+    useCanvasStore.getState().setSelection(["l1"]);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const svg = document.querySelector("svg")!;
+    fireEvent.contextMenu(svg, { clientX: 200, clientY: 100 }); // 线段中点
+    expect(document.querySelector('[data-testid="add-sharp-midpoint"]')).toBeTruthy();
+    expect(document.querySelector('[data-testid="delete-element"]')).toBeTruthy();
+    fireEvent.click(document.querySelector('[data-testid="delete-element"]')!);
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(0);
+    expect(useCanvasStore.getState().selection).toEqual([]);
+  });
+
+  it("右键箭头折点弹删除折点菜单，底部也带删除元素项", () => {
+    useCanvasStore.getState().addElement(
+      makeElement("arrow", 100, 100, 200, 0, { id: "a1", midPoints: [{ x: 100, y: 0 }] })
+    );
+    useCanvasStore.getState().setSelection(["a1"]);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const svg = document.querySelector("svg")!;
+    fireEvent.contextMenu(svg, { clientX: 200, clientY: 100 }); // 折点位置
+    expect(document.querySelector('[data-testid="delete-midpoint"]')).toBeTruthy();
+    expect(document.querySelector('[data-testid="delete-element"]')).toBeTruthy();
+    fireEvent.click(document.querySelector('[data-testid="delete-element"]')!);
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(0);
+  });
+
+  it("右键未选中元素：自动选中该元素再弹删除菜单", () => {
+    useCanvasStore.getState().addElement(makeElement("rect", 100, 100, 80, 50, { id: "r1" }));
+    useCanvasStore.getState().addElement(makeElement("ellipse", 400, 400, 60, 40, { id: "e1" }));
+    useCanvasStore.getState().setSelection(["e1"]);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const svg = document.querySelector("svg")!;
+    fireEvent.contextMenu(svg, { clientX: 140, clientY: 125 }); // 矩形中心
+    expect(useCanvasStore.getState().selection).toEqual(["r1"]);
+    fireEvent.click(document.querySelector('[data-testid="delete-element"]')!);
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(1);
+    expect(useCanvasStore.getState().doc.elements[0].type).toBe("ellipse");
+  });
+
+  it("删除一步撤销：删除后 undo 恢复元素", () => {
+    useCanvasStore.getState().addElement(makeElement("rect", 100, 100, 80, 50, { id: "r1" }));
+    useCanvasStore.getState().setSelection(["r1"]);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const svg = document.querySelector("svg")!;
+    fireEvent.contextMenu(svg, { clientX: 140, clientY: 125 });
+    fireEvent.click(document.querySelector('[data-testid="delete-element"]')!);
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(0);
+    act(() => useCanvasStore.getState().undo());
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(1);
+    expect(useCanvasStore.getState().doc.elements[0].id).toBe("r1");
+  });
+});

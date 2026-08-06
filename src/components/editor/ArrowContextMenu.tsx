@@ -2,10 +2,12 @@
 
 import { useCanvasStore } from "@/lib/canvas/store";
 
-// 箭头右键菜单状态：命中折点 → 删除；命中线段 → 新建平滑/尖锐折点
+// 元素右键菜单状态：命中折点 → 删除折点；命中线段 → 新建平滑/尖锐折点；
+// 命中任意元素 → 删除元素；三种菜单底部都带红色"删除元素"
 export type ArrowMenuState =
   | { kind: "midpoint"; x: number; y: number; midIndex: number }
   | { kind: "segment"; x: number; y: number; insertAt: number; point: { x: number; y: number } }
+  | { kind: "element"; x: number; y: number }
   | null;
 
 export default function ArrowContextMenu({
@@ -23,6 +25,12 @@ export default function ArrowContextMenu({
     onClose();
   };
 
+  // 删除当前选中的元素（删除后 store 自动清空选区）
+  const deleteSelected = () =>
+    act(() => {
+      useCanvasStore.getState().deleteElements(useCanvasStore.getState().selection);
+    });
+
   return (
     <div
       data-testid="arrow-context-menu"
@@ -30,7 +38,15 @@ export default function ArrowContextMenu({
       style={{ left: menu.x, top: menu.y }}
       onClick={(e) => e.stopPropagation()}
     >
-      {menu.kind === "segment" ? (
+      {menu.kind === "element" ? (
+        <button
+          data-testid="delete-element"
+          className="lift block w-full rounded-lg px-3 py-1.5 text-left text-[13px] text-red-500"
+          onClick={deleteSelected}
+        >
+          删除元素
+        </button>
+      ) : menu.kind === "segment" ? (
         <>
           <button
             data-testid="add-smooth-midpoint"
@@ -89,6 +105,18 @@ export default function ArrowContextMenu({
         >
           删除折点
         </button>
+      )}
+      {menu.kind !== "element" && (
+        <>
+          <div className="my-1 border-t border-white/60" />
+          <button
+            data-testid="delete-element"
+            className="lift block w-full rounded-lg px-3 py-1.5 text-left text-[13px] text-red-500"
+            onClick={deleteSelected}
+          >
+            删除元素
+          </button>
+        </>
       )}
     </div>
   );

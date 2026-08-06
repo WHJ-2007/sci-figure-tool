@@ -169,40 +169,51 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
       const s = useCanvasStore.getState();
       const p = { x: worldX(e.clientX), y: worldY(e.clientY) };
       const tol = 14 / s.view.scale;
-      // 自顶向下找指针下的未锁定箭头（重叠时取最上层）
+      // 自顶向下找指针下的未锁定元素（重叠时取最上层）：箭头命中折点/线段弹折点菜单，
+      // 命中任意元素（含线条）弹删除菜单
       for (const el of [...s.doc.elements].sort((a, b) => b.zIndex - a.zIndex)) {
-        if (el.type !== "arrow" || s.aiLockedIds.includes(el.id)) continue;
-        const mid = el.midPoints ?? [];
-        for (let i = 0; i < mid.length; i++) {
-          if (Math.hypot(p.x - (el.x + mid[i].x), p.y - (el.y + mid[i].y)) <= tol) {
-            if (s.selection.length !== 1 || s.selection[0] !== el.id) s.setSelection([el.id]);
-            setArrowMenu({
-              kind: "midpoint",
-              midIndex: i,
-              x: Math.min(e.clientX, window.innerWidth - 176),
-              y: Math.min(e.clientY, window.innerHeight - 64),
-            });
-            return;
+        if (s.aiLockedIds.includes(el.id)) continue;
+        if (el.type === "arrow") {
+          const mid = el.midPoints ?? [];
+          for (let i = 0; i < mid.length; i++) {
+            if (Math.hypot(p.x - (el.x + mid[i].x), p.y - (el.y + mid[i].y)) <= tol) {
+              if (s.selection.length !== 1 || s.selection[0] !== el.id) s.setSelection([el.id]);
+              setArrowMenu({
+                kind: "midpoint",
+                midIndex: i,
+                x: Math.min(e.clientX, window.innerWidth - 176),
+                y: Math.min(e.clientY, window.innerHeight - 64),
+              });
+              return;
+            }
+          }
+          const pts = arrowPoints(el);
+          for (let i = 1; i < pts.length; i++) {
+            if (distToSegment(p, pts[i - 1], pts[i]) <= tol) {
+              if (s.selection.length !== 1 || s.selection[0] !== el.id) s.setSelection([el.id]);
+              const proj = projectOnSegment(p, pts[i - 1], pts[i]);
+              setArrowMenu({
+                kind: "segment",
+                insertAt: i - 1,
+                // 折点为相对坐标（相对箭头起点）
+                point: { x: proj.x - el.x, y: proj.y - el.y },
+                x: Math.min(e.clientX, window.innerWidth - 176),
+                y: Math.min(e.clientY, window.innerHeight - 112),
+              });
+              return;
+            }
           }
         }
-        const pts = arrowPoints(el);
-        for (let i = 1; i < pts.length; i++) {
-          if (distToSegment(p, pts[i - 1], pts[i]) <= tol) {
-            if (s.selection.length !== 1 || s.selection[0] !== el.id) s.setSelection([el.id]);
-            const proj = projectOnSegment(p, pts[i - 1], pts[i]);
-            setArrowMenu({
-              kind: "segment",
-              insertAt: i - 1,
-              // 折点为相对坐标（相对箭头起点）
-              point: { x: proj.x - el.x, y: proj.y - el.y },
-              x: Math.min(e.clientX, window.innerWidth - 176),
-              y: Math.min(e.clientY, window.innerHeight - 112),
-            });
-            return;
-          }
+        // 命中元素（箭头折点/线段之外、或其他任何元素）：选中并弹删除菜单
+        if (hitTestElement(el, p, 12 / s.view.scale)) {
+          if (s.selection.length !== 1 || s.selection[0] !== el.id) s.setSelection([el.id]);
+          setArrowMenu({
+            kind: "element",
+            x: Math.min(e.clientX, window.innerWidth - 176),
+            y: Math.min(e.clientY, window.innerHeight - 64),
+          });
+          return;
         }
-        // 右键点在箭头附近（如空白容差内）不弹样式菜单——箭头折点操作优先
-        if (hitTestElement(el, p, 12 / s.view.scale)) return;
       }
       // 右键元素（非箭头）不弹画布样式菜单；右键拖拽多选后（lastRightClickRef.dragged）也不弹
       if ((e.target as Element).closest("[data-element-id]")) return;

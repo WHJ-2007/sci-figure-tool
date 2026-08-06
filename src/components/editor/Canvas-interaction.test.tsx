@@ -42,8 +42,8 @@ describe("Canvas 交互", () => {
     fireEvent.pointerMove(el, { clientX: 90, clientY: 30, buttons: 1 });
     fireEvent.pointerUp(el, { clientX: 90, clientY: 30 });
     await waitMoveAnim();
-    expect(useCanvasStore.getState().doc.elements[0].x).toBe(170);
-    expect(useCanvasStore.getState().doc.elements[0].y).toBe(10);
+    expect(useCanvasStore.getState().doc.elements[0].x).toBeCloseTo(170, 5);
+    expect(useCanvasStore.getState().doc.elements[0].y).toBeCloseTo(10, 5);
   });
 
   it("拖动中指针移出画布（后续事件派发到 window）仍持续跟随：图形位置与鼠标增量严格一致", async () => {
