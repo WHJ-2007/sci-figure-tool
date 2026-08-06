@@ -309,17 +309,7 @@ export default function ChatPanel() {
         </div>
       </div>
       {confirmReq && confirmReq.pending.length > 0 && (
-        <ConfirmDialog
-          pending={confirmReq.pending}
-          busy={confirmBusy}
-          onAction={confirmAction}
-          onClose={() => {
-            // 点遮罩关闭视为跳过全部未确认操作
-            const rest = confirmReq.pending;
-            if (rest.length > 0) setMessages((m) => [...m, { role: "assistant", content: `已跳过 ${rest.length} 个未确认操作` }]);
-            setConfirmReq(null);
-          }}
-        />
+        <ConfirmDialog pending={confirmReq.pending} busy={confirmBusy} onAction={confirmAction} />
       )}
     </div>
   );

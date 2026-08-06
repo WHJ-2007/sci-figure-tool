@@ -1,5 +1,5 @@
 import type { CanvasElement } from "@/lib/canvas/types";
-import { shapePoints, arrowHeadPoints, curveControl } from "@/lib/canvas/geometry";
+import { shapePoints, arrowHeadPoints, curveControl, arrowPathD } from "@/lib/canvas/geometry";
 import { contrastTextColor, elementTransform } from "@/lib/canvas/elements";
 
 export default function ElementShape({ e, locked = false }: { e: CanvasElement; locked?: boolean }) {
@@ -45,10 +45,24 @@ function renderBody(
         const ptsStr = pointsToString(pts);
         const last = pts[pts.length - 1];
         const prev = pts[pts.length - 2] ?? pts[0];
+        // 含平滑折点 → Catmull-Rom 曲线路径（平滑穿过折点）；全尖锐 → 折线
+        const hasSmooth = e.midPoints!.some((m) => m.smooth);
+        const d = arrowPathD(pts);
+        const head = pointsToString(arrowHeadPoints(prev.x, prev.y, last.x, last.y));
+        if (hasSmooth) {
+          return (
+            <g>
+              <path d={d} fill="none" stroke={e.stroke} strokeWidth={e.strokeWidth} opacity={e.opacity} strokeLinejoin="round" />
+              <polygon points={head} fill={e.stroke} opacity={e.opacity} />
+              {/* 透明加宽命中层：细线难点，12px 宽透明描边扩大点击范围 */}
+              <path d={d} fill="none" stroke="transparent" strokeWidth={12} strokeLinecap="round" strokeLinejoin="round" pointerEvents="all" />
+            </g>
+          );
+        }
         return (
           <g>
             <polyline points={ptsStr} fill="none" stroke={e.stroke} strokeWidth={e.strokeWidth} opacity={e.opacity} strokeLinejoin="round" />
-            <polygon points={pointsToString(arrowHeadPoints(prev.x, prev.y, last.x, last.y))} fill={e.stroke} opacity={e.opacity} />
+            <polygon points={head} fill={e.stroke} opacity={e.opacity} />
             {/* 透明加宽命中层：细线难点，12px 宽透明描边扩大点击范围 */}
             <polyline points={ptsStr} fill="none" stroke="transparent" strokeWidth={12} strokeLinecap="round" strokeLinejoin="round" pointerEvents="all" />
           </g>

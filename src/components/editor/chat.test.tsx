@@ -258,7 +258,7 @@ describe("ChatPanel 画布级操作确认", () => {
     fireEvent.click(screen.getByText("一键生成"));
     await waitFor(() => expect(screen.getByTestId("confirm-dialog")).toBeInTheDocument());
     expect(screen.getByText(/新建空白画布/)).toBeInTheDocument();
-    fireEvent.click(screen.getByText("确认"));
+    fireEvent.click(screen.getByText("允许"));
     // new-canvas 事件触发 createProject：多出一张画布
     await waitFor(() => expect(useCanvasStore.getState().projects).toHaveLength(2));
     await waitFor(() => expect(screen.getByText(/已确认：新建空白画布/)).toBeInTheDocument());
@@ -281,7 +281,7 @@ describe("ChatPanel 画布级操作确认", () => {
     fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "换个画布画" } });
     fireEvent.click(screen.getByText("一键生成"));
     await waitFor(() => expect(screen.getByTestId("confirm-dialog")).toBeInTheDocument());
-    fireEvent.click(screen.getByText("取消"));
+    fireEvent.click(screen.getByText("不允许"));
     await waitFor(() => expect(useCanvasStore.getState().projects).toHaveLength(1));
     await waitFor(() => expect(screen.getByText(/已取消：新建空白画布/)).toBeInTheDocument());
   });
@@ -309,11 +309,36 @@ describe("ChatPanel 画布级操作确认", () => {
     fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "换个画布画" } });
     fireEvent.click(screen.getByText("一键生成"));
     await waitFor(() => expect(screen.getByTestId("confirm-dialog")).toBeInTheDocument());
-    fireEvent.click(screen.getByText("确认"));
+    fireEvent.click(screen.getByText("允许"));
     await waitFor(() => expect(screen.queryByTestId("confirm-dialog")).toBeNull());
     // 再次生成：confirmReq 若残留真值，send() 守卫会永久 return，这里死锁
     fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "再来" } });
     fireEvent.click(screen.getByText("一键生成"));
     await waitFor(() => expect(screen.getByText(/第二次生成/)).toBeInTheDocument());
+  });
+
+  it("点击遮罩不能跳过：必须点允许/不允许才关闭", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        mockStream([
+          { type: "confirm-request", sessionId: "s3", summary: "等您确认", pending: [{ id: "new-canvas", description: "新建空白画布并切换到它" }] },
+        ])
+      )
+      .mockResolvedValueOnce(
+        mockStream([
+          { type: "confirm-done", results: [{ id: "new-canvas", description: "新建空白画布并切换到它", approved: true }] },
+        ])
+      );
+    render(<ChatPanel />);
+    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "换个画布画" } });
+    fireEvent.click(screen.getByText("一键生成"));
+    await waitFor(() => expect(screen.getByTestId("confirm-dialog")).toBeInTheDocument());
+    // 点遮罩弹窗不关闭：敏感操作不能跳过
+    fireEvent.click(screen.getByTestId("confirm-dialog"));
+    expect(screen.getByTestId("confirm-dialog")).toBeInTheDocument();
+    expect(useCanvasStore.getState().projects).toHaveLength(1); // 未新建画布
+    // 必须点允许才关闭
+    fireEvent.click(screen.getByText("允许"));
+    await waitFor(() => expect(screen.queryByTestId("confirm-dialog")).toBeNull());
   });
 });

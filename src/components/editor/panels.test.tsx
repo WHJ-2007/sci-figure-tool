@@ -69,6 +69,37 @@ describe("PropertyPanel", () => {
     expect(box.value).toBe("你好");
   });
 
+  it("面板三分：逻辑节点显示背景图案/标题/正文三个块", () => {
+    const l = makeElement("logic", 0, 0, 150, 60, { text: "特征提取", body: "卷积\n池化" });
+    useCanvasStore.getState().addElement(l);
+    useCanvasStore.getState().setSelection([l.id]);
+    render(<PropertyPanel />);
+    expect(screen.getByText("背景图案")).toBeInTheDocument();
+    expect(screen.getAllByText("标题").length).toBeGreaterThan(0); // section 标题 + 字段标签
+    expect(screen.getByText("正文")).toBeInTheDocument();
+    const title = screen.getByLabelText("标题") as HTMLInputElement;
+    expect(title.value).toBe("特征提取");
+    const body = screen.getByLabelText("正文") as HTMLTextAreaElement;
+    expect(body.value).toBe("卷积\n池化");
+    // 改标题/正文直接写回元素
+    fireEvent.change(title, { target: { value: "分类器" } });
+    fireEvent.change(body, { target: { value: "新正文" } });
+    const el = useCanvasStore.getState().doc.elements[0];
+    if (el.type === "logic") {
+      expect(el.text).toBe("分类器");
+      expect(el.body).toBe("新正文");
+    }
+  });
+
+  it("形状类元素只有背景图案块，无标题/正文", () => {
+    const a = makeElement("rect", 0, 0, 100, 60);
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().setSelection([a.id]);
+    render(<PropertyPanel />);
+    expect(screen.getByText("背景图案")).toBeInTheDocument();
+    expect(screen.queryByText("正文")).toBeNull();
+  });
+
   it("无选择时显示提示", () => {
     render(<PropertyPanel />);
     expect(screen.getByText(/未选中元素/)).toBeInTheDocument();

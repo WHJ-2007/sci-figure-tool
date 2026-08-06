@@ -39,6 +39,15 @@ describe("exporter", () => {
     expect(out).not.toContain("<line");
   });
 
+  it("elementToSvg 平滑折点输出 Catmull-Rom path（与渲染一致）", () => {
+    const a = makeElement("arrow", 0, 0, 200, 0, { midPoints: [{ x: 100, y: 40, smooth: true }] });
+    const out = elementToSvg(a);
+    expect(out).toContain("<path d=\"M 0 0 C");
+    expect(out).toContain('stroke-linejoin="round"');
+    expect(out).not.toContain("<polyline");
+    expect(out).toContain("<polygon");
+  });
+
   it("serializeSVG 按 zIndex 排序输出", () => {
     const z2 = makeElement("rect", 0, 0, 10, 10, { zIndex: 2 });
     const z1 = makeElement("rect", 500, 0, 10, 10, { zIndex: 1 });

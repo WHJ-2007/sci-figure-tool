@@ -191,16 +191,40 @@ describe("绘制工具", () => {
 });
 
 describe("箭头中间折点", () => {
-  it("选中箭头右键线段插入折点并弯折渲染为折线", () => {
+  // 右键线段 → 弹出折点菜单 → 点"新建尖锐折点"
+  function rightClickThenAddSharp(svg: Element, x: number, y: number) {
+    fireEvent.contextMenu(svg, { clientX: x, clientY: y });
+    fireEvent.click(document.querySelector('[data-testid="add-sharp-midpoint"]')!);
+  }
+
+  it("选中箭头右键线段弹菜单，新建尖锐折点并弯折渲染为折线", () => {
     useCanvasStore.getState().addElement(makeElement("arrow", 100, 100, 200, 0, { id: "a1" }));
     useCanvasStore.getState().setSelection(["a1"]);
     render(<Canvas viewportWidth={800} viewportHeight={600} />);
     const svg = document.querySelector("svg")!;
     fireEvent.contextMenu(svg, { clientX: 200, clientY: 100 }); // 线段中点
+    expect(document.querySelector('[data-testid="arrow-context-menu"]')).toBeTruthy();
+    expect(document.querySelector('[data-testid="add-sharp-midpoint"]')).toBeTruthy();
+    expect(document.querySelector('[data-testid="add-smooth-midpoint"]')).toBeTruthy();
+    fireEvent.click(document.querySelector('[data-testid="add-sharp-midpoint"]')!);
     const e = useCanvasStore.getState().doc.elements[0] as ArrowElement;
     expect(e.midPoints).toEqual([{ x: 200, y: 100 }]);
-    // 带折点后渲染为 polyline 折线（不再是 line）
+    // 尖锐折点渲染为 polyline 折线（不再是 line）
     expect(document.querySelector("polyline")).toBeTruthy();
+  });
+
+  it("新建平滑折点：smooth 标志 + Catmull-Rom path 渲染（无 polyline）", () => {
+    useCanvasStore.getState().addElement(makeElement("arrow", 100, 100, 200, 0, { id: "a1" }));
+    useCanvasStore.getState().setSelection(["a1"]);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const svg = document.querySelector("svg")!;
+    fireEvent.contextMenu(svg, { clientX: 200, clientY: 100 });
+    fireEvent.click(document.querySelector('[data-testid="add-smooth-midpoint"]')!);
+    const e = useCanvasStore.getState().doc.elements[0] as ArrowElement;
+    expect(e.midPoints).toEqual([{ x: 200, y: 100, smooth: true }]);
+    // 平滑折点渲染为 path（主路径 + 透明命中层），不再有 polyline
+    expect(document.querySelector("polyline")).toBeNull();
+    expect(document.querySelector('path[stroke-linejoin="round"]')).toBeTruthy();
   });
 
   it("右键线段任意处插入，折点投影到线上（弯折箭头）", () => {
@@ -208,13 +232,13 @@ describe("箭头中间折点", () => {
     useCanvasStore.getState().setSelection(["a1"]);
     render(<Canvas viewportWidth={800} viewportHeight={600} />);
     const svg = document.querySelector("svg")!;
-    fireEvent.contextMenu(svg, { clientX: 250, clientY: 106 }); // 靠近终点一侧、偏离线 6px（容差内）
+    rightClickThenAddSharp(svg, 250, 106); // 靠近终点一侧、偏离线 6px（容差 14px 内）
     const e = useCanvasStore.getState().doc.elements[0] as ArrowElement;
     expect(e.midPoints).toHaveLength(1);
     expect(e.midPoints![0]).toEqual({ x: 250, y: 100 }); // 投影到线段上
   });
 
-  it("右键已有折点删除该折点（其余保留）", () => {
+  it("右键已有折点弹删除菜单，删除该折点（其余保留）", () => {
     useCanvasStore.getState().addElement(
       makeElement("arrow", 100, 100, 200, 0, { id: "a1", midPoints: [{ x: 200, y: 100 }, { x: 250, y: 80 }] })
     );
@@ -222,16 +246,19 @@ describe("箭头中间折点", () => {
     render(<Canvas viewportWidth={800} viewportHeight={600} />);
     const svg = document.querySelector("svg")!;
     fireEvent.contextMenu(svg, { clientX: 200, clientY: 100 });
+    expect(document.querySelector('[data-testid="delete-midpoint"]')).toBeTruthy();
+    fireEvent.click(document.querySelector('[data-testid="delete-midpoint"]')!);
     const e = useCanvasStore.getState().doc.elements[0] as ArrowElement;
     expect(e.midPoints).toEqual([{ x: 250, y: 80 }]);
   });
 
-  it("右键远离箭头不增删折点", () => {
+  it("右键远离箭头不弹折点菜单", () => {
     useCanvasStore.getState().addElement(makeElement("arrow", 100, 100, 200, 0, { id: "a1" }));
     useCanvasStore.getState().setSelection(["a1"]);
     render(<Canvas viewportWidth={800} viewportHeight={600} />);
     const svg = document.querySelector("svg")!;
     fireEvent.contextMenu(svg, { clientX: 600, clientY: 500 });
+    expect(document.querySelector('[data-testid="arrow-context-menu"]')).toBeNull();
     const e = useCanvasStore.getState().doc.elements[0] as ArrowElement;
     expect(e.midPoints).toBeUndefined();
   });
@@ -242,10 +269,11 @@ describe("箭头中间折点", () => {
     useCanvasStore.getState().setSelection(["a1"]);
     render(<Canvas viewportWidth={800} viewportHeight={600} />);
     const svg = document.querySelector("svg")!;
-    // 完整右键手势：pointerdown(button 2) → pointerup → contextmenu
+    // 完整右键手势：pointerdown(button 2) → pointerup → contextmenu → 菜单
     fireEvent.pointerDown(svg, { clientX: 200, clientY: 100, button: 2 });
     fireEvent.pointerUp(svg, { clientX: 200, clientY: 100, button: 2 });
     fireEvent.contextMenu(svg, { clientX: 200, clientY: 100 });
+    fireEvent.click(document.querySelector('[data-testid="add-sharp-midpoint"]')!);
     const e = useCanvasStore.getState().doc.elements.find((x) => x.id === "a1") as ArrowElement;
     expect(e.midPoints).toHaveLength(1);
     expect(useCanvasStore.getState().selection).toEqual(["a1"]);
@@ -256,11 +284,60 @@ describe("箭头中间折点", () => {
     useCanvasStore.getState().setSelection(["a1"]);
     render(<Canvas viewportWidth={800} viewportHeight={600} />);
     const svg = document.querySelector("svg")!;
-    fireEvent.contextMenu(svg, { clientX: 200, clientY: 100 });
+    rightClickThenAddSharp(svg, 200, 100);
     const e = useCanvasStore.getState().doc.elements[0] as ArrowElement;
     expect(e.midPoints).toHaveLength(1);
     act(() => useCanvasStore.getState().undo());
     const back = useCanvasStore.getState().doc.elements[0] as ArrowElement;
     expect(back.midPoints).toBeUndefined();
+  });
+
+  it("整体移动带折点的箭头：折点跟随（相对位置不变）", () => {
+    useCanvasStore.getState().addElement(
+      makeElement("arrow", 100, 100, 200, 0, { id: "a1", midPoints: [{ x: 200, y: 60 }] })
+    );
+    useCanvasStore.getState().setSelection(["a1"]);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    // jsdom 不做命中测试：事件必须派发到元素节点（closest 才能找到 data-element-id）
+    const el = document.querySelector('[data-element-id="a1"]')!;
+    fireEvent.pointerDown(el, { clientX: 150, clientY: 100, button: 0 });
+    // 拖动事件走 window 级监听（真实指针移出元素后由 window 接收）
+    fireEvent.pointerMove(window, { clientX: 170, clientY: 120, buttons: 1 });
+    fireEvent.pointerMove(window, { clientX: 190, clientY: 140, buttons: 1 });
+    fireEvent.pointerUp(window, { clientX: 190, clientY: 140 });
+    const e = useCanvasStore.getState().doc.elements[0] as ArrowElement;
+    expect(e.x).toBe(140); // 100 + 40
+    expect(e.y).toBe(140); // 100 + 40
+    expect(e.midPoints).toEqual([{ x: 240, y: 100 }]); // 折点同样 +40,+40
+  });
+
+  it("单独拖动折点：改变折点相对位置", () => {
+    useCanvasStore.getState().addElement(
+      makeElement("arrow", 100, 100, 200, 0, { id: "a1", midPoints: [{ x: 200, y: 60 }] })
+    );
+    useCanvasStore.getState().setSelection(["a1"]);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const mp = document.querySelector('[data-midpoint="0"]')!;
+    // 折点手柄拖动走 window 级监听：起止都在中点，move 事件挂 window
+    fireEvent.pointerDown(mp, { clientX: 200, clientY: 60, button: 0 });
+    fireEvent.pointerMove(window, { clientX: 230, clientY: 90, buttons: 1 });
+    fireEvent.pointerUp(window, { clientX: 230, clientY: 90 });
+    const e = useCanvasStore.getState().doc.elements[0] as ArrowElement;
+    expect(e.midPoints).toEqual([{ x: 230, y: 90 }]);
+    // 端点不动：起点终点仍为 (100,100)→(300,100)
+    expect(e.x).toBe(100);
+    expect(e.width).toBe(200);
+  });
+
+  it("箭头选中只显示 e/w 缩放手柄（其余手柄不遮挡箭头命中层）", () => {
+    const a = makeElement("arrow", 100, 100, 200, 0, { id: "a1" });
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().setSelection(["a1"]);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    expect(document.querySelector('[data-handle="e"]')).toBeTruthy();
+    expect(document.querySelector('[data-handle="w"]')).toBeTruthy();
+    for (const h of ["n", "s", "nw", "ne", "sw", "se"]) {
+      expect(document.querySelector(`[data-handle="${h}"]`)).toBeNull();
+    }
   });
 });

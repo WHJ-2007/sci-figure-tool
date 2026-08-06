@@ -153,7 +153,7 @@ export function buildTools(draft: DraftCanvas) {
       execute: () => draft.clear(),
     }),
     newCanvas: tool({
-      description: "新建一个空白画布并切换到它。仅当现有画布上的内容确实无法承载用户需求时才使用；普通的新增/修改需求不要调用。",
+      description: "新建一个空白画布并切换到它。用户明确要求新建画布（如\"新建画布\"\"新开一张\"\"换一张空白画布\"\"从零重画\"）时立即使用；会弹确认框，用户允许后执行。普通的新增/修改需求不要调用。",
       inputSchema: z.object({}),
       execute: () => draft.newCanvas(),
     }),

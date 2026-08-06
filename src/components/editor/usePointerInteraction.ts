@@ -328,7 +328,7 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
           // 右键落在选中箭头上不进多选框选：交给 contextmenu 处理折点增删
           // （否则右键点击会在 pointerup 清空选择，折点操作找不到目标）
           const sel = s.selection.length === 1 ? s.doc.elements.find((x) => x.id === s.selection[0]) : null;
-          if (sel?.type === "arrow" && !s.aiLockedIds.includes(sel.id) && hitTestElement(sel, { x: wx, y: wy }, 8 / s.view.scale)) {
+          if (sel?.type === "arrow" && !s.aiLockedIds.includes(sel.id) && hitTestElement(sel, { x: wx, y: wy }, 14 / s.view.scale)) {
             return;
           }
           // 右键拖动 = 多选框选（原 rubber 逻辑）

@@ -10,6 +10,7 @@ import ElementShape from "./ElementShape";
 import SelectionOverlay, { boundsOf } from "./SelectionOverlay";
 import TextEditor from "./TextEditor";
 import CanvasStyleMenu from "./CanvasStyleMenu";
+import ArrowContextMenu, { type ArrowMenuState } from "./ArrowContextMenu";
 import { usePointerInteraction, type DrawPreview } from "./usePointerInteraction";
 
 // 画布背景：缺省纯白；"none" 透明；"linear:#c1,#c2" 对角渐变
@@ -63,23 +64,31 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
 
   const { rubber, preview, panning, anchorHint, onPointerDown, onPointerMove, onPointerUp, modeRef, startTouchArrow, lastRightClickRef } = usePointerInteraction(worldX, worldY);
 
-  // 右键画布样式菜单（右键空白画布弹出；右键元素/右键拖拽多选不弹）
+  // 右键菜单（画布样式 + 箭头折点）：点击菜单外/Escape 关闭
   const [styleMenu, setStyleMenu] = useState<{ x: number; y: number } | null>(null);
+  const [arrowMenu, setArrowMenu] = useState<ArrowMenuState>(null);
   const closeStyleMenu = useCallback(() => setStyleMenu(null), []);
+  const closeArrowMenu = useCallback(() => setArrowMenu(null), []);
   useEffect(() => {
-    if (!styleMenu) return;
+    if (!styleMenu && !arrowMenu) return;
     const onDown = (e: PointerEvent) => {
-      if ((e.target as Element).closest("[data-testid='canvas-style-menu']")) return;
+      if ((e.target as Element).closest("[data-testid='canvas-style-menu'], [data-testid='arrow-context-menu']")) return;
       setStyleMenu(null);
+      setArrowMenu(null);
     };
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setStyleMenu(null); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setStyleMenu(null);
+        setArrowMenu(null);
+      }
+    };
     window.addEventListener("pointerdown", onDown);
     window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("pointerdown", onDown);
       window.removeEventListener("keydown", onKey);
     };
-  }, [styleMenu]);
+  }, [styleMenu, arrowMenu]);
 
   // 图片导入：文件 → 图片元素并选中（失败静默）
   const importImageFile = useCallback(async (file: File, cx: number, cy: number) => {
@@ -140,7 +149,7 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
     [worldX, worldY]
   );
 
-  // 右键菜单：单箭头选中 → 折点增删；右键空白画布 → 画布样式菜单
+  // 右键菜单：单箭头选中 → 折点菜单（新建平滑/尖锐/删除）；右键空白画布 → 画布样式菜单
   const onContextMenu = useCallback(
     (e: React.MouseEvent<SVGSVGElement>) => {
       e.preventDefault();
@@ -149,11 +158,16 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
         const sel = s.doc.elements.find((x) => x.id === s.selection[0]);
         if (sel?.type === "arrow" && !s.aiLockedIds.includes(sel.id)) {
           const p = { x: worldX(e.clientX), y: worldY(e.clientY) };
-          const tol = 8 / s.view.scale;
+          const tol = 14 / s.view.scale;
           const mid = sel.midPoints ?? [];
           for (let i = 0; i < mid.length; i++) {
             if (Math.hypot(p.x - mid[i].x, p.y - mid[i].y) <= tol) {
-              s.updateElement(sel.id, { midPoints: mid.filter((_, j) => j !== i) });
+              setArrowMenu({
+                kind: "midpoint",
+                midIndex: i,
+                x: Math.min(e.clientX, window.innerWidth - 176),
+                y: Math.min(e.clientY, window.innerHeight - 64),
+              });
               return;
             }
           }
@@ -161,7 +175,13 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
           for (let i = 1; i < pts.length; i++) {
             if (distToSegment(p, pts[i - 1], pts[i]) <= tol) {
               const proj = projectOnSegment(p, pts[i - 1], pts[i]);
-              s.updateElement(sel.id, { midPoints: [...mid.slice(0, i - 1), proj, ...mid.slice(i - 1)] });
+              setArrowMenu({
+                kind: "segment",
+                insertAt: i - 1,
+                point: proj,
+                x: Math.min(e.clientX, window.innerWidth - 176),
+                y: Math.min(e.clientY, window.innerHeight - 112),
+              });
               return;
             }
           }
@@ -292,6 +312,7 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
       </svg>
       </div>
       {styleMenu && <CanvasStyleMenu x={styleMenu.x} y={styleMenu.y} onClose={closeStyleMenu} />}
+      {arrowMenu && <ArrowContextMenu menu={arrowMenu} onClose={closeArrowMenu} />}
     </div>
   );
 }

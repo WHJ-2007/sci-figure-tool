@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { useCanvasStore } from "./store";
 import { makeElement, estimateTextSize } from "./elements";
 import { layoutChart, type ChartSpec } from "./chartLayout";
-import type { LogicElement, PolylineElement, TextElement } from "./types";
+import type { ArrowElement, LogicElement, PolylineElement, TextElement } from "./types";
 
 beforeEach(() => useCanvasStore.setState(useCanvasStore.getInitialState()));
 
@@ -189,6 +189,19 @@ describe("canvas store", () => {
     expect(moved.points).toEqual([
       { x: 10, y: 20 },
       { x: 110, y: 120 },
+    ]);
+  });
+
+  it("moveElements 平移带折点的箭头：折点跟随，相对位置不变", () => {
+    const a = makeElement("arrow", 100, 100, 200, 0, { midPoints: [{ x: 200, y: 60, smooth: true }, { x: 250, y: 40 }] });
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().moveElements([a.id], 30, -20);
+    const moved = useCanvasStore.getState().doc.elements[0] as ArrowElement;
+    expect(moved.x).toBe(130);
+    expect(moved.y).toBe(80);
+    expect(moved.midPoints).toEqual([
+      { x: 230, y: 40, smooth: true },
+      { x: 280, y: 20 },
     ]);
   });
 

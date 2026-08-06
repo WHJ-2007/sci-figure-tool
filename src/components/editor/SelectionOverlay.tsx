@@ -82,6 +82,8 @@ export default function SelectionOverlay({
             {e.type !== "curve" && e.type !== "sector" && (
               <>
                 {HANDLES.map((h) => {
+                  // 箭头只保留 e/w 缩放手柄：其余手柄盖在箭头命中层上会挡住选择/拖动
+                  if (e.type === "arrow" && h !== "e" && h !== "w") return null;
                   const p = HANDLE_POS[h];
                   // 手柄中心外移 H（8/scale）到包围盒之外：点元素本体（含边缘）只触发拖动；
                   // 否则手柄压在元素边上，AI 生成的小元素（40x30）边缘全被手柄覆盖，拖动会误触缩放/旋转（"乱飞"）
@@ -126,22 +128,46 @@ export default function SelectionOverlay({
                 />
               </>
             )}
-            {/* 箭头折点手柄：右键折点删除（右键线段插入由 Canvas 的 contextmenu 处理） */}
+            {/* 箭头折点手柄：平滑折点=圆点、尖锐折点=方点；可单独拖动改变折点位置；右键折点删除（右键线段插入由 Canvas 的 contextmenu 处理） */}
             {e.type === "arrow" &&
-              (e.midPoints ?? []).map((mp, i) => (
-                <circle
-                  key={`mid-${i}`}
-                  data-midpoint={i}
-                  data-element-id={e.id}
-                  cx={mp.x}
-                  cy={mp.y}
-                  r={H / 2}
-                  fill="#ffffff"
-                  stroke="#2563eb"
-                  strokeWidth={1.5 / scale}
-                  style={{ cursor: "crosshair", pointerEvents: "all" }}
-                />
-              ))}
+              (e.midPoints ?? []).map((mp, i) =>
+                mp.smooth ? (
+                  <circle
+                    key={`mid-${i}`}
+                    data-midpoint={i}
+                    data-element-id={e.id}
+                    cx={mp.x}
+                    cy={mp.y}
+                    r={H / 2}
+                    fill="#ffffff"
+                    stroke="#2563eb"
+                    strokeWidth={1.5 / scale}
+                    style={{ cursor: "crosshair", pointerEvents: "all" }}
+                    onPointerDown={(ev) => {
+                      ev.stopPropagation();
+                      midDown(ev, e, i);
+                    }}
+                  />
+                ) : (
+                  <rect
+                    key={`mid-${i}`}
+                    data-midpoint={i}
+                    data-element-id={e.id}
+                    x={mp.x - H / 2}
+                    y={mp.y - H / 2}
+                    width={H}
+                    height={H}
+                    fill="#ffffff"
+                    stroke="#2563eb"
+                    strokeWidth={1.5 / scale}
+                    style={{ cursor: "crosshair", pointerEvents: "all" }}
+                    onPointerDown={(ev) => {
+                      ev.stopPropagation();
+                      midDown(ev, e, i);
+                    }}
+                  />
+                )
+              )}
           </g>
           {anchors.length > 0 && (
             <g>
@@ -198,6 +224,35 @@ function handleDown(ev: React.PointerEvent, e: CanvasElement, handle: (typeof HA
     height = Math.max(8, height);
     // 缩放逐帧更新不入历史（onDown 时已 commitHistory 一次）
     useCanvasStore.getState().updateElementFast(e.id, { x, y, width, height });
+  };
+  const onUp = () => {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    window.removeEventListener("pointercancel", onUp);
+  };
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
+  window.addEventListener("pointercancel", onUp);
+}
+
+// 拖动箭头中间折点：只改该折点世界坐标，箭头两端与其余折点不动（相对位置改变）
+function midDown(ev: React.PointerEvent, e: CanvasElement, i: number) {
+  // 仅箭头有折点（调用点已按 arrow 渲染该手柄）
+  if (e.type !== "arrow" || !e.midPoints) return;
+  const s = useCanvasStore.getState();
+  // AI 非阻塞：AI 正在编辑的元素锁定——折点不可拖动
+  if (s.aiLockedIds.includes(e.id)) return;
+  s.commitHistory(); // 拖动前提交快照，一次拖动 = 一步撤销
+  const svg = (ev.target as Element).closest("svg")!;
+  const world = (c: number, axis: "x" | "y") => {
+    const r = svg.getBoundingClientRect();
+    const v = useCanvasStore.getState();
+    return ((c - (axis === "x" ? r.left : r.top)) - (axis === "x" ? v.view.ox : v.view.oy)) / v.view.scale;
+  };
+  const onMove = (me: PointerEvent) => {
+    useCanvasStore.getState().updateElementFast(e.id, {
+      midPoints: e.midPoints!.map((m, j) => (j === i ? { ...m, x: world(me.clientX, "x"), y: world(me.clientY, "y") } : m)),
+    });
   };
   const onUp = () => {
     window.removeEventListener("pointermove", onMove);

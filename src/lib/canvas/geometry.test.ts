@@ -7,6 +7,7 @@ import {
   distributeOffsets,
   snapRect,
   arrowHeadPoints,
+  arrowPathD,
   logicAnchors,
   nearestAnchor,
   anchorToward,
@@ -160,6 +161,24 @@ describe("arrowHeadPoints", () => {
     const pts = arrowHeadPoints(0, 0, 100, 0, 10);
     expect(pts).toHaveLength(3);
     expect(pts[0]).toEqual({ x: 100, y: 0 });
+  });
+});
+
+describe("arrowPathD（折点箭头路径）", () => {
+  it("全尖锐折点输出折线", () => {
+    expect(arrowPathD([{ x: 0, y: 0 }, { x: 100, y: 40 }, { x: 200, y: 0 }])).toBe("M 0 0 L 100 40 L 200 0");
+  });
+  it("平滑折点输出 Catmull-Rom 三次贝塞尔（端点切线反射延拓）", () => {
+    // 单折点 (100,40) 平滑：首段 prev 反射 = (0,0)-(100,40) 延拓 = (-100,-40)，末段 next 反射 = (300,-40)
+    // c1 = a + (b-prev)/6 = (33.33, 13.33)，c2 = b - (next-a)/6 = (66.67, 40)
+    // 第二段 c1 = (133.33, 40)，c2 = (166.67, 13.33)
+    const d = arrowPathD([{ x: 0, y: 0 }, { x: 100, y: 40, smooth: true }, { x: 200, y: 0 }]);
+    // 浮点输出（如 33.333333333333336）：前缀截断匹配
+    expect(d).toMatch(/^M 0 0 C 33\.33\d* 13\.33\d* 66\.6\d* 40 100 40 C 133\.33\d* 40 166\.6\d* 13\.33\d* 200 0$/);
+  });
+  it("smooth 标志任一端为 true 即走曲线", () => {
+    const d = arrowPathD([{ x: 0, y: 0, smooth: true }, { x: 100, y: 40 }, { x: 200, y: 0 }]);
+    expect(d).toMatch(/^M 0 0 C /);
   });
 });
 

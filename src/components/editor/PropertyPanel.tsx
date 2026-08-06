@@ -92,7 +92,8 @@ export default function PropertyPanel() {
         {"text" in one && one.text && <span className="truncate text-xs text-gray-500">{one.text}</span>}
       </header>
 
-      <Section title="外观">
+      {/* 背景图案：外观——填充/边框/旋转等（对任意元素都有意义） */}
+      <Section title="背景图案">
         <div className="flex items-center gap-1.5">
           {PALETTE.map((c) => (
             <button
@@ -128,8 +129,9 @@ export default function PropertyPanel() {
         )}
       </Section>
 
+      {/* 标题：逻辑节点标题或文字内容 + 字号样式 */}
       {isTextLike && (
-        <Section title="文字">
+        <Section title="标题">
           <label className="flex items-center gap-2">
             <span className="w-8 shrink-0 text-xs text-gray-500">{one.type === "logic" ? "标题" : "内容"}</span>
             <input aria-label={one.type === "logic" ? "标题" : "文字内容"} value={one.text} onChange={(e) => patch({ text: e.target.value })} className="h-7 flex-1 rounded-lg border border-white/60 bg-white/70 px-1.5 text-gray-700 shadow-sm outline-none focus:border-blue-300" />
@@ -150,12 +152,16 @@ export default function PropertyPanel() {
               ))}
             </div>
           )}
-          {one.type === "logic" && (
-            <label className="flex flex-col gap-1">
-              <span className="text-xs text-gray-500">正文（每行一句，回车分行）</span>
-              <textarea aria-label="正文" value={one.body ?? ""} onChange={(e) => patch({ body: e.target.value })} rows={4} className="w-full rounded-lg border border-white/60 bg-white/70 px-2 py-1.5 text-xs leading-relaxed text-gray-700 shadow-sm outline-none focus:border-blue-300" placeholder="正文内容，回车换行" />
-            </label>
-          )}
+        </Section>
+      )}
+
+      {/* 正文：逻辑节点多行正文 */}
+      {one.type === "logic" && (
+        <Section title="正文">
+          <label className="flex flex-col gap-1">
+            <span className="text-xs text-gray-500">正文（每行一句，回车分行）</span>
+            <textarea aria-label="正文" value={one.body ?? ""} onChange={(e) => patch({ body: e.target.value })} rows={4} className="w-full rounded-lg border border-white/60 bg-white/70 px-2 py-1.5 text-xs leading-relaxed text-gray-700 shadow-sm outline-none focus:border-blue-300" placeholder="正文内容，回车换行" />
+          </label>
         </Section>
       )}
 

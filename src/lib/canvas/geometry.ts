@@ -221,6 +221,28 @@ export function projectOnSegment(p: Point, a: Point, b: Point): Point {
   return { x: a.x + t * dx, y: a.y + t * dy };
 }
 
+// 折点箭头路径（渲染/导出共用）：两端点为尖锐，中间折点按 smooth 标志——
+// 平滑折点两侧线段用 Catmull-Rom 三次贝塞尔平滑穿过（端点切线反射延拓），尖锐折点保持直线
+export function arrowPathD(pts: { x: number; y: number; smooth?: boolean }[]): string {
+  let d = `M ${pts[0].x} ${pts[0].y}`;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1];
+    const b = pts[i];
+    if (a.smooth || b.smooth) {
+      const prev = pts[i - 2] ?? { x: a.x - (b.x - a.x), y: a.y - (b.y - a.y) };
+      const next = pts[i + 1] ?? { x: b.x + (b.x - a.x), y: b.y + (b.y - a.y) };
+      const c1x = a.x + (b.x - prev.x) / 6;
+      const c1y = a.y + (b.y - prev.y) / 6;
+      const c2x = b.x - (next.x - a.x) / 6;
+      const c2y = b.y - (next.y - a.y) / 6;
+      d += ` C ${c1x} ${c1y} ${c2x} ${c2y} ${b.x} ${b.y}`;
+    } else {
+      d += ` L ${b.x} ${b.y}`;
+    }
+  }
+  return d;
+}
+
 function lineBounds(e: CanvasElement): Rect {
   if (e.type === "polyline") {
     const xs = e.points.map((p) => p.x);
