@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { useCanvasStore } from "./store";
 import { makeElement, estimateTextSize } from "./elements";
+import { layoutChart, type ChartSpec } from "./chartLayout";
 import type { LogicElement, PolylineElement, TextElement } from "./types";
 
 beforeEach(() => useCanvasStore.setState(useCanvasStore.getInitialState()));
@@ -266,6 +267,37 @@ describe("多画布", () => {
     const id = useCanvasStore.getState().currentProjectId;
     useCanvasStore.getState().renameProject(id, "Transformer 图");
     expect(useCanvasStore.getState().projects[0].name).toBe("Transformer 图");
+  });
+});
+
+describe("applyChartEdit", () => {
+  it("生成图表：元素带 chartId 并登记 charts，一步撤销移除", () => {
+    const s = useCanvasStore.getState();
+    const spec: ChartSpec = { type: "bar", title: "销售", data: [{ label: "Q1", value: 10 }, { label: "Q2", value: 20 }, { label: "Q3", value: 15 }] };
+    const els = layoutChart(spec).map((e) => ({ ...e, chartId: "c1" }));
+    s.applyChartEdit("c1", spec, els, []);
+    const st = useCanvasStore.getState();
+    expect(st.doc.charts?.["c1"]).toEqual(spec);
+    expect(st.doc.elements.filter((e) => e.chartId === "c1").length).toBeGreaterThan(0);
+    st.undo();
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(0);
+  });
+
+  it("编辑图表：替换旧元素并更新 charts，一步撤销恢复旧图", () => {
+    const s = useCanvasStore.getState();
+    const spec1: ChartSpec = { type: "bar", data: [{ label: "A", value: 1 }, { label: "B", value: 2 }, { label: "C", value: 3 }] };
+    const els1 = layoutChart(spec1).map((e) => ({ ...e, chartId: "c1" }));
+    s.applyChartEdit("c1", spec1, els1, []);
+    const oldIds = useCanvasStore.getState().doc.elements.filter((e) => e.chartId === "c1").map((e) => e.id);
+    const spec2: ChartSpec = { type: "pie", data: [{ label: "X", value: 4 }, { label: "Y", value: 6 }, { label: "Z", value: 5 }] };
+    const els2 = layoutChart(spec2).map((e) => ({ ...e, chartId: "c1" }));
+    useCanvasStore.getState().applyChartEdit("c1", spec2, els2, oldIds);
+    const st = useCanvasStore.getState();
+    expect(st.doc.charts?.["c1"].type).toBe("pie");
+    expect(st.doc.elements.filter((e) => e.chartId === "c1").length).toBe(els2.length);
+    st.undo();
+    expect(useCanvasStore.getState().doc.elements.length).toBe(els1.length);
+    expect(useCanvasStore.getState().doc.charts?.["c1"].type).toBe("bar");
   });
 });
 

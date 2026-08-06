@@ -1,9 +1,10 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { alignOffsets, distributeOffsets } from "@/lib/canvas/geometry";
 import type { CanvasElement, ElementType } from "@/lib/canvas/types";
+import ChartDialog from "./ChartDialog";
 
 // 科研调色板（与 prompt 审美规范一致）：同图 ≤3 色
 const PALETTE = ["#eef4ff", "#f0fff0", "#fff8e6", "#f3efff", "#ffeef0", "#ffffff"];
@@ -44,11 +45,15 @@ export default function PropertyPanel() {
   const deleteElements = useCanvasStore((s) => s.deleteElements);
   const setSelection = useCanvasStore((s) => s.setSelection);
 
+  // 钩子必须先于任何早退调用：空选区的早退返回不能改变钩子数量
+  const [chartOpen, setChartOpen] = useState(false);
+
   const selected = selection.map((id) => doc.elements.find((e) => e.id === id)).filter((e): e is CanvasElement => Boolean(e));
   if (selected.length === 0) {
     return <div className="p-4 text-sm text-gray-400/90">未选中元素</div>;
   }
   const one = selected[0];
+  const chartId = selected.find((e) => e.chartId)?.chartId;
 
   const patch = (p: Partial<CanvasElement>) => updateElement(one.id, p);
   const multi = selected.length > 1;
@@ -166,12 +171,20 @@ export default function PropertyPanel() {
         </Section>
       )}
 
+      {chartId && doc.charts?.[chartId] && (
+        <Section title="数据">
+          <button onClick={() => setChartOpen(true)} className="lift rounded-lg bg-blue-600/85 px-3 py-1.5 text-sm text-white">编辑图表数据</button>
+        </Section>
+      )}
+
       <Section title="操作">
         <div className="flex gap-2">
           <button onClick={() => deleteElements(selection)} className="lift rounded-lg border border-red-200/70 bg-red-50/70 px-3 py-1 text-red-500 shadow-sm hover:bg-red-100/80">删除</button>
           <button onClick={() => setSelection([])} className="lift rounded-lg border border-white/60 bg-white/70 px-3 py-1 text-gray-600 shadow-sm hover:bg-white/90">取消选择</button>
         </div>
       </Section>
+
+      <ChartDialog open={chartOpen} chartId={chartId} initial={chartId ? doc.charts?.[chartId] ?? null : null} onClose={() => setChartOpen(false)} />
     </div>
   );
 }

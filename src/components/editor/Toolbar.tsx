@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { exportSvgFile, exportPng } from "@/lib/canvas/exporter";
 import type { ToolType } from "@/lib/canvas/types";
+import ChartDialog from "./ChartDialog";
 
 // 设置图标：齿轮（描边风格，与左上角工具图标一致）
 const SETTINGS_ICON = (
@@ -36,6 +37,14 @@ const REDO_ICON = (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M21 7v6h-6" />
     <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13" />
+  </svg>
+);
+
+// 图表图标：坐标轴 + 三根柱（描边风格，与左坞其他图标一致）
+const CHART_ICON = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+    <path d="M4 20V4M4 20h16" />
+    <path d="M8 16v-4M13 16V8M18 16v-7" />
   </svg>
 );
 
@@ -96,6 +105,7 @@ export default function Toolbar() {
   const renameProject = useCanvasStore((s) => s.renameProject);
   const deleteProject = useCanvasStore((s) => s.deleteProject);
   const [open, setOpen] = useState<"tool" | null>(null);
+  const [chartOpen, setChartOpen] = useState(false);
   const toolRef = useRef<HTMLDivElement>(null);
 
   // 非阻塞气泡：点击主按钮开/关、点击气泡外任意处关闭（pointerdown 优先于 click，先收气泡再落画布）
@@ -187,7 +197,9 @@ export default function Toolbar() {
         </div>
         <button title="撤销" onClick={undo} disabled={isGenerating} className="lift flex h-9 w-9 items-center justify-center rounded hover:bg-gray-100 disabled:bg-transparent disabled:opacity-40">{UNDO_ICON}</button>
         <button title="重做" onClick={redo} disabled={isGenerating} className="lift flex h-9 w-9 items-center justify-center rounded hover:bg-gray-100 disabled:bg-transparent disabled:opacity-40">{REDO_ICON}</button>
+        <button title="图表" onClick={() => setChartOpen(true)} className="lift flex h-9 w-9 items-center justify-center rounded hover:bg-gray-100">{CHART_ICON}</button>
       </div>
+      <ChartDialog open={chartOpen} onClose={() => setChartOpen(false)} />
     </>
   );
 }

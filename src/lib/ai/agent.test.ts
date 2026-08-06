@@ -344,6 +344,17 @@ describe("DraftCanvas", () => {
     expect(lines.every((l) => l.arrow === false)).toBe(true);
   });
 
+  it("applyChart 元素带 chartId 且登记 charts，快照序列化含 charts", () => {
+    const d = new DraftCanvas([]);
+    const r = d.applyChart({ type: "bar", title: "T", data: [{ label: "A", value: 1 }, { label: "B", value: 2 }, { label: "C", value: 3 }] });
+    expect(r.ok).toBe(true);
+    const ser = d.serialize();
+    expect(ser.elements.every((e) => e.chartId)).toBe(true);
+    expect(ser.charts && Object.keys(ser.charts)).toHaveLength(1);
+    expect(ser.charts!["c-"] !== undefined).toBe(false); // chartId 随机，断言存在即可
+    expect(Object.values(ser.charts!)[0].type).toBe("bar");
+  });
+
   it("applyChart 校验：空数据 / 负值 / 过多 / 未知类型报错且不创建元素", () => {
     const d = new DraftCanvas([]);
     expect(d.applyChart({ type: "bar", data: [] }).ok).toBe(false);
@@ -367,7 +378,7 @@ describe("tools", () => {
 describe("DraftCanvas onChange", () => {
   it("变更成功触发 onChange，失败操作不触发", () => {
     const onChange = vi.fn();
-    const d = new DraftCanvas([], onChange);
+    const d = new DraftCanvas([], {}, onChange);
     const r = d.createElement({ type: "rect", x: 0, y: 0, width: 100, height: 60 });
     expect(onChange).toHaveBeenCalledTimes(1);
     d.updateElement({ id: r.id!, patch: { fill: "#ff0000" } });

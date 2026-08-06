@@ -1,3 +1,5 @@
+import type { ChartSpec } from "./chartLayout";
+
 export type ShapeType = "rect" | "ellipse" | "triangle" | "diamond" | "hexagon";
 export type ElementType = ShapeType | "arrow" | "polyline" | "text" | "logic" | "curve" | "sector";
 export type ToolType = "select" | "rounded" | ElementType;
@@ -16,6 +18,7 @@ export interface BaseElement {
   opacity: number;
   zIndex: number;
   parentId?: string;
+  chartId?: string; // 属于哪个图表（图表数据编辑/整图重排用）
 }
 
 export interface RectElement extends BaseElement {
@@ -81,4 +84,5 @@ export interface CanvasDocument {
   width: number;
   height: number;
   elements: CanvasElement[];
+  charts?: Record<string, ChartSpec>; // chartId → 图表声明（数据/类型），编辑图表数据与导出用
 }

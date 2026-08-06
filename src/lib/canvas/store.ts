@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { CanvasDocument, CanvasElement, ToolType } from "./types";
+import type { ChartSpec } from "./chartLayout";
 import { createHistory, pushHistory, undo as undoHistory, redo as redoHistory, type HistoryState } from "./history";
 import { loadProjects, makeProject, defaultProjectName, saveProjects, type CanvasProject } from "./projects";
 import { estimateTextSize, logicBoxSize } from "./elements";
@@ -59,6 +60,7 @@ export interface CanvasStore {
   setTool: (t: ToolType) => void;
   setView: (v: { scale: number; ox: number; oy: number }) => void;
   setDoc: (doc: CanvasDocument) => void;
+  applyChartEdit: (chartId: string, spec: ChartSpec, elements: CanvasElement[], replaceIds: string[]) => void;
   applyAISnapshot: (doc: CanvasDocument) => void;
   applyAIResult: (doc: CanvasDocument, baseline: CanvasDocument) => void;
   setAiLocked: (ids: string[]) => void;
@@ -178,6 +180,20 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => {
     setGenerating: (v) => set({ isGenerating: v }),
     setDoc: (doc) =>
       set((s) => ({ ...syncProject(s, structuredClone(doc), pushHistory(s.history, s.doc)), selection: [], editingText: null })),
+    // 图表数据编辑（手动生成/编辑共用）：替换指定 chartId 的旧元素 + 登记 spec，一次手势 = 一步撤销
+    applyChartEdit: (chartId, spec, elements, replaceIds) =>
+      set((s) => {
+        const doc = structuredClone(s.doc);
+        let z = maxZIndex(doc.elements);
+        const copies = elements.map((e) => {
+          const c = structuredClone(e);
+          c.zIndex = ++z;
+          return c;
+        });
+        doc.elements = [...doc.elements.filter((e) => !replaceIds.includes(e.id)), ...copies];
+        doc.charts = { ...(doc.charts ?? {}), [chartId]: spec };
+        return { ...syncProject(s, doc, pushHistory(s.history, s.doc)), selection: [] };
+      }),
     setAiLocked: (ids) => set({ aiLockedIds: [...ids] }),
     setAiBaseline: (ids) => set({ aiBaselineIds: [...ids] }),
     // AI 生成中的中间快照：替换画布但不入撤销栈，生成完成后的 applyAIResult 才作为整体一步；

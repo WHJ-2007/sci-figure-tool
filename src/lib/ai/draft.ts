@@ -37,6 +37,7 @@ export interface CreateArgs {
 
 export class DraftCanvas {
   elements: CanvasElement[] = [];
+  charts: Record<string, ChartSpec> = {};
   private activity: string[] = [];
   private onChange: (() => void) | undefined;
   private pendingConfirms: PendingConfirm[] = [];
@@ -44,9 +45,10 @@ export class DraftCanvas {
   private initialIds: Set<string>;
   private touchedIds = new Set<string>();
 
-  constructor(elements: CanvasElement[], onChange?: () => void) {
+  constructor(elements: CanvasElement[], charts: Record<string, ChartSpec> = {}, onChange?: () => void) {
     this.elements = structuredClone(elements);
     this.initialIds = new Set(elements.map((e) => e.id));
+    this.charts = structuredClone(charts);
     this.onChange = onChange;
   }
 
@@ -85,7 +87,7 @@ export class DraftCanvas {
   }
 
   serialize(): CanvasDocument {
-    return { width: CANVAS_WIDTH, height: CANVAS_HEIGHT, elements: this.elements };
+    return { width: CANVAS_WIDTH, height: CANVAS_HEIGHT, elements: this.elements, charts: this.charts };
   }
 
   flushActivity(): string[] {
@@ -335,8 +337,10 @@ export class DraftCanvas {
     if (args.data.some((d) => !d.label.trim())) return { ok: false, error: "分类标签不能为空" };
     // 全零数据（如饼图）静默空成功：引擎按 total<=0 返回空图形，必须显式拒绝
     if (args.data.reduce((s, d) => s + d.value, 0) <= 0) return { ok: false, error: "数据总和必须大于 0" };
-    const els = layoutChart(args);
+    const chartId = `c-${Math.random().toString(36).slice(2, 10)}`;
+    const els = layoutChart(args).map((el) => ({ ...el, chartId }) as CanvasElement);
     for (const el of els) this.pushElement(el);
+    this.charts[chartId] = structuredClone(args);
     this.activity.push(`图表已生成：${chartTypeName(args.type)}（${args.data.length} 项数据）`);
     return { ok: true };
   }
