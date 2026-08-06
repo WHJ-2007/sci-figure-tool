@@ -251,6 +251,10 @@ export class DraftCanvas {
     if (!topic) return { ok: false, error: "主题不能为空" };
     if (!args.branches || args.branches.length === 0) return { ok: false, error: "至少需要一个一级分支" };
     if (args.branches.length > 8) return { ok: false, error: "一级分支过多（最多 8 个）" };
+    // 深度校验：子分支关键词为空会在画布上产生空白节点（z.string() 接受 ""），关键词由 AI 生成，此校验仅为兜底
+    const hasEmptyKeyword = (bs: MindMapBranch[]): boolean =>
+      bs.some((b) => !b.keyword.trim() || hasEmptyKeyword(b.children ?? []));
+    if (hasEmptyKeyword(args.branches)) return { ok: false, error: "分支关键词不能为空" };
     const els = layoutMindMap({
       topic,
       topicBody: args.topicBody,

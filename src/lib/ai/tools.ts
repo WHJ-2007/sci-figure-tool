@@ -10,7 +10,7 @@ const branchSchema: z.ZodType<MindMapBranchInput> = z.lazy(() =>
   z.object({
     keyword: z.string().describe("分支关键词（实义语义名词，≤8 字）"),
     body: z.string().optional().describe("分支要点（多行用 \\n 分隔，每行一个要点 ≤12 字，可省略）"),
-    fill: z.string().optional().describe("填充色（6 色调色板：蓝/绿/橙/紫/红/白，可省略自动配色，同分支同色系）"),
+    fill: z.string().optional().describe("填充色（5 色调色板：蓝/绿/橙/紫/红，可省略自动配色，同分支同色系）"),
     children: z.array(branchSchema).optional().describe("子分支（≤3 层）"),
   })
 );
