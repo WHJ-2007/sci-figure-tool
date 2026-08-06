@@ -113,4 +113,17 @@ describe("exporter", () => {
     const svg = elementToSvg(s);
     expect(svg).toContain("M 100 100 L 120 100 A 20 20 0 0 1 100 120 Z");
   });
+
+  it("elementToSvg 导出 sector：跨 0 的扇形按大弧渲染（largeArc=1）", () => {
+    // start=0.6π → end=0.1π 实际扫过 1.5π 跨过 0 点，必须 largeArc=1
+    const s = makeElement("sector", 0, 0, 20, 20, { radius: 10, startAngle: 0.6 * Math.PI, endAngle: 0.1 * Math.PI });
+    const svg = elementToSvg(s);
+    expect(svg).toContain("A 10 10 0 1 1");
+  });
+
+  it("elementToSvg 导出 sector：正常扫角 largeArc=0", () => {
+    const s = makeElement("sector", 0, 0, 20, 20, { radius: 10, startAngle: 0, endAngle: Math.PI / 2 });
+    const svg = elementToSvg(s);
+    expect(svg).toContain("A 10 10 0 0 1");
+  });
 });

@@ -53,7 +53,10 @@ export function elementToSvg(e: CanvasElement): string {
       const sy = e.y + r * Math.sin(e.startAngle);
       const ex = e.x + r * Math.cos(e.endAngle);
       const ey = e.y + r * Math.sin(e.endAngle);
-      const largeArc = e.endAngle - e.startAngle > Math.PI ? 1 : 0;
+      const d = e.endAngle - e.startAngle;
+      // sweep 恒为 1（角度增大方向）：跨 0 回绕（endAngle < startAngle）时实际扫过 2π+d，
+      // 大弧条件是 d > π（正扫）或 d ∈ (-π, 0)（回绕且缺口小于 π），与 angleInSector 语义一致
+      const largeArc = d > Math.PI || (d < 0 && d > -Math.PI) ? 1 : 0;
       return `<path d="M ${e.x} ${e.y} L ${sx} ${sy} A ${r} ${r} 0 ${largeArc} 1 ${ex} ${ey} Z" ${attrs}${rot}/>`;
     }
     case "text": {
