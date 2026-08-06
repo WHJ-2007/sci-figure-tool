@@ -16,6 +16,8 @@ export interface ChartSpec {
 }
 
 export const CHART_PALETTE = ["#eef4ff", "#f0fff0", "#fff8e6", "#f3efff", "#ffeef0", "#ffffff"];
+// 折线/散点用深色描边（浅色在白底上不可见）；柱状/饼图仍用淡色 fill + 深色描边
+const CHART_STROKE_PALETTE = ["#3b82f6", "#22c55e", "#f59e0b", "#8b5cf6", "#ef4444", "#64748b"];
 const AXIS = "#2f2f2f";
 const LABEL = "#4a5568";
 
@@ -71,15 +73,22 @@ function cartesian(spec: ChartSpec): CanvasElement[] {
   out.push(makeElement("arrow", PLOT.left, PLOT.bottom, plotW, 0, { stroke: AXIS, strokeWidth: 2, zIndex: 1 }));
   out.push(makeElement("arrow", PLOT.left, PLOT.bottom, 0, -plotH, { stroke: AXIS, strokeWidth: 2, zIndex: 1 }));
 
-  // y 刻度值
+  // y 刻度值（精度按 step 的小数位数，step=0.25 时 0.75 应标 "0.75" 而非 "0.8"）
+  const decimals = String(step).includes(".") ? String(step).split(".")[1].length : 0;
   for (let v = step; v <= max + 1e-9; v += step) {
     const ty = y(v);
-    out.push(textEl(Number.isInteger(v) ? String(v) : v.toFixed(1), 12, PLOT.left - 12, ty, { align: "right" }));
+    out.push(textEl(Number.isInteger(v) ? String(v) : v.toFixed(decimals), 12, PLOT.left - 12, ty, { align: "right" }));
   }
 
   // 系列与分类
   const seriesNames = Array.from(new Set(spec.data.map((d) => d.series ?? "默认")));
-  const series = seriesNames.map((name, i) => ({ name, color: CHART_PALETTE[i % CHART_PALETTE.length] }));
+  const series = seriesNames.map((name, i) => {
+    const useStroke = spec.type === "line" || spec.type === "scatter";
+    const color = useStroke
+      ? CHART_STROKE_PALETTE[i % CHART_STROKE_PALETTE.length]
+      : CHART_PALETTE[i % CHART_PALETTE.length];
+    return { name, color };
+  });
   const cats = Array.from(new Set(spec.data.map((d) => d.label)));
   const catW = plotW / cats.length;
 
