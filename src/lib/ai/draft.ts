@@ -166,6 +166,8 @@ export class DraftCanvas {
     if (idx < 0) return { ok: false, error: `元素不存在: ${args.id}` };
     // 破坏性操作确认：删除用户已有元素（生成前就存在）时挂起，等待前端确认；AI 本轮创建的直接删
     if (this.initialIds.has(args.id)) {
+      // 重复挂起去重：同一元素已在等待确认时不重复挂起
+      if (this.pendingConfirms.some((p) => p.id === args.id)) return { ok: true, note: "该删除已在等待确认" };
       const el = this.elements[idx];
       this.pendingConfirms.push({
         id: args.id,
@@ -340,6 +342,13 @@ export class DraftCanvas {
   }
 
   clear(): { ok: boolean; note?: string } {
+    // 空画布清空无破坏性，直接跳过不挂起
+    if (this.elements.length === 0) {
+      this.activity.push("画布已是空的");
+      return { ok: true };
+    }
+    // 重复挂起去重：清空已在等待确认时不重复挂起
+    if (this.pendingConfirms.some((p) => p.id === "clear")) return { ok: true, note: "清空画布已在等待确认" };
     const count = this.elements.length;
     this.pendingConfirms.push({
       id: "clear",
@@ -361,6 +370,8 @@ export class DraftCanvas {
   }
 
   newCanvas(): { ok: boolean; note?: string } {
+    // 重复挂起去重：新建画布已在等待确认时不重复挂起
+    if (this.pendingConfirms.some((p) => p.id === "new-canvas")) return { ok: true, note: "新建画布已在等待确认" };
     this.pendingConfirms.push({
       id: "new-canvas",
       description: "新建空白画布并切换到它",

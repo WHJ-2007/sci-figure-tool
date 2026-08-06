@@ -193,7 +193,7 @@ describe("ChatPanel 破坏性操作确认", () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(
         mockStream([
-          { type: "confirm-request", sessionId: "s1", pending: [{ id: mine.id, description: "删除「矩形」" }] },
+          { type: "confirm-request", sessionId: "s1", summary: "画好了，等您确认", pending: [{ id: mine.id, description: "删除「矩形」" }] },
         ])
       )
       .mockResolvedValueOnce(
@@ -221,7 +221,7 @@ describe("ChatPanel 破坏性操作确认", () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(
         mockStream([
-          { type: "confirm-request", sessionId: "s3", pending: [{ id: "clear", description: "清空画布（2 个元素）" }] },
+          { type: "confirm-request", sessionId: "s3", summary: "画布已清理完毕，等您确认", pending: [{ id: "clear", description: "清空画布（2 个元素）" }] },
         ])
       )
       .mockResolvedValueOnce(
@@ -248,7 +248,7 @@ describe("ChatPanel 破坏性操作确认", () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(
         mockStream([
-          { type: "confirm-request", sessionId: "s2", pending: [{ id: mine.id, description: "删除「矩形」" }] },
+          { type: "confirm-request", sessionId: "s2", summary: "已准备删除矩形，等您确认", pending: [{ id: mine.id, description: "删除「矩形」" }] },
         ])
       )
       .mockResolvedValueOnce(
@@ -263,5 +263,52 @@ describe("ChatPanel 破坏性操作确认", () => {
     fireEvent.click(screen.getByText("取消"));
     await waitFor(() => expect(useCanvasStore.getState().doc.elements).toHaveLength(1));
     await waitFor(() => expect(screen.getByText(/已取消：删除「矩形」/)).toBeInTheDocument());
+  });
+
+  it("多条挂起项逐条确认：第一条确认后会话仍在，第二条可继续确认", async () => {
+    const a = makeElement("rect", 0, 0, 100, 60);
+    const b = makeElement("ellipse", 200, 200, 40, 40);
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().addElement(b);
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        mockStream([
+          { type: "confirm-request", sessionId: "sm1", summary: "已生成待确认操作", pending: [
+            { id: a.id, description: `删除「矩形」` },
+            { id: b.id, description: "删除「椭圆」" },
+          ] },
+        ])
+      )
+      // 第一条确认：route 回发全部 pending 的汇总（a 已表态，b 尚未表态）
+      .mockResolvedValueOnce(
+        mockStream([
+          { type: "snapshot", canvas: { width: 1600, height: 1000, elements: [b] }, touched: [a.id] },
+          { type: "confirm-done", results: [
+            { id: a.id, description: `删除「矩形」`, approved: true },
+            { id: b.id, description: "删除「椭圆」", approved: false },
+          ] },
+        ])
+      )
+      // 第二条确认：b 表态后全部 resolved，会话可删除
+      .mockResolvedValueOnce(
+        mockStream([
+          { type: "snapshot", canvas: { width: 1600, height: 1000, elements: [] }, touched: [b.id] },
+          { type: "confirm-done", results: [
+            { id: a.id, description: `删除「矩形」`, approved: true },
+            { id: b.id, description: "删除「椭圆」", approved: true },
+          ] },
+        ])
+      );
+    render(<ChatPanel />);
+    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "删掉矩形和椭圆" } });
+    fireEvent.click(screen.getByText("一键生成"));
+    await waitFor(() => expect(screen.getByTestId("confirm-dialog")).toBeInTheDocument());
+    fireEvent.click(screen.getAllByText("确认")[0]); // 第一条确认
+    await waitFor(() => expect(useCanvasStore.getState().doc.elements).toHaveLength(1));
+    // 对话框仍在（第二条还在）
+    expect(screen.getByTestId("confirm-dialog")).toBeInTheDocument();
+    fireEvent.click(screen.getAllByText("确认")[0]); // 第二条确认（此时只剩一条）
+    await waitFor(() => expect(useCanvasStore.getState().doc.elements).toHaveLength(0));
+    expect(screen.queryByTestId("confirm-dialog")).toBeNull();
   });
 });

@@ -1,16 +1,25 @@
-import { getConfirmSession, deleteConfirmSession } from "@/lib/ai/confirmStore";
+import { getConfirmSession, markResolved, markApplied, isApplied, isSessionComplete } from "@/lib/ai/confirmStore";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
-  const { sessionId, approvals } = (await req.json()) as {
-    sessionId: string;
-    approvals: { id: string; approved: boolean }[];
+  // req.json() 容错：请求体非 JSON 返回 400 而非 500
+  const body = await req.json().catch(() => null);
+  const { sessionId, approvals } = (body ?? {}) as {
+    sessionId?: string;
+    approvals?: { id?: string; approved?: boolean }[];
   };
+  if (typeof sessionId !== "string" || !Array.isArray(approvals)) {
+    return Response.json({ error: "请求格式错误" }, { status: 400 });
+  }
   const draft = getConfirmSession(sessionId);
   if (!draft) return Response.json({ error: "确认会话已过期，请重新生成" }, { status: 404 });
-  deleteConfirmSession(sessionId);
+  // 这批复挂起项用户已表态（含取消）：多挂起项逐条确认时会话保留，全部表态后由 isSessionComplete 删除
+  markResolved(
+    sessionId,
+    approvals.filter((a): a is { id: string; approved?: boolean } => typeof a.id === "string").map((a) => a.id)
+  );
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -18,6 +27,9 @@ export async function POST(req: Request) {
       for (const p of draft.pending) {
         const a = approvals.find((x) => x.id === p.id);
         if (!a?.approved) continue;
+        // 幂等：先前批次已执行过（重试/重复提交）不再 apply，防 new-canvas 二次触发
+        if (isApplied(sessionId, p.id)) continue;
+        markApplied(sessionId, p.id);
         p.apply();
         if (draft.takeNewCanvasFlag()) send({ type: "new-canvas" });
         send({ type: "snapshot", canvas: draft.serialize(), touched: draft.takeTouched() });
@@ -31,6 +43,8 @@ export async function POST(req: Request) {
         })),
       });
       controller.close();
+      // 全部挂起项都已表态 → 删除会话；未表态的残留项由 TTL sweep 15 分钟兜底作废
+      isSessionComplete(sessionId, draft.pending.length);
     },
   });
   return new Response(stream, {

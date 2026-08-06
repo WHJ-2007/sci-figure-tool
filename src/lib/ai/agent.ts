@@ -16,7 +16,7 @@ export type AgentEvent =
   | { type: "snapshot"; canvas: CanvasDocument; touched: string[] }
   | { type: "new-canvas" }
   | { type: "complete"; canvas: CanvasDocument; summary: string; touched: string[] }
-  | { type: "confirm-request"; sessionId: string; pending: { id: string; description: string }[] }
+  | { type: "confirm-request"; sessionId: string; summary: string; pending: { id: string; description: string }[] }
   | { type: "error"; message: string };
 
 export async function runAgent(opts: {
@@ -56,6 +56,7 @@ export async function runAgent(opts: {
     opts.onEvent({
       type: "confirm-request",
       sessionId,
+      summary: result.text,
       pending: pending.map((p) => ({ id: p.id, description: p.description })),
     });
   } else {

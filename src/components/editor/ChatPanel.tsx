@@ -38,7 +38,7 @@ export default function ChatPanel() {
   const isGenerating = useCanvasStore((s) => s.isGenerating);
   const currentProjectId = useCanvasStore((s) => s.currentProjectId);
   const [mode, setMode] = useState<AIChatMode>("auto");
-  const [confirmReq, setConfirmReq] = useState<{ sessionId: string; pending: { id: string; description: string }[] } | null>(null);
+  const [confirmReq, setConfirmReq] = useState<{ sessionId: string; summary: string; pending: { id: string; description: string }[] } | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
 
   // 模式选择按画布持久化：切换画布/刷新恢复
@@ -58,8 +58,9 @@ export default function ChatPanel() {
 
   const send = async () => {
     const text = input.trim();
-    // 守卫用 getState()：避免订阅闭包在极端时序下被旧请求的 finally 误解锁
-    if (!text || useCanvasStore.getState().isGenerating) return;
+    // 守卫用 getState()：避免订阅闭包在极端时序下被旧请求的 finally 误解锁；
+    // confirmReq 非空时禁止发起新生成，避免覆盖丢弃未解决的确认项
+    if (!text || useCanvasStore.getState().isGenerating || confirmReq) return;
     const s = useCanvasStore.getState();
     const settings = loadSettings();
     // 生成前画布作为撤销基线：snapshot 中间态不入栈，生成完成后整体一步 undo 回到该基线；
@@ -134,9 +135,11 @@ export default function ChatPanel() {
               finalDoc = ev.canvas;
               summary = ev.summary ?? "";
             } else if (ev.type === "confirm-request") {
-              // 生成主体结束：把最后快照作为最终结果入历史（一步 undo 回到生成前），再弹确认框
+              // 生成主体结束：把最后快照作为最终结果入历史（一步 undo 回到生成前），再弹确认框；
+              // AI 文字回复先入对话（与 complete 分支的 summary 行为一致）
               if (lastSnapshot) useCanvasStore.getState().applyAIResult(lastSnapshot, baseline);
-              setConfirmReq({ sessionId: ev.sessionId, pending: ev.pending });
+              setMessages((m) => [...m, { role: "assistant", content: ev.summary }]);
+              setConfirmReq({ sessionId: ev.sessionId, summary: ev.summary, pending: ev.pending });
             } else if (ev.type === "error") setError(ev.message);
           }
           nl = buf.indexOf("\n");
@@ -264,7 +267,17 @@ export default function ChatPanel() {
         </div>
       </div>
       {confirmReq && confirmReq.pending.length > 0 && (
-        <ConfirmDialog pending={confirmReq.pending} busy={confirmBusy} onAction={confirmAction} onClose={() => setConfirmReq(null)} />
+        <ConfirmDialog
+          pending={confirmReq.pending}
+          busy={confirmBusy}
+          onAction={confirmAction}
+          onClose={() => {
+            // 点遮罩关闭视为跳过全部未确认操作
+            const rest = confirmReq.pending;
+            if (rest.length > 0) setMessages((m) => [...m, { role: "assistant", content: `已跳过 ${rest.length} 个未确认操作` }]);
+            setConfirmReq(null);
+          }}
+        />
       )}
     </div>
   );

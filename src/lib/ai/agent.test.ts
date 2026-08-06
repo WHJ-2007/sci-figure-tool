@@ -378,10 +378,17 @@ describe("DraftCanvas onChange", () => {
     expect(onChange).toHaveBeenCalledTimes(3);
     d.deleteElement({ id: "missing" });
     expect(onChange).toHaveBeenCalledTimes(3);
+    // 空画布 clear 无破坏性：直接跳过不挂起、不触发 onChange
     d.clear();
-    expect(onChange).toHaveBeenCalledTimes(3); // 清空挂起等待确认，不立即触发
-    d.pending[0].apply();
+    expect(onChange).toHaveBeenCalledTimes(3);
+    expect(d.pending).toHaveLength(0);
+    // 非空画布 clear 挂起等待确认，确认后执行并触发 onChange
+    d.createElement({ type: "ellipse", x: 0, y: 0, width: 40, height: 30 });
     expect(onChange).toHaveBeenCalledTimes(4);
+    d.clear();
+    expect(onChange).toHaveBeenCalledTimes(4); // 清空挂起等待确认，不立即触发
+    d.pending[0].apply();
+    expect(onChange).toHaveBeenCalledTimes(5);
   });
 });
 
@@ -410,6 +417,29 @@ describe("DraftCanvas 破坏性操作挂起", () => {
     expect(res.ok).toBe(true);
     expect(d.pending.length).toBe(0);
     expect(d.serialize().elements).toHaveLength(0);
+  });
+
+  it("空画布 clear 不挂起：直接跳过并记录活动", () => {
+    const d = new DraftCanvas([]);
+    const res = d.clear();
+    expect(res.ok).toBe(true);
+    expect(d.pending).toHaveLength(0);
+    expect(d.flushActivity().join("")).toContain("已是空的");
+  });
+
+  it("重复挂起去重：同一元素重复删除只挂起一次，clear/newCanvas 同理", () => {
+    const userEl = makeElement("rect", 0, 0, 100, 60);
+    const d = new DraftCanvas([userEl]);
+    d.deleteElement({ id: userEl.id });
+    const dup = d.deleteElement({ id: userEl.id });
+    expect(dup.ok).toBe(true);
+    expect(dup.note).toMatch(/已在等待确认/);
+    expect(d.pending).toHaveLength(1);
+    d.clear();
+    expect(d.clear().note).toMatch(/已在等待确认/);
+    d.newCanvas();
+    expect(d.newCanvas().note).toMatch(/已在等待确认/);
+    expect(d.pending.map((p) => p.id)).toEqual([userEl.id, "clear", "new-canvas"]);
   });
 
   it("clear 与 newCanvas 总是挂起", () => {
