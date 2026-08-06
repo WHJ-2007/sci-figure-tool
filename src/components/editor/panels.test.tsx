@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import Toolbar from "./Toolbar";
 import PropertyPanel from "./PropertyPanel";
 import ChatPanel from "./ChatPanel";
@@ -58,7 +58,10 @@ describe("PropertyPanel", () => {
     // 箭头卡片替代背景图案卡片（填充色对箭头无意义）
     expect(screen.queryByText("背景图案")).toBeNull();
     const card = [...document.querySelectorAll("section")].find((s) => s.querySelector("h3")?.textContent === "箭头")!;
-    const seq = [...card.querySelectorAll("[aria-label],button")].map((el) => el.getAttribute("aria-label") ?? el.textContent!.trim());
+    // 色板按钮不计入编辑顺序（色板固定在卡片尾部）
+    const seq = [...card.querySelectorAll("[aria-label],button")]
+      .map((el) => el.getAttribute("aria-label") ?? el.textContent!.trim())
+      .filter((l) => !l.startsWith("预设色"));
     // 编辑顺序：粗细 → 箭头样式（无/单/双）→ 透明度 → 旋转 → 箭头颜色
     expect(seq).toEqual(["粗细", "粗细 数值", "无箭头", "单箭头", "双箭头", "透明度", "透明度 数值", "旋转", "旋转 数值", "箭头颜色"]);
   });
@@ -92,6 +95,26 @@ describe("PropertyPanel", () => {
     expect(fill.value).toBe("#ffffff");
     fireEvent.change(fill, { target: { value: "#ff0000" } });
     expect(useCanvasStore.getState().doc.elements[0].fill).toBe("#ff0000");
+  });
+
+  it("色板网格直接选色：点击色块设置箭头颜色与填充色，自定义 hex 同步写入", () => {
+    const a = makeElement("arrow", 100, 100, 200, 0, { id: "a1" });
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().setSelection([a.id]);
+    render(<PropertyPanel />);
+    fireEvent.click(screen.getByLabelText("预设色 #3b82f6"));
+    expect((useCanvasStore.getState().doc.elements[0] as ArrowElement).stroke).toBe("#3b82f6");
+    const r = makeElement("rect", 0, 0, 100, 60, { id: "r1" });
+    act(() => useCanvasStore.getState().addElement(r));
+    act(() => useCanvasStore.getState().setSelection([r.id]));
+    fireEvent.click(screen.getByLabelText("预设色 #f0fff0"));
+    expect(useCanvasStore.getState().doc.elements.find((e) => e.id === "r1")!.fill).toBe("#f0fff0");
+    // 自定义 hex 输入：非法值不写入，失焦回退显示当前色
+    const fill = screen.getByLabelText("填充色") as HTMLInputElement;
+    fireEvent.change(fill, { target: { value: "#1234" } });
+    expect(useCanvasStore.getState().doc.elements.find((e) => e.id === "r1")!.fill).toBe("#f0fff0");
+    fireEvent.blur(fill);
+    expect(fill.value).toBe("#f0fff0");
   });
 
   it("选中文字显示文本编辑框", () => {

@@ -8,7 +8,7 @@ import type { ChartSpec } from "@/lib/canvas/chartLayout";
 import type { CanvasDocument, CanvasElement, ElementType } from "@/lib/canvas/types";
 
 // updateElement 只接受白名单内的属性键，防止绕过工具层 schema 直接注入任意属性
-const PATCH_KEYS = ["x", "y", "width", "height", "fill", "stroke", "strokeWidth", "rotation", "text", "body", "fontSize", "opacity", "bold", "italic", "align", "fontFamily", "curvature", "radius", "startAngle", "endAngle"] as const;
+const PATCH_KEYS = ["x", "y", "width", "height", "fill", "stroke", "strokeWidth", "rotation", "text", "body", "fontSize", "opacity", "bold", "italic", "align", "fontFamily", "curvature", "radius", "startAngle", "endAngle", "head", "zIndex"] as const;
 
 // 属性键 → 人话名：活动文案不再暴露裸键（如 "fill"），直接说改了什么
 const PATCH_NAMES: Record<string, string> = {
@@ -18,6 +18,7 @@ const PATCH_NAMES: Record<string, string> = {
   opacity: "透明度", bold: "加粗", italic: "斜体", align: "对齐",
   fontFamily: "字体", curvature: "弯曲度", radius: "半径",
   startAngle: "起始角度", endAngle: "结束角度",
+  head: "箭头样式", zIndex: "层级",
 };
 
 export interface PendingConfirm {
@@ -43,6 +44,7 @@ export interface CreateArgs {
   italic?: boolean;
   align?: "left" | "center" | "right";
   fontFamily?: string;
+  head?: "none" | "single" | "double";
 }
 
 export class DraftCanvas {
@@ -130,6 +132,7 @@ export class DraftCanvas {
         stroke: args.stroke,
         strokeWidth: args.strokeWidth,
         rotation: args.rotation,
+        head: args.type === "arrow" ? args.head : undefined,
         zIndex: maxZ + 1,
       });
     }
@@ -206,14 +209,17 @@ export class DraftCanvas {
       width: Math.round(e.width),
       height: Math.round(e.height),
       text: "text" in e ? e.text : undefined,
+      body: "body" in e ? e.body : undefined,
       fill: e.fill,
       stroke: e.stroke,
       rotation: e.rotation,
+      head: e.type === "arrow" ? e.head : undefined,
+      zIndex: e.zIndex,
     }));
   }
 
   // 自动连接：从源形状边缘精确指向目标形状边缘的箭头（AI 无需手算坐标）
-  connectElements(args: { sourceId: string; targetId: string; stroke?: string; strokeWidth?: number }): { ok: boolean; id?: string; error?: string } {
+  connectElements(args: { sourceId: string; targetId: string; stroke?: string; strokeWidth?: number; head?: "none" | "single" | "double" }): { ok: boolean; id?: string; error?: string } {
     const s = this.elements.find((e) => e.id === args.sourceId);
     const t = this.elements.find((e) => e.id === args.targetId);
     if (!s) return { ok: false, error: `源元素不存在: ${args.sourceId}` };
@@ -232,6 +238,7 @@ export class DraftCanvas {
     const el = makeElement("arrow", p1.x, p1.y, p2.x - p1.x, p2.y - p1.y, {
       stroke: args.stroke ?? "#2f2f2f",
       strokeWidth: args.strokeWidth,
+      head: args.head,
       startId: s.id,
       endId: t.id,
       zIndex: maxZ + 1,

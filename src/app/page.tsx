@@ -29,7 +29,7 @@ export default function Home() {
           <div className="flex w-72 shrink-0 flex-col gap-3">
             <div
               className={`glass-panel grid transition-[grid-template-rows,opacity,border-color] duration-300 ease-out ${
-                hasSelection ? "max-h-[45%] grid-rows-[1fr] border-white/60" : "grid-rows-[0fr] border-transparent opacity-0"
+                hasSelection ? "max-h-[70%] grid-rows-[1fr] border-white/60" : "grid-rows-[0fr] border-transparent opacity-0"
               }`}
             >
               <div className="min-h-0 overflow-y-auto">

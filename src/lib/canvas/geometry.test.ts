@@ -7,6 +7,7 @@ import {
   distributeOffsets,
   snapRect,
   arrowHeadPoints,
+  arrowHeadSize,
   arrowPathD,
   logicAnchors,
   nearestAnchor,
@@ -162,6 +163,20 @@ describe("arrowHeadPoints", () => {
     const pts = arrowHeadPoints(0, 0, 100, 0, 10);
     expect(pts).toHaveLength(3);
     expect(pts[0]).toEqual({ x: 100, y: 0 });
+  });
+});
+
+describe("arrowHeadSize", () => {
+  it("线宽 2（默认）→ 10px 头，保持默认观感", () => {
+    expect(arrowHeadSize(2)).toBe(10);
+  });
+  it("线宽加倍头随之变大（粗细联动箭头头）", () => {
+    expect(arrowHeadSize(4)).toBeGreaterThan(arrowHeadSize(2));
+    expect(arrowHeadSize(6)).toBe(28);
+  });
+  it("细线限幅：线宽 1 也有可见的头", () => {
+    expect(arrowHeadSize(1)).toBe(6);
+    expect(arrowHeadSize(0.5)).toBe(6);
   });
 });
 

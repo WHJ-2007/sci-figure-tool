@@ -35,4 +35,26 @@ describe("buildSystemPrompt 多模式", () => {
   it("公共节含画完自查规则", () => {
     expect(buildSystemPrompt()).toContain("画完必须自查");
   });
+
+  it("逻辑节点正文必填：公共节与科研规范都禁止空盒子", () => {
+    const p = buildSystemPrompt();
+    expect(p).toContain("逻辑节点（语义模块框）必须写正文");
+    expect(p).toContain("禁止只有标题的空盒子");
+    expect(p).toContain("正文用 body 参数写且必填");
+  });
+
+  it("收尾话术简练：交代总数，不要求复述操作步骤", () => {
+    const p = buildSystemPrompt();
+    expect(p).toContain("共 15 个元素");
+    expect(p).toContain("操作步骤已在界面左下角活动日志逐条显示");
+    expect(p).toContain("禁止复述步骤");
+  });
+
+  it("科研规范教箭头样式（head）与层级（zIndex）与粗细联动", () => {
+    const p = buildSystemPrompt(["sci"]);
+    expect(p).toContain("head 参数控制");
+    expect(p).toContain("double 两端箭头");
+    expect(p).toContain("zIndex 数值大者在上");
+    expect(p).toContain("头随粗细自动变大");
+  });
 });

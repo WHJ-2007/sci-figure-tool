@@ -1,13 +1,57 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { alignOffsets, distributeOffsets } from "@/lib/canvas/geometry";
 import type { CanvasElement, ElementType } from "@/lib/canvas/types";
 import ChartDialog from "./ChartDialog";
 
-// 科研调色板（与 prompt 审美规范一致）：同图 ≤3 色
-const PALETTE = ["#eef4ff", "#f0fff0", "#fff8e6", "#f3efff", "#ffeef0", "#ffffff"];
+// 通用色板（科研调色板 + 全谱系常用色）：行 1 强饱和主色、行 2 中饱和、行 3 深色、
+// 行 4 科研浅色底 + 中性；点击即选、当前色蓝环高亮，自定义 hex 精确输入
+const SWATCHES = [
+  "#ef4444", "#f97316", "#f59e0b", "#22c55e", "#14b8a6", "#3b82f6", "#8b5cf6",
+  "#f87171", "#fb923c", "#fbbf24", "#4ade80", "#2dd4bf", "#60a5fa", "#a78bfa",
+  "#111827", "#b91c1c", "#c2410c", "#15803d", "#0f766e", "#1d4ed8", "#6d28d9",
+  "#eef4ff", "#f0fff0", "#fff8e6", "#f3efff", "#ffeef0", "#f8fafc", "#ffffff",
+];
+
+function ColorPicker({ value, onChange, ariaLabel }: { value: string; onChange: (c: string) => void; ariaLabel: string }) {
+  // 本地 hex 输入与外部值双向同步：合法 6 位 hex 即写入，非法输入失焦后回退显示当前值
+  const [hex, setHex] = useState(value);
+  useEffect(() => setHex(value), [value]);
+  return (
+    <div className="min-w-0 flex-1">
+      <div className="grid grid-cols-7 gap-1.5">
+        {SWATCHES.map((c) => (
+          <button
+            key={c}
+            type="button"
+            title={c}
+            aria-label={`预设色 ${c}`}
+            onClick={() => onChange(c)}
+            className={`lift aspect-square w-full rounded-md border ${value.toLowerCase() === c ? "border-blue-500 ring-2 ring-blue-300" : "border-black/10 hover:ring-2 hover:ring-blue-200"}`}
+            style={{ background: c }}
+          />
+        ))}
+      </div>
+      <label className="mt-2 flex items-center gap-1.5 text-xs text-gray-500">
+        <span className="shrink-0">自定义</span>
+        <input
+          value={hex}
+          aria-label={ariaLabel}
+          onChange={(e) => {
+            const v = e.target.value;
+            setHex(v);
+            if (/^#[0-9a-fA-F]{6}$/.test(v)) onChange(v.toLowerCase());
+          }}
+          onBlur={() => setHex(value)}
+          className="h-6 w-full min-w-0 flex-1 rounded-md border border-white/60 bg-white/70 px-1.5 text-xs text-gray-700 outline-none focus:border-blue-300"
+          placeholder="#rrggbb"
+        />
+      </label>
+    </div>
+  );
+}
 
 const TYPE_NAMES: Record<ElementType | "rounded", string> = {
   rect: "矩形", rounded: "圆角矩形", ellipse: "椭圆", triangle: "三角形", diamond: "菱形",
@@ -113,32 +157,14 @@ export default function PropertyPanel() {
           </div>
           <SliderRow label="透明度" ariaLabel="透明度" value={one.opacity} min={0} max={1} step={0.05} onChange={(v) => patch({ opacity: v })} />
           <SliderRow label="旋转" ariaLabel="旋转" value={one.rotation} min={-360} max={360} step={1} onChange={(v) => patch({ rotation: v })} />
-          <div className="flex items-center gap-1.5">
-            <span className="w-8 shrink-0 text-xs text-gray-500">颜色</span>
-            <label className="flex items-center gap-1 text-xs text-gray-500">
-              <input type="color" aria-label="箭头颜色" value={one.stroke} onChange={(e) => patch({ stroke: e.target.value })} className="h-6 w-8 cursor-pointer rounded-md border border-white/70 bg-white/70 p-0.5" />
-              描边色
-            </label>
+          <div className="flex items-start gap-1.5">
+            <span className="w-8 shrink-0 pt-1 text-xs text-gray-500">颜色</span>
+            <ColorPicker value={one.stroke} onChange={(c) => patch({ stroke: c })} ariaLabel="箭头颜色" />
           </div>
         </Section>
       ) : (
         <Section title="背景图案">
-          <div className="flex items-center gap-1.5">
-            {PALETTE.map((c) => (
-              <button
-                key={c}
-                title={`预设色 ${c}`}
-                aria-label={`预设色 ${c}`}
-                onClick={() => patch({ fill: c })}
-                className={`lift h-6 w-6 rounded-full border ${one.fill.toLowerCase() === c ? "border-blue-500 ring-2 ring-blue-300" : "border-black/10"}`}
-                style={{ background: c }}
-              />
-            ))}
-            <label className="ml-1 flex items-center gap-1 text-xs text-gray-500">
-              自定义
-              <input type="color" aria-label="填充色" value={one.fill} onChange={(e) => patch({ fill: e.target.value })} className="h-6 w-8 cursor-pointer rounded-md border border-white/70 bg-white/70 p-0.5" />
-            </label>
-          </div>
+          <ColorPicker value={one.fill} onChange={(c) => patch({ fill: c })} ariaLabel="填充色" />
           <SliderRow label="线宽" ariaLabel="线宽" value={one.strokeWidth} min={0} max={20} step={1} onChange={(v) => patch({ strokeWidth: v })} />
           <SliderRow label="透明度" ariaLabel="透明度" value={one.opacity} min={0} max={1} step={0.05} onChange={(v) => patch({ opacity: v })} />
           {(one.type === "rect" || one.type === "logic") && (

@@ -396,6 +396,12 @@ export function snapRect(r: Rect, elements: CanvasElement[], threshold = SNAP_TH
   return { dx: bestDx, dy: bestDy };
 }
 
+// 箭头头尺寸随线宽等比缩放（默认线宽 2 → 10px 头，保持默认观感）；
+// 限幅：细线也有可见的头，粗线头不夸张
+export function arrowHeadSize(strokeWidth: number): number {
+  return Math.min(28, Math.max(6, strokeWidth * 5));
+}
+
 export function arrowHeadPoints(x1: number, y1: number, x2: number, y2: number, size = 10): Point[] {
   const angle = Math.atan2(y2 - y1, x2 - x1);
   const back = size;

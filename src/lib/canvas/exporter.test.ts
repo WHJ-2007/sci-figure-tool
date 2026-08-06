@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { serializeSVG, elementToSvg } from "./exporter";
 import { makeElement } from "./elements";
+import type { CanvasElement } from "./types";
 
 describe("exporter", () => {
   it("serializeSVG 包含根 svg 与元素", () => {
@@ -44,6 +45,21 @@ describe("exporter", () => {
     // 缺省 = single：旧数据无 head 字段仍只有一个箭头
     const legacy = makeElement("arrow", 0, 0, 100, 50);
     expect(elementToSvg(legacy).match(/<polygon/g)).toHaveLength(1);
+  });
+
+  it("elementToSvg 箭头头随线宽变大（粗细联动箭头头）", () => {
+    const thin = makeElement("arrow", 0, 0, 100, 0, { strokeWidth: 1 });
+    const thick = makeElement("arrow", 0, 0, 100, 0, { strokeWidth: 6 });
+    const parse = (el: CanvasElement) => elementToSvg(el).match(/points="([^"]+)"/)![1].split(" ").map((p) => p.split(",").map(Number));
+    const thinPoly = parse(thin);
+    const thickPoly = parse(thick);
+    // 头尖都在终点 (100,0)，看两翼点向起点方向的收缩（back 越大两翼 x 越小）
+    const backOf = (pts: number[][]) => Math.abs(100 - pts[1][0]);
+    expect(backOf(thickPoly)).toBeGreaterThan(backOf(thinPoly));
+    // 折线箭头同规则
+    const pl = makeElement("polyline", 0, 0, 0, 0, { points: [{ x: 0, y: 0 }, { x: 100, y: 0 }], strokeWidth: 6 });
+    const plOut = elementToSvg(pl).match(/<polygon/g);
+    expect(plOut).toHaveLength(1);
   });
 
   it("elementToSvg 带折点的箭头输出 polyline 折线与箭头多边形（折点为相对坐标）", () => {

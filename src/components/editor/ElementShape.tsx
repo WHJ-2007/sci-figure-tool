@@ -1,5 +1,5 @@
 import type { CanvasElement } from "@/lib/canvas/types";
-import { shapePoints, arrowHeadPoints, curveControl, arrowPathD, arrowPoints } from "@/lib/canvas/geometry";
+import { shapePoints, arrowHeadPoints, arrowHeadSize, curveControl, arrowPathD, arrowPoints } from "@/lib/canvas/geometry";
 import { contrastTextColor, elementTransform } from "@/lib/canvas/elements";
 
 export default function ElementShape({ e, locked = false }: { e: CanvasElement; locked?: boolean }) {
@@ -85,7 +85,7 @@ function renderBody(
         <g>
           <polyline points={pointsToString(e.points)} fill="none" stroke={e.stroke} strokeWidth={e.strokeWidth} opacity={e.opacity} />
           {e.arrow !== false && (
-            <polygon points={pointsToString(arrowHeadPoints(prev.x, prev.y, last.x, last.y))} fill={e.stroke} opacity={e.opacity} />
+            <polygon points={pointsToString(arrowHeadPoints(prev.x, prev.y, last.x, last.y, arrowHeadSize(e.strokeWidth)))} fill={e.stroke} opacity={e.opacity} />
           )}
         </g>
       );
@@ -200,11 +200,12 @@ function arrowHeadPolygons(e: CanvasElement, pts: { x: number; y: number }[]): s
   if (head === "none") return [];
   const last = pts[pts.length - 1];
   const prev = pts[pts.length - 2] ?? pts[0];
-  const res = [pointsToString(arrowHeadPoints(prev.x, prev.y, last.x, last.y))];
+  const size = arrowHeadSize(e.strokeWidth);
+  const res = [pointsToString(arrowHeadPoints(prev.x, prev.y, last.x, last.y, size))];
   if (head === "double") {
     const first = pts[0];
     const second = pts[1] ?? last;
-    res.push(pointsToString(arrowHeadPoints(second.x, second.y, first.x, first.y)));
+    res.push(pointsToString(arrowHeadPoints(second.x, second.y, first.x, first.y, size)));
   }
   return res;
 }

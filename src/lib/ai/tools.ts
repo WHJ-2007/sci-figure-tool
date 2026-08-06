@@ -20,8 +20,8 @@ export function buildTools(draft: DraftCanvas) {
     createElement: tool({
       description:
         "在画布上创建一个元素（形状/箭头/文字/逻辑节点）。坐标原点在左上角，画布宽 1600 高 1000。" +
-        "arrow 类型：x/y 是起点，必须落在源形状的边缘上；width/height 是终点相对偏移，终点必须精确落在目标形状的边缘上，箭头尖端贴住目标边框，不能悬空、不能插入太深。" +
-        "logic 类型：流程/结构图语义模块（圆角框 + 内置居中标题 + 自带上下左右 4 个箭头锚点），必须提供 text 标题（简洁语义名词，建议 ≤8 字、不加标点）；width/height 无需精确指定，系统按标题自动扩框；语义模块一律用 logic，禁止 rect+文字两件套。text 类型必须提供 text 内容。" +
+        "arrow 类型：x/y 是起点，必须落在源形状的边缘上；width/height 是终点相对偏移，终点必须精确落在目标形状的边缘上，箭头尖端贴住目标边框，不能悬空、不能插入太深；head 控制箭头头部样式（single 单箭头=默认 / double 两端箭头 / none 无箭头纯线），strokeWidth 粗细会同时放大箭头头（默认线宽 2 → 头约 10px）。" +
+        "logic 类型：流程/结构图语义模块（圆角框 + 内置居中标题 + 自带上下左右 4 个箭头锚点），必须提供 text 标题（简洁语义名词，建议 ≤8 字、不加标点）；body 必填——正文交代该步骤做什么/包含什么（多行用 \\n 分隔，每行一个要点 ≤12 字），禁止只有标题的空盒子；width/height 无需精确指定，系统按标题+正文自动扩框；语义模块一律用 logic，禁止 rect+文字两件套。text 类型必须提供 text 内容。" +
         "文字尺寸公式（text/logic 由系统按字号自动计算宽高，不必手算）：中文每字 1×字号，英文大写 0.68×字号、小写 0.55×字号、数字 0.6×字号、空格 0.32×字号，加粗再 ×1.06，行高 1.4×字号。" +
         "text/logic 的 width/height 会被系统重算并自动扩框容纳文字，无需精确指定；框要容纳文字时按此公式估算并左右各留 ≥12px 内边距。",
       inputSchema: z.object({
@@ -31,16 +31,17 @@ export function buildTools(draft: DraftCanvas) {
         width: z.number().positive().describe("宽度（arrow 为终点相对水平偏移）"),
         height: z.number().positive().describe("高度（arrow 为终点相对垂直偏移）"),
         text: z.string().optional().describe("文字内容（type=text/logic 时必填，logic 为框内标题）"),
-        body: z.string().optional().describe("逻辑节点正文（type=logic 时用，多行用 \\n 分隔，每行一个要点；系统自动扩框容纳）"),
+        body: z.string().optional().describe("逻辑节点正文（type=logic 时必填，多行用 \\n 分隔，每行一个要点 ≤12 字；系统自动扩框容纳）"),
         fill: z.string().optional().describe("填充色，如 #eef4ff"),
         stroke: z.string().optional().describe("边框色，如 #2f2f2f"),
-        strokeWidth: z.number().optional().describe("边框宽度"),
+        strokeWidth: z.number().optional().describe("边框/线宽（arrow 时同时决定箭头头大小：默认 2 → 头约 10px，调大一起变大）"),
         rotation: z.number().optional().describe("旋转角度"),
         fontSize: z.number().optional().describe("字号（text 类型用，建议 16~28）"),
         bold: z.boolean().optional().describe("是否加粗（text 类型用）"),
         italic: z.boolean().optional().describe("是否斜体（text 类型用）"),
         align: z.enum(["left", "center", "right"]).optional().describe("文字对齐（text 类型用，默认 center）"),
         fontFamily: z.string().optional().describe("字体（text 类型用，默认 Arial, Microsoft YaHei, sans-serif）"),
+        head: z.enum(["none", "single", "double"]).optional().describe("箭头头部样式（type=arrow 时用：single 单箭头=默认 / double 两端箭头 / none 无箭头纯线）"),
       }),
       execute: (args) => draft.createElement(args),
     }),
@@ -55,7 +56,7 @@ export function buildTools(draft: DraftCanvas) {
           z.object({
             id: z.string().describe("节点唯一标识（英文/数字），供 edges 引用"),
             text: z.string().describe("节点标题（简洁语义名词，≤8 字，不加标点、不加“模块/组件”后缀）"),
-            body: z.string().optional().describe("节点正文（多行用 \\n 分隔，每行一个要点 ≤12 字，可省略）"),
+            body: z.string().describe("节点正文（必填：交代该步骤做什么/包含什么，多行用 \\n 分隔，每行一个要点 ≤12 字；禁止只有标题的空节点）"),
             fill: z.string().optional().describe("填充色（科研调色板：#eef4ff 蓝 / #f0fff0 绿 / #fff8e6 橙 / #f3efff 紫 / #ffeef0 红 / #ffffff 白；同图 ≤3 种颜色）"),
             width: z.number().optional().describe("期望宽度（可省略，系统按标题+正文自动扩框）"),
             height: z.number().optional().describe("期望高度（可省略，系统按标题+正文自动扩框）"),
@@ -108,7 +109,8 @@ export function buildTools(draft: DraftCanvas) {
         sourceId: z.string().describe("箭头起点的元素 id（通过 listElements 获取）"),
         targetId: z.string().describe("箭头终点的元素 id（通过 listElements 获取）"),
         stroke: z.string().optional().describe("箭头颜色，如 #2f2f2f"),
-        strokeWidth: z.number().optional().describe("线宽"),
+        strokeWidth: z.number().optional().describe("线宽（同时决定箭头头大小：默认 2 → 头约 10px，调大一起变大）"),
+        head: z.enum(["none", "single", "double"]).optional().describe("箭头头部样式（single 单箭头=默认 / double 两端箭头 / none 无箭头纯线）"),
       }),
       execute: (args) => draft.connectElements(args),
     }),
@@ -126,13 +128,15 @@ export function buildTools(draft: DraftCanvas) {
           strokeWidth: z.number().optional(),
           rotation: z.number().optional(),
           text: z.string().optional(),
-          body: z.string().optional(),
+          body: z.string().optional().describe("逻辑节点正文（多行用 \\n 分隔，每行一个要点 ≤12 字）"),
           fontSize: z.number().optional(),
           opacity: z.number().optional(),
           bold: z.boolean().optional(),
           italic: z.boolean().optional(),
           align: z.enum(["left", "center", "right"]).optional(),
           fontFamily: z.string().optional(),
+          head: z.enum(["none", "single", "double"]).optional().describe("箭头头部样式（arrow 类型：single 单箭头 / double 两端箭头 / none 无箭头纯线）"),
+          zIndex: z.number().optional().describe("层级（数值越大越靠上；遮挡时把要显示在前面的元素调大，被遮的调小）"),
         }),
       }),
       execute: (args) => draft.updateElement(args),

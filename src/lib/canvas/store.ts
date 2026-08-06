@@ -2,7 +2,15 @@ import { create } from "zustand";
 import type { CanvasDocument, CanvasElement, ToolType } from "./types";
 import type { ChartSpec } from "./chartLayout";
 import { createHistory, pushHistory, undo as undoHistory, redo as redoHistory, type HistoryState } from "./history";
-import { loadProjects, makeProject, defaultProjectName, saveProjects, type CanvasProject } from "./projects";
+import {
+  loadProjects,
+  loadCurrentProjectId,
+  makeProject,
+  defaultProjectName,
+  saveProjects,
+  saveCurrentProject,
+  type CanvasProject,
+} from "./projects";
 import { estimateTextSize, logicBoxSize } from "./elements";
 
 function maxZIndex(elements: CanvasElement[]): number {
@@ -93,16 +101,20 @@ export interface CanvasStore {
 export const useCanvasStore = create<CanvasStore>()((set, get) => {
   const saved = typeof window !== "undefined" ? loadProjects() : null;
   const projects = saved ?? [makeProject("画布 1")];
+  // 刷新恢复：进入页面回到上次离开时的画布（记录缺失/画布已删则回退第一张）
+  const savedCurrentId = typeof window !== "undefined" ? loadCurrentProjectId(projects) : null;
+  const currentId = savedCurrentId ?? projects[0].id;
+  const current = projects.find((p) => p.id === currentId) ?? projects[0];
   const initial: CanvasStore = {
-    doc: structuredClone(projects[0].doc),
+    doc: structuredClone(current.doc),
     selection: [],
     tool: "select",
     isGenerating: false,
     editingText: null,
     view: { ...EMPTY_VIEW },
-    history: projects[0].history,
+    history: current.history,
     projects,
-    currentProjectId: projects[0].id,
+    currentProjectId: current.id,
     activity: [],
     aiLockedIds: [],
     aiBaselineIds: [],
@@ -361,9 +373,13 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => {
   return initial;
 });
 
-// 画布内容/项目变化 → 300ms 防抖持久化（history 不入存储，saveProjects 内部剥除）
+// 画布内容/项目变化 → 300ms 防抖持久化（history 不入存储，saveProjects 内部剥除）；
+// 顺带记住当前画布 id——刷新后回到上次离开的画布
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 useCanvasStore.subscribe((s) => {
   if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => saveProjects(s.projects), 300);
+  saveTimer = setTimeout(() => {
+    saveProjects(s.projects);
+    saveCurrentProject(s.currentProjectId);
+  }, 300);
 });

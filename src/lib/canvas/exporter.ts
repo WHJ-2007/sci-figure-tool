@@ -1,5 +1,5 @@
 import type { CanvasDocument, CanvasElement } from "./types";
-import { shapePoints, arrowHeadPoints, curveControl, arrowPathD, arrowPoints } from "./geometry";
+import { shapePoints, arrowHeadPoints, arrowHeadSize, curveControl, arrowPathD, arrowPoints } from "./geometry";
 import { contrastTextColor, elementTransform } from "./elements";
 
 const XML_ESCAPE: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" };
@@ -34,8 +34,9 @@ export function elementToSvg(e: CanvasElement): string {
         if (head === "none") return "";
         const last = pts[pts.length - 1];
         const prev = pts[pts.length - 2] ?? pts[0];
+        const size = arrowHeadSize(e.strokeWidth);
         const polys = [
-          arrowHeadPoints(prev.x, prev.y, last.x, last.y)
+          arrowHeadPoints(prev.x, prev.y, last.x, last.y, size)
             .map((p) => `${p.x},${p.y}`)
             .join(" "),
         ];
@@ -43,7 +44,7 @@ export function elementToSvg(e: CanvasElement): string {
           const first = pts[0];
           const second = pts[1] ?? last;
           polys.push(
-            arrowHeadPoints(second.x, second.y, first.x, first.y)
+            arrowHeadPoints(second.x, second.y, first.x, first.y, size)
               .map((p) => `${p.x},${p.y}`)
               .join(" ")
           );
@@ -69,7 +70,7 @@ export function elementToSvg(e: CanvasElement): string {
         : (() => {
             const last = e.points[e.points.length - 1];
             const prev = e.points[e.points.length - 2] ?? e.points[0];
-            const h = arrowHeadPoints(prev.x, prev.y, last.x, last.y)
+            const h = arrowHeadPoints(prev.x, prev.y, last.x, last.y, arrowHeadSize(e.strokeWidth))
               .map((p) => `${p.x},${p.y}`)
               .join(" ");
             return `<polygon points="${h}" fill="${e.stroke}" opacity="${e.opacity}"/>`;

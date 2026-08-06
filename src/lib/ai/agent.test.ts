@@ -5,7 +5,7 @@ import { buildTools } from "./tools";
 import { runAgent } from "./agent";
 import { CANVAS_WIDTH } from "../canvas/geometry";
 import { estimateTextSize, logicBoxSize, makeElement } from "../canvas/elements";
-import type { LogicElement, TextElement } from "../canvas/types";
+import type { ArrowElement, LogicElement, TextElement } from "../canvas/types";
 
 // vi.mock 工厂被提升执行时引用外部变量会 TDZ 报错，必须用 vi.hoisted 创建 mock；
 // 只替换 generateText，保留真实的 tool（tools.ts 依赖它构造工具对象）
@@ -46,10 +46,10 @@ describe("DraftCanvas", () => {
     const d = new DraftCanvas([]);
     const r = d.createElement({ type: "rect", x: 0, y: 0, width: 100, height: 60 });
     d.flushActivity();
-    d.updateElement({ id: r.id!, patch: { x: 10, y: 20, zIndex: 999 } as unknown as Record<string, unknown> });
+    d.updateElement({ id: r.id!, patch: { x: 10, y: 20, flipH: true } as unknown as Record<string, unknown> });
     const act = d.flushActivity().join("");
     expect(act).toBe("修改矩形：位置");
-    expect(act).not.toContain("zIndex");
+    expect(act).not.toContain("flipH");
   });
 
   it("updateElement 对不存在的 id 报错", () => {
@@ -181,6 +181,51 @@ describe("DraftCanvas", () => {
     const el = d.serialize().elements[0];
     expect(el.type).toBe("logic");
     expect(el).toMatchObject({ text: "编码", body: "说明一\n说明二", fontSize: 16, bold: true });
+  });
+
+  it("createElement/connectElements 支持箭头样式 head（none/single/double）", () => {
+    const d = new DraftCanvas([]);
+    d.createElement({ type: "rect", x: 0, y: 0, width: 100, height: 60 });
+    const r = d.createElement({ type: "arrow", x: 10, y: 30, width: 200, height: 0, head: "double" });
+    const arrow = d.serialize().elements.find((e) => e.id === r.id)!;
+    expect((arrow as ArrowElement).head).toBe("double");
+    // connectElements 也可指定 head
+    d.createElement({ type: "rect", x: 300, y: 0, width: 100, height: 60 });
+    const ids = d.serialize().elements.filter((e) => e.type === "rect").map((e) => e.id);
+    const c = d.connectElements({ sourceId: ids[0], targetId: ids[1], head: "none" });
+    const conn = d.serialize().elements.find((e) => e.id === c.id)! as ArrowElement;
+    expect(conn.head).toBe("none");
+    // 缺省 = single（未指定 head 的箭头）
+    const c2 = d.connectElements({ sourceId: ids[0], targetId: ids[1] });
+    expect((d.serialize().elements.find((e) => e.id === c2.id) as ArrowElement).head).toBeUndefined();
+  });
+
+  it("updateElement 支持改箭头样式与层级，活动文案用中文名", () => {
+    const d = new DraftCanvas([]);
+    const rect = d.createElement({ type: "rect", x: 0, y: 0, width: 100, height: 60 });
+    const r = d.createElement({ type: "arrow", x: 10, y: 30, width: 200, height: 0 });
+    // 层级调大 = 相对排序提升（ensureTextOnTop 会按 zIndex 重排并归一化，顶层语义保留）
+    d.updateElement({ id: rect.id!, patch: { zIndex: 999 } });
+    d.updateElement({ id: r.id!, patch: { head: "none" } });
+    const els = d.serialize().elements;
+    const rectEl = els.find((e) => e.id === rect.id)!;
+    const arrowEl = els.find((e) => e.id === r.id)! as ArrowElement;
+    expect(arrowEl.head).toBe("none");
+    expect(rectEl.zIndex).toBeGreaterThan(arrowEl.zIndex);
+    const log = d.flushActivity().join(" ");
+    expect(log).toContain("箭头样式");
+    expect(log).toContain("层级");
+  });
+
+  it("listElements 摘要含正文/箭头样式/层级", () => {
+    const d = new DraftCanvas([]);
+    const l = d.createElement({ type: "logic", x: 10, y: 10, width: 100, height: 60, text: "编码", body: "要点" });
+    const a = d.createElement({ type: "arrow", x: 10, y: 30, width: 200, height: 0, head: "double" });
+    const summary = d.listElements();
+    expect(summary.find((e) => e.id === l.id)?.body).toBe("要点");
+    const arrow = summary.find((e) => e.id === a.id);
+    expect(arrow?.head).toBe("double");
+    expect(typeof arrow?.zIndex).toBe("number");
   });
 
   it("updateElement 修改逻辑节点正文后自动扩框容纳（正文与框大小匹配）", () => {

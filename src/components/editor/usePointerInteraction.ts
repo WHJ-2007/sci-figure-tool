@@ -7,7 +7,7 @@ import type { Anchor } from "@/lib/canvas/geometry";
 
 type Mode =
   | { kind: "idle" }
-  | { kind: "pan"; startClientX: number; startClientY: number; ox0: number; oy0: number; shiftKey: boolean }
+  | { kind: "pan"; startClientX: number; startClientY: number; ox0: number; oy0: number }
   | { kind: "move"; startX: number; startY: number; start: Map<string, { x: number; y: number }>; moved: boolean; lastDx: number; lastDy: number }
   | { kind: "rubber"; startX: number; startY: number; x: number; y: number; additive: boolean }
   | { kind: "resize"; id: string; handle: string; startX: number; startY: number; rect: { x: number; y: number; width: number; height: number } }
@@ -124,12 +124,9 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
       const m = modeRef.current;
       const s = useCanvasStore.getState();
       if (m.kind === "pan") {
+        // 平移只会在无选区时启动（空白按下时已有选区 = 取消选择，不起 pan）；
+        // 清空选择的动作在 pointerdown 完成，这里只需要收尾
         setPanning(false);
-        // 点击阈值用屏幕像素（pan 按屏幕位移判定），与 move 的 world 单位阈值不同是有意的
-        // 左键空白点击（未拖动）清空选择——保留原选择工具的点击清空语义
-        if (Math.hypot(e.clientX - m.startClientX, e.clientY - m.startClientY) < 3 && !m.shiftKey) {
-          s.setSelection([]);
-        }
       } else if (m.kind === "rubber") {
         const r = {
           x: Math.min(m.startX, m.x),
@@ -342,9 +339,13 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
           lastRightClickRef.current = { x: wx, y: wy, dragged: false };
           startDrag();
         } else if (e.button === 0) {
-          // 左键空白拖动 = 平移画布（原小手功能）；shiftKey 记在按下时——点击判定按手势意图，
-          // 不依赖 pointerup 是否仍按着 shift（与 rubber 分支的 additive 同理）
-          modeRef.current = { kind: "pan", startClientX: e.clientX, startClientY: e.clientY, ox0: s.view.ox, oy0: s.view.oy, shiftKey: e.shiftKey };
+          // 左键空白：有选中时按下即取消选择（拖动语义只属于元素本身，空白不再平移画布；
+          // shift 保留选区），只有没有选中时空白拖动才是平移画布
+          if (s.selection.length > 0) {
+            if (!e.shiftKey) s.setSelection([]);
+            return;
+          }
+          modeRef.current = { kind: "pan", startClientX: e.clientX, startClientY: e.clientY, ox0: s.view.ox, oy0: s.view.oy };
           setPanning(true);
           startDrag();
         }

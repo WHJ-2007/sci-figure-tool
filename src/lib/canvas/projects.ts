@@ -9,6 +9,8 @@ export interface CanvasProject {
 }
 
 const STORAGE_KEY = "sci-figure.projects.v1";
+// 上次离开时的画布 id：刷新后恢复到原画布（与项目数据分开存，避免全量重写）
+const CURRENT_KEY = "sci-figure.current-project.v1";
 const CANVAS_WIDTH = 1600;
 const CANVAS_HEIGHT = 1000;
 
@@ -29,6 +31,25 @@ export function loadProjects(): CanvasProject[] | null {
     const arr = JSON.parse(raw) as { id: string; name: string; doc: CanvasDocument }[];
     if (!Array.isArray(arr) || arr.length === 0) return null;
     return arr.map((p) => ({ id: p.id, name: p.name, doc: p.doc, history: createHistory() }));
+  } catch {
+    return null;
+  }
+}
+
+export function saveCurrentProject(id: string) {
+  try {
+    localStorage.setItem(CURRENT_KEY, id);
+  } catch {
+    // 容量/隐私模式异常静默降级：下次打开默认回到第一张画布
+  }
+}
+
+// 返回上次离开时的画布 id；记录缺失或指向已删除的画布时返回 null（回退默认第一张）
+export function loadCurrentProjectId(projects: CanvasProject[]): string | null {
+  try {
+    const id = localStorage.getItem(CURRENT_KEY);
+    if (!id) return null;
+    return projects.some((p) => p.id === id) ? id : null;
   } catch {
     return null;
   }

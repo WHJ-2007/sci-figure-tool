@@ -420,7 +420,7 @@ describe("空白平移（选择与小手合并：select 下左键空白拖动 = 
     expect(v.oy).toBe(40);
   });
 
-  it("左键空白平移不移动、不选中元素", () => {
+  it("有选区时空白按下即取消选择且不平移（拖动语义只属于元素，空白不拖画布）", () => {
     const a = makeElement("rect", 10, 10, 100, 60);
     useCanvasStore.getState().addElement(a);
     useCanvasStore.getState().setSelection([a.id]);
@@ -431,9 +431,39 @@ describe("空白平移（选择与小手合并：select 下左键空白拖动 = 
     const e = useCanvasStore.getState().doc.elements[0];
     expect(e.x).toBe(10);
     expect(e.y).toBe(10);
+    expect(useCanvasStore.getState().selection).toEqual([]);
+    expect(useCanvasStore.getState().view.ox).toBe(0);
+    expect(useCanvasStore.getState().view.oy).toBe(0);
+  });
+
+  it("取消选择后再空白拖动才平移画布", () => {
+    const a = makeElement("rect", 10, 10, 100, 60);
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().setSelection([a.id]);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const svg = document.querySelector("svg")!;
+    // 第一次空白按下：只取消选择，不平移
+    drag(svg, { x: 500, y: 300 }, { x: 530, y: 330 });
+    expect(useCanvasStore.getState().selection).toEqual([]);
+    expect(useCanvasStore.getState().view.ox).toBe(0);
+    // 选区已空：再空白拖动 = 平移画布
+    drag(svg, { x: 100, y: 50 }, { x: 160, y: 90 });
+    const v = useCanvasStore.getState().view;
+    expect(v.ox).toBe(60);
+    expect(v.oy).toBe(40);
+  });
+
+  it("shift+左键空白按下保留选区（不清空、不平移）", () => {
+    const a = makeElement("rect", 10, 10, 100, 60);
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().setSelection([a.id]);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const svg = document.querySelector("svg")!;
+    fireEvent.pointerDown(svg, { clientX: 500, clientY: 300, button: 0, shiftKey: true });
+    fireEvent.pointerMove(svg, { clientX: 530, clientY: 330, buttons: 1 });
+    fireEvent.pointerUp(svg, { clientX: 530, clientY: 330 });
     expect(useCanvasStore.getState().selection).toEqual([a.id]);
-    expect(useCanvasStore.getState().view.ox).toBe(30);
-    expect(useCanvasStore.getState().view.oy).toBe(30);
+    expect(useCanvasStore.getState().view.ox).toBe(0);
   });
 
   it("select 模式空白光标 grab，平移中 grabbing", () => {
