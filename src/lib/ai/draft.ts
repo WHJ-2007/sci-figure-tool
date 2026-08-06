@@ -172,7 +172,8 @@ export class DraftCanvas {
     this.touch(e.id);
     this.elements[idx] = next;
     this.ensureTextOnTop();
-    const changed = [...new Set(Object.keys(args.patch))].map((k) => PATCH_NAMES[k] ?? k).join("、");
+    // 文案取自白名单过滤后的 patch 键，按映射名去重：{x, y} 同映射"位置"只出现一次，zIndex 等系统字段不出现
+    const changed = [...new Set(Object.keys(patch).map((k) => PATCH_NAMES[k] ?? k))].join("、");
     this.activity.push(`修改${titleOf(e)}：${changed}`);
     this.changed();
     return { ok: true };

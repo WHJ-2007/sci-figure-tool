@@ -37,8 +37,19 @@ describe("DraftCanvas", () => {
     const r = d.createElement({ type: "rect", x: 0, y: 0, width: 100, height: 60 });
     d.updateElement({ id: r.id!, patch: { fill: "#ff0000" } });
     expect(d.serialize().elements[0].fill).toBe("#ff0000");
+    expect(d.flushActivity().join("")).toContain("修改矩形：填充色");
     d.deleteElement({ id: r.id! });
     expect(d.serialize().elements).toHaveLength(0);
+  });
+
+  it("活动文案：{x,y} 同映射名去重，白名单外键不出现在文案", () => {
+    const d = new DraftCanvas([]);
+    const r = d.createElement({ type: "rect", x: 0, y: 0, width: 100, height: 60 });
+    d.flushActivity();
+    d.updateElement({ id: r.id!, patch: { x: 10, y: 20, zIndex: 999 } as unknown as Record<string, unknown> });
+    const act = d.flushActivity().join("");
+    expect(act).toBe("修改矩形：位置");
+    expect(act).not.toContain("zIndex");
   });
 
   it("updateElement 对不存在的 id 报错", () => {
