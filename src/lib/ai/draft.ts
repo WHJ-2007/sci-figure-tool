@@ -34,10 +34,24 @@ export class DraftCanvas {
   private activity: string[] = [];
   private onChange: (() => void) | undefined;
   private newCanvasFlag = false;
+  private initialIds: Set<string>;
+  private touchedIds = new Set<string>();
 
   constructor(elements: CanvasElement[], onChange?: () => void) {
     this.elements = structuredClone(elements);
+    this.initialIds = new Set(elements.map((e) => e.id));
     this.onChange = onChange;
+  }
+
+  private touch(id: string) {
+    this.touchedIds.add(id);
+  }
+
+  // 本轮 AI 触及（创建/修改/删除）过的元素 id，供前端锁定与快照合并
+  takeTouched(): string[] {
+    const out = [...this.touchedIds];
+    this.touchedIds.clear();
+    return out;
   }
 
   private changed() {
@@ -94,6 +108,7 @@ export class DraftCanvas {
       });
     }
     this.elements.push(el);
+    this.touch(el.id);
     this.ensureTextOnTop();
     this.activity.push(`创建${typeName(el.type)} (${Math.round(r.x)}, ${Math.round(r.y)}, ${Math.round(r.width)}×${Math.round(r.height)})${"text" in el ? `：${el.text}` : ""}`);
     this.changed();
@@ -121,6 +136,7 @@ export class DraftCanvas {
     next.height = Math.max(4, next.height);
     next.x = Math.min(Math.max(next.x, 0), CANVAS_WIDTH - next.width);
     next.y = Math.min(Math.max(next.y, 0), CANVAS_HEIGHT - next.height);
+    this.touch(e.id);
     this.elements[idx] = next;
     this.ensureTextOnTop();
     const changed = Object.keys(args.patch).join(", ");
@@ -133,6 +149,7 @@ export class DraftCanvas {
     const idx = this.elements.findIndex((e) => e.id === args.id);
     if (idx < 0) return { ok: false, error: `元素不存在: ${args.id}` };
     this.elements.splice(idx, 1);
+    this.touch(args.id);
     this.ensureTextOnTop();
     this.activity.push(`删除元素 ${args.id.slice(0, 6)}`);
     this.changed();
@@ -179,6 +196,7 @@ export class DraftCanvas {
       zIndex: maxZ + 1,
     });
     this.elements.push(el);
+    this.touch(el.id);
     this.ensureTextOnTop();
     this.activity.push(`连接 ${s.id.slice(0, 6)} → ${t.id.slice(0, 6)}`);
     this.changed();
@@ -243,6 +261,7 @@ export class DraftCanvas {
   // 布局引擎产物直接入草稿（引擎坐标已规划且可能为负偏移，如向上的坐标轴箭头），不钳制
   private pushElement(el: CanvasElement) {
     this.elements.push(el);
+    this.touch(el.id);
     this.ensureTextOnTop();
     this.changed();
   }

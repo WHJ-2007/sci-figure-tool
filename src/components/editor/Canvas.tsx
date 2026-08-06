@@ -6,7 +6,7 @@ import { makeElement } from "@/lib/canvas/elements";
 import { hitTestElement, logicAnchors } from "@/lib/canvas/geometry";
 import type { CanvasElement } from "@/lib/canvas/types";
 import ElementShape from "./ElementShape";
-import SelectionOverlay from "./SelectionOverlay";
+import SelectionOverlay, { boundsOf } from "./SelectionOverlay";
 import TextEditor from "./TextEditor";
 import { usePointerInteraction, type DrawPreview } from "./usePointerInteraction";
 
@@ -28,6 +28,7 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
   const view = useCanvasStore((s) => s.view);
   const setView = useCanvasStore((s) => s.setView);
   const tool = useCanvasStore((s) => s.tool);
+  const aiLockedIds = useCanvasStore((s) => s.aiLockedIds);
   const svgRef = useRef<SVGSVGElement>(null);
 
   // 每次换算实时读 store 的 view：任何时刻的换算基准都与渲染一致，
@@ -49,11 +50,12 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
   const onDoubleClick = useCallback(
     (e: React.MouseEvent<SVGSVGElement>) => {
       const s = useCanvasStore.getState();
-      if (s.isGenerating) return;
       const p = { x: worldX(e.clientX), y: worldY(e.clientY) };
       const top = [...s.doc.elements].sort((a, b) => b.zIndex - a.zIndex);
       for (const el of top) {
         if (hitTestElement(el, p)) {
+          // AI 非阻塞：AI 正在编辑的元素锁定——双击不进编辑
+          if (s.aiLockedIds.includes(el.id)) return;
           if (el.type === "text") s.setEditingText(el.id);
           return;
         }
@@ -105,6 +107,23 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
             <ElementShape key={e.id} e={e} />
           ))}
           {preview && <ElementShape e={previewElement(preview)} />}
+          {/* AI 非阻塞：本轮生成中 AI 正在编辑的元素——蓝色虚线呼吸框，不可交互 */}
+          {aiLockedIds.map((id) => {
+            const e = doc.elements.find((x) => x.id === id);
+            if (!e) return null;
+            const b = boundsOf(e);
+            return (
+              <rect
+                key={id}
+                className="ai-lock-overlay"
+                x={b.x}
+                y={b.y}
+                width={b.width}
+                height={b.height}
+                pointerEvents="none"
+              />
+            );
+          })}
           <SelectionOverlay scale={view.scale} startTouchArrow={startTouchArrow} />
           {editing && <TextEditor id={editing.id} x={editing.x} y={editing.y} />}
         </g>

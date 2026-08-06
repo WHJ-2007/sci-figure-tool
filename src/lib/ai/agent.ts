@@ -12,9 +12,9 @@ export interface ChatMessage {
 
 export type AgentEvent =
   | { type: "progress"; activity: string[] }
-  | { type: "snapshot"; canvas: CanvasDocument }
+  | { type: "snapshot"; canvas: CanvasDocument; touched: string[] }
   | { type: "new-canvas" }
-  | { type: "complete"; canvas: CanvasDocument; summary: string }
+  | { type: "complete"; canvas: CanvasDocument; summary: string; touched: string[] }
   | { type: "error"; message: string };
 
 export async function runAgent(opts: {
@@ -31,7 +31,7 @@ export async function runAgent(opts: {
   let draft: DraftCanvas;
   draft = new DraftCanvas(opts.canvas.elements, () => {
     if (draft.takeNewCanvasFlag()) opts.onEvent({ type: "new-canvas" });
-    opts.onEvent({ type: "snapshot", canvas: draft.serialize() });
+    opts.onEvent({ type: "snapshot", canvas: draft.serialize(), touched: draft.takeTouched() });
   });
   const result = await generateText({
     model: provider(opts.model),
@@ -45,6 +45,6 @@ export async function runAgent(opts: {
       if (activity.length) opts.onEvent({ type: "progress", activity });
     },
   });
-  opts.onEvent({ type: "complete", canvas: draft.serialize(), summary: result.text });
+  opts.onEvent({ type: "complete", canvas: draft.serialize(), summary: result.text, touched: draft.takeTouched() });
   return result.text;
 }

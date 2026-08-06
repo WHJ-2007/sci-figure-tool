@@ -127,6 +127,8 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
         } else {
           const hit = s.doc.elements
             .filter((el) => {
+              // AI 非阻塞：锁定元素不进框选结果
+              if (s.aiLockedIds.includes(el.id)) return false;
               const b = { x: el.x, y: el.y, width: el.width, height: el.height };
               return b.x < r.x + r.width && b.x + b.width > r.x && b.y < r.y + r.height && b.y + b.height > r.y;
             })
@@ -186,7 +188,8 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
   const startTouchArrow = useCallback(
     (anchor: Anchor) => {
       const s = useCanvasStore.getState();
-      if (s.isGenerating) return;
+      // AI 非阻塞：AI 正在编辑的元素锁定——触点不可拉箭头
+      if (s.aiLockedIds.includes(anchor.elementId)) return;
       modeRef.current = {
         kind: "draw-line",
         tool: "arrow",
@@ -213,7 +216,6 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
   const onPointerDown = useCallback(
     (e: React.PointerEvent<SVGSVGElement>) => {
       const s = useCanvasStore.getState();
-      if (s.isGenerating) return;
       const wx = worldX(e.clientX);
       const wy = worldY(e.clientY);
       if (s.tool !== "select") {
@@ -244,6 +246,8 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
       if (target) {
         const id = target.getAttribute("data-element-id")!;
         const el = s.doc.elements.find((x) => x.id === id);
+        // AI 非阻塞：本轮生成中 AI 正在编辑的元素锁定——不可选中/拖动/编辑
+        if (s.aiLockedIds.includes(id)) return;
         if (el && s.tool === "select") {
           // Shift 只追加（点击已选元素保持选区）：toggle 移除会让"点已选元素拖动"变成该元素
           // 原地不动、其他元素在动（用户报的"拖动乱动"）。取消选择走空白点击清空。

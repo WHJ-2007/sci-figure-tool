@@ -62,6 +62,8 @@ export default function ChatPanel() {
     setActivity([]);
     setError("");
     setGenerating(true);
+    // 生成前基线：基线内元素允许被 AI 快照合并替换；基线外且未被 AI 触碰的本地元素保留
+    useCanvasStore.getState().setAiBaseline(s.doc.elements.map((e) => e.id));
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -104,8 +106,12 @@ export default function ChatPanel() {
               // AI 新建画布：创建并切换到新项目，撤销基线重置为新画布空态
               useCanvasStore.getState().createProject();
               baseline = structuredClone(useCanvasStore.getState().doc);
-            } else if (ev.type === "snapshot") useCanvasStore.getState().applyAISnapshot(ev.canvas);
-            else if (ev.type === "complete") {
+            } else if (ev.type === "snapshot") {
+              useCanvasStore.getState().applyAISnapshot(ev.canvas);
+              // 累积本轮 AI 触碰的元素 id：前端锁定（不可选中/拖动）+ 快照合并排除（AI 可删除自己的元素）
+              const touched = ev.touched ?? [];
+              if (touched.length) useCanvasStore.setState((st) => ({ aiLockedIds: [...new Set([...st.aiLockedIds, ...touched])] }));
+            } else if (ev.type === "complete") {
               finalDoc = ev.canvas;
               summary = ev.summary ?? "";
             } else if (ev.type === "error") setError(ev.message);
@@ -120,6 +126,9 @@ export default function ChatPanel() {
     } catch (err) {
       setError("生成中断：" + String(err));
     } finally {
+      // 生成结束：解除全部锁定与基线（applyAIResult 已把最终画布合并入栈）
+      useCanvasStore.getState().setAiLocked([]);
+      useCanvasStore.getState().setAiBaseline([]);
       setGenerating(false);
     }
   };

@@ -64,14 +64,17 @@ describe("快捷键", () => {
     document.body.removeChild(ta);
   });
 
-  it("AI 生成中快捷键忽略", () => {
-    const a = makeElement("rect", 0, 0, 50, 50);
-    useCanvasStore.getState().addElement(a);
-    useCanvasStore.getState().setSelection([a.id]);
+  it("生成中 Delete 可删除用户自己的元素（锁定元素不可选，选区不含锁定）", () => {
+    const mine = makeElement("rect", 0, 0, 50, 30);
+    const aiEl = makeElement("ellipse", 100, 100, 40, 40);
+    useCanvasStore.getState().addElement(mine);
+    useCanvasStore.getState().addElement(aiEl);
     useCanvasStore.getState().setGenerating(true);
+    useCanvasStore.getState().setAiLocked([aiEl.id]);
+    useCanvasStore.getState().setSelection([mine.id]);
     render(<EditorHost />);
     fireEvent.keyDown(window, { key: "Delete" });
-    expect(useCanvasStore.getState().doc.elements).toHaveLength(1);
+    expect(useCanvasStore.getState().doc.elements.map((e) => e.id)).toEqual([aiEl.id]);
   });
 
   it("WASD 按下即动：W 上 / A 左 / S 下 / D 右（相机语义，每次 50px）", () => {
@@ -180,9 +183,6 @@ describe("快捷键", () => {
     const v0 = useCanvasStore.getState().view;
     fireEvent.keyDown(window, { key: "d" });
     expect(useCanvasStore.getState().view.ox).toBe(v0.ox - 50);
-    // 生成中 Delete 等编辑快捷键仍被忽略
-    fireEvent.keyDown(window, { key: "Delete" });
-    expect(useCanvasStore.getState().doc.elements).toHaveLength(0);
     fireEvent.keyUp(window, { key: "d" });
   });
 });

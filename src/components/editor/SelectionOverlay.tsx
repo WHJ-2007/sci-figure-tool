@@ -16,7 +16,7 @@ const HANDLE_POS: Record<(typeof HANDLES)[number], { x: number; y: number }> = {
 };
 
 // 真实包围盒：arrow 负向拖拽时 width/height 为负，polyline 创建时宽高为 0，需归一化
-function boundsOf(e: CanvasElement): { x: number; y: number; width: number; height: number } {
+export function boundsOf(e: CanvasElement): { x: number; y: number; width: number; height: number } {
   if (e.type === "arrow") {
     const x2 = e.x + e.width, y2 = e.y + e.height;
     return { x: Math.min(e.x, x2), y: Math.min(e.y, y2), width: Math.abs(e.width), height: Math.abs(e.height) };
@@ -155,7 +155,8 @@ export default function SelectionOverlay({
 
 function handleDown(ev: React.PointerEvent, e: CanvasElement, handle: (typeof HANDLES)[number], scale: number) {
   const s = useCanvasStore.getState();
-  if (s.isGenerating) return;
+  // AI 非阻塞：AI 正在编辑的元素锁定——缩放手柄不可拖动
+  if (s.aiLockedIds.includes(e.id)) return;
   s.commitHistory(); // 缩放前提交快照（手势前状态），一次缩放 = 一步撤销
   const rect = { x: e.x, y: e.y, width: e.width, height: e.height };
   const startX = ev.clientX;
@@ -191,7 +192,8 @@ function handleDown(ev: React.PointerEvent, e: CanvasElement, handle: (typeof HA
 
 function rotateDown(ev: React.PointerEvent, e: CanvasElement) {
   const s = useCanvasStore.getState();
-  if (s.isGenerating) return;
+  // AI 非阻塞：AI 正在编辑的元素锁定——旋转手柄不可拖动
+  if (s.aiLockedIds.includes(e.id)) return;
   s.commitHistory(); // 旋转前提交快照（手势前状态），一次旋转 = 一步撤销
   // 与选中框一致用真实包围盒中心，避免负宽高元素旋转中心错位
   const b = boundsOf(e);

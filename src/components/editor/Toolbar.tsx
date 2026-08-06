@@ -79,6 +79,8 @@ export default function Toolbar() {
   const setTool = useCanvasStore((s) => s.setTool);
   const undo = useCanvasStore((s) => s.undo);
   const redo = useCanvasStore((s) => s.redo);
+  // 生成中禁撤销/重做：快照不入栈，undo 会破坏 AI 流式状态
+  const isGenerating = useCanvasStore((s) => s.isGenerating);
   const doc = useCanvasStore((s) => s.doc);
   const projects = useCanvasStore((s) => s.projects);
   const currentProjectId = useCanvasStore((s) => s.currentProjectId);
@@ -172,8 +174,8 @@ export default function Toolbar() {
         )}
       </div>
       <span className="mx-1 h-6 w-px bg-gray-200" />
-      <button title="撤销" onClick={undo} className="lift flex h-8 w-8 items-center justify-center rounded hover:bg-gray-100">{UNDO_ICON}</button>
-      <button title="重做" onClick={redo} className="lift flex h-8 w-8 items-center justify-center rounded hover:bg-gray-100">{REDO_ICON}</button>
+      <button title="撤销" onClick={undo} disabled={isGenerating} className="lift flex h-8 w-8 items-center justify-center rounded hover:bg-gray-100 disabled:opacity-40">{UNDO_ICON}</button>
+      <button title="重做" onClick={redo} disabled={isGenerating} className="lift flex h-8 w-8 items-center justify-center rounded hover:bg-gray-100 disabled:opacity-40">{REDO_ICON}</button>
       <span className="mx-1 h-6 w-px bg-gray-200" />
       <button title="导出 SVG" onClick={() => exportSvgFile(doc)} className="lift rounded px-2 py-1 text-sm hover:bg-gray-100">SVG</button>
       <button title="导出 PNG" onClick={() => exportPng(doc).catch(console.error)} className="lift rounded px-2 py-1 text-sm hover:bg-gray-100">PNG</button>

@@ -45,6 +45,8 @@ export function useShortcuts() {
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
       if (e.ctrlKey || e.metaKey) {
         const k = e.key.toLowerCase();
+        // 生成中禁撤销/重做：快照不入栈，undo 会破坏流式状态；Ctrl+D 复制允许
+        if (s.isGenerating && (k === "z" || k === "y")) return;
         if (k === "z" && !e.shiftKey) { e.preventDefault(); s.undo(); }
         else if (k === "y" || (k === "z" && e.shiftKey)) { e.preventDefault(); s.redo(); }
         else if (k === "d") { e.preventDefault(); duplicateSelection(); }
@@ -62,7 +64,7 @@ export function useShortcuts() {
         }
         return;
       }
-      if (s.isGenerating) return;
+      // 生成中 Delete/Backspace 放行：锁定的 AI 元素进不了选区，删的是用户自己的元素
       if (e.key === "Delete" || e.key === "Backspace") {
         if (s.editingText) return;
         if (s.selection.length) {

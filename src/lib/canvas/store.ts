@@ -10,6 +10,16 @@ function maxZIndex(elements: CanvasElement[]): number {
   return max;
 }
 
+// 非阻塞生成：AI 快照只含服务端 draft 的元素；用户生成中本地新增的元素（非基线、非 AI 触碰、不在快照）
+// 必须保留，否则每个 snapshot 会把用户刚画的元素冲掉
+function mergePreserved(current: CanvasDocument, locked: string[], baseline: string[], snapshot: CanvasElement[]): CanvasElement[] {
+  const snapshotIds = new Set(snapshot.map((e) => e.id));
+  const base = new Set(baseline);
+  const lock = new Set(locked);
+  const preserved = current.elements.filter((e) => !snapshotIds.has(e.id) && !base.has(e.id) && !lock.has(e.id));
+  return [...preserved, ...snapshot];
+}
+
 // 顶层 doc/history 语义 = 当前项目；所有画布内容变更经此写回 projects（供持久化）
 function syncProject(
   s: Pick<CanvasStore, "projects" | "currentProjectId" | "doc" | "history">,
@@ -36,6 +46,8 @@ export interface CanvasStore {
   projects: CanvasProject[];
   currentProjectId: string;
   activity: string[];
+  aiLockedIds: string[];
+  aiBaselineIds: string[];
   addElement: (e: CanvasElement) => void;
   addElements: (list: CanvasElement[]) => void;
   updateElement: (id: string, patch: Partial<CanvasElement>) => void;
@@ -49,6 +61,8 @@ export interface CanvasStore {
   setDoc: (doc: CanvasDocument) => void;
   applyAISnapshot: (doc: CanvasDocument) => void;
   applyAIResult: (doc: CanvasDocument, baseline: CanvasDocument) => void;
+  setAiLocked: (ids: string[]) => void;
+  setAiBaseline: (ids: string[]) => void;
   setGenerating: (v: boolean) => void;
   setEditingText: (id: string | null) => void;
   setActivity: (a: string[]) => void;
@@ -74,6 +88,8 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => {
     projects,
     currentProjectId: projects[0].id,
     activity: [],
+    aiLockedIds: [],
+    aiBaselineIds: [],
 
     addElement: (e) =>
       set((s) => {
@@ -162,16 +178,23 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => {
     setGenerating: (v) => set({ isGenerating: v }),
     setDoc: (doc) =>
       set((s) => ({ ...syncProject(s, structuredClone(doc), pushHistory(s.history, s.doc)), selection: [], editingText: null })),
-    // AI 生成中的中间快照：替换画布但不入撤销栈，生成完成后的 applyAIResult 才作为整体一步
+    setAiLocked: (ids) => set({ aiLockedIds: [...ids] }),
+    setAiBaseline: (ids) => set({ aiBaselineIds: [...ids] }),
+    // AI 生成中的中间快照：替换画布但不入撤销栈，生成完成后的 applyAIResult 才作为整体一步；
+    // 快照只含 AI 草稿元素，合并保留用户生成中本地新增的元素（非基线、非 AI 触碰、不在快照）
     applyAISnapshot: (doc) =>
-      set((s) => ({ ...syncProject(s, structuredClone(doc), s.history), selection: [], editingText: null })),
+      set((s) => {
+        const next = structuredClone(doc);
+        next.elements = mergePreserved(s.doc, s.aiLockedIds, s.aiBaselineIds, next.elements);
+        return { ...syncProject(s, next, s.history), selection: [], editingText: null };
+      }),
     // AI 生成完成：入栈"生成前基线"（快照中间态不入栈，undo 一步回到生成前），再替换为最终画布
     applyAIResult: (doc, baseline) =>
-      set((s) => ({
-        ...syncProject(s, structuredClone(doc), pushHistory(s.history, baseline)),
-        selection: [],
-        editingText: null,
-      })),
+      set((s) => {
+        const next = structuredClone(doc);
+        next.elements = mergePreserved(s.doc, s.aiLockedIds, s.aiBaselineIds, next.elements);
+        return { ...syncProject(s, next, pushHistory(s.history, baseline)), selection: [], editingText: null };
+      }),
     undo: () =>
       set((s) => {
         const r = undoHistory(s.history, s.doc);

@@ -108,6 +108,8 @@ describe("canvas store", () => {
   it("applyAISnapshot 替换画布、清空选择且不入历史栈", () => {
     const a = makeElement("rect", 0, 0, 100, 60);
     useCanvasStore.getState().addElement(a);
+    // 生成前基线 = 当前全部元素（ChatPanel 生成开始时设置）：基线内元素允许被 AI 快照替换
+    useCanvasStore.getState().setAiBaseline([a.id]);
     useCanvasStore.getState().setSelection([a.id]);
     useCanvasStore.getState().applyAISnapshot({ width: 1600, height: 1000, elements: [] });
     expect(useCanvasStore.getState().doc.elements).toHaveLength(0);
@@ -120,9 +122,13 @@ describe("canvas store", () => {
   it("applyAIResult 以生成前基线入栈，undo 一步回到基线、redo 回到结果", () => {
     const base = { width: 1600, height: 1000, elements: [makeElement("rect", 0, 0, 100, 60)] };
     useCanvasStore.getState().setDoc(base);
-    // 生成中：两个中间快照不入栈
-    useCanvasStore.getState().applyAISnapshot({ width: 1600, height: 1000, elements: [base.elements[0], makeElement("ellipse", 10, 10, 50, 50)] });
-    const result = { width: 1600, height: 1000, elements: [base.elements[0], makeElement("ellipse", 10, 10, 50, 50), makeElement("text", 0, 0, 60, 20, { text: "AI" })] };
+    // 生成前基线 = 画布当前元素（ChatPanel 生成开始时设置）：基线内元素允许被 AI 快照替换
+    useCanvasStore.getState().setAiBaseline(base.elements.map((e) => e.id));
+    // 生成中：两个中间快照不入栈（快照后 AI 触碰的元素计入锁定集，供合并排除与交互锁定）
+    const aiEl = makeElement("ellipse", 10, 10, 50, 50);
+    useCanvasStore.getState().applyAISnapshot({ width: 1600, height: 1000, elements: [base.elements[0], aiEl] });
+    useCanvasStore.getState().setAiLocked([aiEl.id]);
+    const result = { width: 1600, height: 1000, elements: [base.elements[0], aiEl, makeElement("text", 0, 0, 60, 20, { text: "AI" })] };
     useCanvasStore.getState().applyAIResult(result, base);
     expect(useCanvasStore.getState().doc.elements).toHaveLength(3);
     useCanvasStore.getState().undo();
@@ -260,5 +266,39 @@ describe("多画布", () => {
     const id = useCanvasStore.getState().currentProjectId;
     useCanvasStore.getState().renameProject(id, "Transformer 图");
     expect(useCanvasStore.getState().projects[0].name).toBe("Transformer 图");
+  });
+});
+
+describe("aiLockedIds 与快照合并", () => {
+  it("快照不包含用户生成中新增的元素时保留该元素", () => {
+    const s = useCanvasStore.getState();
+    const mine = makeElement("rect", 0, 0, 50, 30);
+    s.addElement(mine);
+    s.setAiBaseline(s.doc.elements.map((e) => e.id).filter((id) => id !== mine.id));
+    // AI 快照只含它自己的元素：用户生成中新增的 mine 应被保留
+    const aiEl = makeElement("ellipse", 100, 100, 40, 40);
+    s.applyAISnapshot({ width: 1600, height: 1000, elements: [aiEl] });
+    const ids = useCanvasStore.getState().doc.elements.map((e) => e.id);
+    expect(ids).toContain(mine.id);
+    expect(ids).toContain(aiEl.id);
+  });
+
+  it("AI 已触碰的元素不因快照合并被保留（锁定集内）", () => {
+    const s = useCanvasStore.getState();
+    const aiEl = makeElement("rect", 0, 0, 50, 30);
+    s.addElement(aiEl);
+    s.setAiBaseline([]);
+    s.setAiLocked([aiEl.id]);
+    s.applyAISnapshot({ width: 1600, height: 1000, elements: [] }); // AI 删掉了它
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(0);
+  });
+
+  it("生成前的元素被 AI 删除时不被快照合并保留", () => {
+    const s = useCanvasStore.getState();
+    const old = makeElement("rect", 0, 0, 50, 30);
+    s.addElement(old);
+    s.setAiBaseline([old.id]);
+    s.applyAISnapshot({ width: 1600, height: 1000, elements: [] });
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(0);
   });
 });

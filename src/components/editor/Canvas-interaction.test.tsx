@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { render, fireEvent, act } from "@testing-library/react";
+import { render, fireEvent, act, screen } from "@testing-library/react";
 import Canvas from "./Canvas";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { makeElement } from "@/lib/canvas/elements";
@@ -435,5 +435,35 @@ describe("空白平移（选择与小手合并：select 下左键空白拖动 = 
     expect(useCanvasStore.getState().selection).toEqual([]);
     expect(useCanvasStore.getState().view.ox).toBe(0);
     expect(useCanvasStore.getState().view.oy).toBe(0);
+  });
+});
+
+describe("AI 非阻塞：锁定元素", () => {
+  it("生成中可画新元素；AI 锁定的元素不可选中/拖动", async () => {
+    const s = useCanvasStore.getState();
+    const locked = makeElement("rect", 100, 100, 100, 60);
+    s.addElement(locked);
+    s.setGenerating(true);
+    s.setAiLocked([locked.id]);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const svg = screen.getByTestId("canvas-svg");
+    // jsdom 不做命中测试：事件直接发在锁定元素的 DOM 节点上（生产环境由浏览器命中图元后 closest 上溯）
+    const lockedNode = document.querySelector(`[data-element-id="${locked.id}"]`)!;
+    fireEvent.pointerDown(lockedNode, { clientX: 150, clientY: 130, button: 0 });
+    fireEvent.pointerUp(window, { clientX: 150, clientY: 130 });
+    expect(useCanvasStore.getState().selection).not.toContain(locked.id);
+    // 生成中画新元素成功（isGenerating 不再全局锁画布）
+    s.setTool("rect");
+    fireEvent.pointerDown(svg, { clientX: 300, clientY: 200, button: 0 });
+    fireEvent.pointerMove(window, { clientX: 360, clientY: 240 });
+    fireEvent.pointerUp(window, { clientX: 360, clientY: 240 });
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(2);
+    // 生成结束解锁后可选
+    useCanvasStore.getState().setGenerating(false);
+    useCanvasStore.getState().setAiLocked([]);
+    s.setTool("select");
+    fireEvent.pointerDown(lockedNode, { clientX: 150, clientY: 130, button: 0 });
+    fireEvent.pointerUp(window, { clientX: 150, clientY: 130 });
+    expect(useCanvasStore.getState().selection).toContain(locked.id);
   });
 });

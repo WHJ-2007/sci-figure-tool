@@ -74,3 +74,16 @@ nextjs-portal {
   box-shadow: 0 1px 3px rgb(15 23 42 / 0.1);
   filter: brightness(0.96);
 }
+
+/* AI 非阻塞：本轮生成中 AI 正在编辑的元素——蓝色虚线呼吸框 */
+.ai-lock-overlay {
+  fill: none;
+  stroke: #2563eb;
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+  animation: ai-lock-pulse 1.2s ease-in-out infinite;
+}
+@keyframes ai-lock-pulse {
+  0%, 100% { opacity: 0.9; }
+  50% { opacity: 0.35; }
+}
