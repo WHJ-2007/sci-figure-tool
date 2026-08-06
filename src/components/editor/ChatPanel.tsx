@@ -341,16 +341,13 @@ export default function ChatPanel() {
           rows={2}
           className="w-full resize-none rounded-xl border border-white/60 bg-white/60 px-3 py-2 text-sm text-gray-700 shadow-sm outline-none backdrop-blur-md focus:border-blue-400"
         />
-        <div className="mt-1.5 flex items-center justify-between">
-          <span className="text-xs text-gray-500/90">支持一键生成与对话修改</span>
-          <button
-            onClick={send}
-            disabled={isGenerating || !input.trim()}
-            className="lift rounded-xl bg-blue-600/85 px-3.5 py-1.5 text-sm text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
-          >
-            {isGenerating ? "生成中…" : "一键生成"}
-          </button>
-        </div>
+        <button
+          onClick={send}
+          disabled={isGenerating || !input.trim()}
+          className="lift mt-1.5 w-full rounded-xl bg-blue-600/85 px-3.5 py-1.5 text-sm text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
+        >
+          {isGenerating ? "生成中…" : "一键生成"}
+        </button>
       </div>
       {confirmReq && confirmReq.pending.length > 0 && (
         <ConfirmDialog pending={confirmReq.pending} busy={confirmBusy} onAction={confirmAction} />
