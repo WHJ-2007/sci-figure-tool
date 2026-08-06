@@ -6,23 +6,6 @@ import { useCanvasStore } from "@/lib/canvas/store";
 import { exportSvgFile, exportPng } from "@/lib/canvas/exporter";
 import type { ToolType } from "@/lib/canvas/types";
 
-// 小手图标用内联 SVG（非 emoji），描边风格与工具栏一致
-const HAND_ICON = (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M18 11V6a2 2 0 0 0-4 0v5" />
-    <path d="M14 10V4a2 2 0 0 0-4 0v6" />
-    <path d="M10 10.5V6a2 2 0 0 0-4 0v8" />
-    <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" />
-  </svg>
-);
-
-// 选择图标：鼠标指针形状（经典光标轮廓，几何中心对齐 viewBox 中心 (12,12)）
-const SELECT_ICON = (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M4 3.25 L20 12.75 L13 14.75 L9.5 20.75 L7.5 14.25 Z" />
-  </svg>
-);
-
 // 设置图标：齿轮（描边风格，与左上角工具图标一致）
 const SETTINGS_ICON = (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -62,7 +45,7 @@ interface ToolItem {
   label: ReactNode;
 }
 
-// 工具分组：图案 = 所有图形/标注（含箭头连线），逻辑 = 逻辑节点；选择/小手常驻
+// 工具分组：图案 = 所有图形/标注（含箭头连线），逻辑 = 逻辑节点；选择/小手已合并进默认交互（无按钮）
 const SHAPE_TOOLS: ToolItem[] = [
   { title: "矩形", tool: "rect", label: "▢" },
   { title: "圆角矩形", tool: "rounded", label: "▭" },
@@ -150,19 +133,7 @@ export default function Toolbar() {
       <button title="重命名画布" onClick={onRename} className="lift h-8 w-8 rounded hover:bg-gray-100">✎</button>
       <button title="删除画布" onClick={onDelete} className="lift h-8 w-8 rounded hover:bg-gray-100">✕</button>
       <span className="mx-1 h-6 w-px bg-gray-200" />
-      {/* 常驻工具：选择、小手 */}
-      <ToolButton
-        item={{ title: "选择", tool: "select", label: SELECT_ICON }}
-        active={tool === "select"}
-        onClick={() => setTool("select")}
-      />
-      <ToolButton
-        item={{ title: "小手（拖动画布）", tool: "hand", label: HAND_ICON }}
-        active={tool === "hand"}
-        onClick={() => setTool("hand")}
-      />
-      <span className="mx-1 h-6 w-px bg-gray-200" />
-      {/* 图案组：主按钮显示当前选中的子工具图标 */}
+      {/* 图案组：主按钮显示当前选中的子工具图标（选择/小手已合并进默认交互：空白左键拖动平移、右键框选） */}
       <div className="relative" ref={shapeRef}>
         <button
           title="图案"

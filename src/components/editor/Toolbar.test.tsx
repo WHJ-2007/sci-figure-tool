@@ -52,14 +52,6 @@ describe("Toolbar 画布管理", () => {
     expect(useCanvasStore.getState().projects).toHaveLength(1);
   });
 
-  it("选择工具图标为鼠标指针形状的 SVG（非文字字符）", () => {
-    render(<Toolbar />);
-    const btn = screen.getByTitle("选择");
-    const svg = btn.querySelector("svg");
-    expect(svg).not.toBeNull();
-    expect(svg!.getAttribute("viewBox")).toBe("0 0 24 24");
-  });
-
   it("工具栏所有可点击元素带浮出动效类 lift", () => {
     render(<Toolbar />);
     for (const el of [...screen.getAllByRole("button"), screen.getByRole("combobox"), screen.getByTitle("设置")]) {
@@ -92,12 +84,15 @@ describe("Toolbar 工具分组气泡", () => {
     render(<Toolbar />);
     expect(screen.getByTitle("图案")).toBeInTheDocument();
     expect(screen.getByTitle("逻辑")).toBeInTheDocument();
-    // 常驻工具保留
-    expect(screen.getByTitle("选择")).toBeInTheDocument();
-    expect(screen.getByTitle("小手（拖动画布）")).toBeInTheDocument();
     // 子工具默认收在气泡里
     expect(screen.queryByTitle("矩形")).toBeNull();
     expect(screen.queryByTitle("逻辑节点")).toBeNull();
+  });
+
+  it("工具栏不再显示选择/小手按钮（选择与小手已合并：左键空白拖动平移、右键框选）", () => {
+    render(<Toolbar />);
+    expect(screen.queryByTitle("选择")).toBeNull();
+    expect(screen.queryByTitle("小手（拖动画布）")).toBeNull();
   });
 
   it("点击图案主按钮展开气泡，再点关闭（toggle）", () => {

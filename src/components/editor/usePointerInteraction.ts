@@ -104,65 +104,72 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
     [worldX, worldY]
   );
 
-  const endDrag = useCallback(() => {
-    const m = modeRef.current;
-    const s = useCanvasStore.getState();
-    if (m.kind === "pan") {
-      setPanning(false);
-    } else if (m.kind === "rubber") {
-      const r = {
-        x: Math.min(m.startX, m.x),
-        y: Math.min(m.startY, m.y),
-        width: Math.abs(m.x - m.startX),
-        height: Math.abs(m.y - m.startY),
-      };
-      if (r.width < 3 && r.height < 3) {
-        if (!m.additive) s.setSelection([]);
-      } else {
-        const hit = s.doc.elements
-          .filter((el) => {
-            const b = { x: el.x, y: el.y, width: el.width, height: el.height };
-            return b.x < r.x + r.width && b.x + b.width > r.x && b.y < r.y + r.height && b.y + b.height > r.y;
-          })
-          .map((el) => el.id);
-        if (m.additive) s.setSelection([...new Set([...s.selection, ...hit])]);
-        else s.setSelection(hit);
+  const endDrag = useCallback(
+    (e: PointerEvent) => {
+      const m = modeRef.current;
+      const s = useCanvasStore.getState();
+      if (m.kind === "pan") {
+        setPanning(false);
+        // 左键空白点击（未拖动）清空选择——保留原选择工具的点击清空语义
+        if (Math.hypot(e.clientX - m.startClientX, e.clientY - m.startClientY) < 3 && !e.shiftKey) {
+          useCanvasStore.getState().setSelection([]);
+        }
+      } else if (m.kind === "rubber") {
+        const r = {
+          x: Math.min(m.startX, m.x),
+          y: Math.min(m.startY, m.y),
+          width: Math.abs(m.x - m.startX),
+          height: Math.abs(m.y - m.startY),
+        };
+        if (r.width < 3 && r.height < 3) {
+          if (!m.additive) s.setSelection([]);
+        } else {
+          const hit = s.doc.elements
+            .filter((el) => {
+              const b = { x: el.x, y: el.y, width: el.width, height: el.height };
+              return b.x < r.x + r.width && b.x + b.width > r.x && b.y < r.y + r.height && b.y + b.height > r.y;
+            })
+            .map((el) => el.id);
+          if (m.additive) s.setSelection([...new Set([...s.selection, ...hit])]);
+          else s.setSelection(hit);
+        }
+        setRubber(null);
+      } else if (m.kind === "draw-shape") {
+        const w = Math.abs(m.x - m.startX);
+        const h = Math.abs(m.y - m.startY);
+        if (w >= 4 && h >= 4) {
+          const st = useCanvasStore.getState();
+          const el = makeElement(m.tool, Math.min(m.startX, m.x), Math.min(m.startY, m.y), w, h);
+          st.addElement(el);
+          st.setSelection([el.id]);
+        }
+        setPreview(null);
+      } else if (m.kind === "draw-line") {
+        if (m.points.length >= 2) {
+          const st = useCanvasStore.getState();
+          const p0 = m.points[0];
+          const last = m.points[m.points.length - 1];
+          // arrow 用 x/y/width/height 表示线（width/height 为终点相对偏移）；polyline 存 points。
+          // 端点已吸附到锚点（起点按下时、终点移动时），落点即锚点位置 → 反查记录 startId/endId
+          const el =
+            m.tool === "arrow"
+              ? makeElement("arrow", p0.x, p0.y, last.x - p0.x, last.y - p0.y, {
+                  startId: nearestAnchor(st.doc.elements, p0)?.elementId,
+                  endId: nearestAnchor(st.doc.elements, last, undefined, m.sourceId)?.elementId,
+                })
+              : makeElement("polyline", p0.x, p0.y, 0, 0, { points: m.points });
+          st.addElement(el);
+          st.setSelection([el.id]);
+        }
+        setPreview(null);
       }
-      setRubber(null);
-    } else if (m.kind === "draw-shape") {
-      const w = Math.abs(m.x - m.startX);
-      const h = Math.abs(m.y - m.startY);
-      if (w >= 4 && h >= 4) {
-        const st = useCanvasStore.getState();
-        const el = makeElement(m.tool, Math.min(m.startX, m.x), Math.min(m.startY, m.y), w, h);
-        st.addElement(el);
-        st.setSelection([el.id]);
-      }
-      setPreview(null);
-    } else if (m.kind === "draw-line") {
-      if (m.points.length >= 2) {
-        const st = useCanvasStore.getState();
-        const p0 = m.points[0];
-        const last = m.points[m.points.length - 1];
-        // arrow 用 x/y/width/height 表示线（width/height 为终点相对偏移）；polyline 存 points。
-        // 端点已吸附到锚点（起点按下时、终点移动时），落点即锚点位置 → 反查记录 startId/endId
-        const el =
-          m.tool === "arrow"
-            ? makeElement("arrow", p0.x, p0.y, last.x - p0.x, last.y - p0.y, {
-                startId: nearestAnchor(st.doc.elements, p0)?.elementId,
-                endId: nearestAnchor(st.doc.elements, last, undefined, m.sourceId)?.elementId,
-              })
-            : makeElement("polyline", p0.x, p0.y, 0, 0, { points: m.points });
-        st.addElement(el);
-        st.setSelection([el.id]);
-      }
-      setPreview(null);
-    }
-    modeRef.current = { kind: "idle" };
-    window.removeEventListener("pointermove", onWindowMove);
-    window.removeEventListener("pointerup", endDrag);
-    window.removeEventListener("pointercancel", endDrag);
-  }, [onWindowMove]);
+      modeRef.current = { kind: "idle" };
+      window.removeEventListener("pointermove", onWindowMove);
+      window.removeEventListener("pointerup", endDrag);
+      window.removeEventListener("pointercancel", endDrag);
+    },
+    [onWindowMove]
+  );
 
   const startDrag = useCallback(() => {
     // 先移除再挂载，保证幂等（重复 pointerdown 不叠加监听）
@@ -178,7 +185,7 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
   const startTouchArrow = useCallback(
     (anchor: Anchor) => {
       const s = useCanvasStore.getState();
-      if (s.isGenerating || s.tool === "hand") return;
+      if (s.isGenerating) return;
       modeRef.current = {
         kind: "draw-line",
         tool: "arrow",
@@ -206,12 +213,6 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
     (e: React.PointerEvent<SVGSVGElement>) => {
       const s = useCanvasStore.getState();
       if (s.isGenerating) return;
-      if (s.tool === "hand") {
-        modeRef.current = { kind: "pan", startClientX: e.clientX, startClientY: e.clientY, ox0: s.view.ox, oy0: s.view.oy };
-        setPanning(true);
-        startDrag();
-        return;
-      }
       const wx = worldX(e.clientX);
       const wy = worldY(e.clientY);
       if (s.tool !== "select") {
@@ -258,8 +259,16 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
         }
       }
       if (s.tool === "select") {
-        modeRef.current = { kind: "rubber", startX: wx, startY: wy, x: wx, y: wy, additive: e.shiftKey };
-        startDrag();
+        if (e.button === 2) {
+          // 右键拖动 = 多选框选（原 rubber 逻辑）
+          modeRef.current = { kind: "rubber", startX: wx, startY: wy, x: wx, y: wy, additive: e.shiftKey };
+          startDrag();
+        } else if (e.button === 0) {
+          // 左键空白拖动 = 平移画布（原小手功能）
+          modeRef.current = { kind: "pan", startClientX: e.clientX, startClientY: e.clientY, ox0: s.view.ox, oy0: s.view.oy };
+          setPanning(true);
+          startDrag();
+        }
       }
     },
     [worldX, worldY, startDrag]

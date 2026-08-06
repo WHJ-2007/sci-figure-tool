@@ -49,7 +49,7 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
   const onDoubleClick = useCallback(
     (e: React.MouseEvent<SVGSVGElement>) => {
       const s = useCanvasStore.getState();
-      if (s.isGenerating || s.tool === "hand") return;
+      if (s.isGenerating) return;
       const p = { x: worldX(e.clientX), y: worldY(e.clientY) };
       const top = [...s.doc.elements].sort((a, b) => b.zIndex - a.zIndex);
       for (const el of top) {
@@ -90,13 +90,14 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
         ref={svgRef}
         width={viewportWidth}
         height={viewportHeight}
-        className={`block ${tool === "hand" ? (panning ? "cursor-grabbing" : "cursor-grab") : ""}`}
+        className={`block ${tool === "select" ? (panning ? "cursor-grabbing" : "cursor-grab") : ""}`}
         data-testid="canvas-svg"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         onDoubleClick={onDoubleClick}
+        onContextMenu={(e) => e.preventDefault()}
       >
         <rect data-testid="canvas-bg" width={viewportWidth} height={viewportHeight} rx={10} fill="#ffffff" pointerEvents="none" />
         <g transform={`translate(${view.ox} ${view.oy}) scale(${view.scale})`}>

@@ -1,6 +1,6 @@
 export type ShapeType = "rect" | "ellipse" | "triangle" | "diamond" | "hexagon";
 export type ElementType = ShapeType | "arrow" | "polyline" | "text" | "logic" | "curve" | "sector";
-export type ToolType = "select" | "rounded" | "hand" | ElementType;
+export type ToolType = "select" | "rounded" | ElementType;
 
 export interface BaseElement {
   id: string;

@@ -6,9 +6,9 @@ import { makeElement } from "@/lib/canvas/elements";
 
 beforeEach(() => useCanvasStore.setState(useCanvasStore.getInitialState()));
 
-function drag(el: Element, from: { x: number; y: number }, to: { x: number; y: number }) {
-  fireEvent.pointerDown(el, { clientX: from.x, clientY: from.y, button: 0 });
-  fireEvent.pointerMove(el, { clientX: to.x, clientY: to.y, buttons: 1 });
+function drag(el: Element, from: { x: number; y: number }, to: { x: number; y: number }, button = 0) {
+  fireEvent.pointerDown(el, { clientX: from.x, clientY: from.y, button });
+  fireEvent.pointerMove(el, { clientX: to.x, clientY: to.y, buttons: button === 0 ? 1 : button });
   fireEvent.pointerUp(el, { clientX: to.x, clientY: to.y });
 }
 
@@ -79,14 +79,14 @@ describe("Canvas 交互", () => {
     expect(e.y).toBe(70);
   });
 
-  it("空白处框选", () => {
+  it("空白处右键框选（右键拖动 = 多选框选；左键空白拖动现在平移画布）", () => {
     const a = makeElement("rect", 400, 400, 100, 60);
     const b = makeElement("ellipse", 10, 10, 40, 30);
     useCanvasStore.getState().addElement(a);
     useCanvasStore.getState().addElement(b);
     render(<Canvas viewportWidth={800} viewportHeight={600} />);
     const svg = document.querySelector("svg")!;
-    drag(svg, { x: 0, y: 0 }, { x: 300, y: 300 });
+    drag(svg, { x: 0, y: 0 }, { x: 300, y: 300 }, 2);
     expect(useCanvasStore.getState().selection).toEqual([b.id]);
   });
 
@@ -189,7 +189,7 @@ describe("Canvas 交互", () => {
     expect(useCanvasStore.getState().selection).toEqual([a.id, b.id]);
   });
 
-  it("Shift+空白框选追加到现有选区", () => {
+  it("Shift+右键空白框选追加到现有选区", () => {
     const a = makeElement("rect", 400, 400, 100, 60);
     const b = makeElement("ellipse", 10, 10, 40, 30);
     useCanvasStore.getState().addElement(a);
@@ -197,14 +197,14 @@ describe("Canvas 交互", () => {
     useCanvasStore.getState().setSelection([a.id]);
     render(<Canvas viewportWidth={800} viewportHeight={600} />);
     const svg = document.querySelector("svg")!;
-    // shift 在空白处框选：b 加入，a 保留
-    fireEvent.pointerDown(svg, { clientX: 0, clientY: 0, button: 0, shiftKey: true });
-    fireEvent.pointerMove(svg, { clientX: 300, clientY: 300, buttons: 1 });
+    // shift + 右键空白框选：b 加入，a 保留
+    fireEvent.pointerDown(svg, { clientX: 0, clientY: 0, button: 2, shiftKey: true });
+    fireEvent.pointerMove(svg, { clientX: 300, clientY: 300, buttons: 2 });
     fireEvent.pointerUp(svg, { clientX: 300, clientY: 300 });
     expect(useCanvasStore.getState().selection).toEqual([a.id, b.id]);
   });
 
-  it("空白点击清空选择", () => {
+  it("空白点击清空选择（左键空白按下松开未拖动 = pan 点击，保留清空选择语义）", () => {
     const a = makeElement("rect", 10, 10, 100, 60);
     useCanvasStore.getState().addElement(a);
     useCanvasStore.getState().setSelection([a.id]);
@@ -213,6 +213,9 @@ describe("Canvas 交互", () => {
     fireEvent.pointerDown(svg, { clientX: 700, clientY: 500, button: 0 });
     fireEvent.pointerUp(svg, { clientX: 700, clientY: 500 });
     expect(useCanvasStore.getState().selection).toEqual([]);
+    // pan 点击不清动视口
+    expect(useCanvasStore.getState().view.ox).toBe(0);
+    expect(useCanvasStore.getState().view.oy).toBe(0);
   });
 });
 
@@ -372,10 +375,9 @@ describe("画布玻璃边缘", () => {
   });
 });
 
-describe("小手工具", () => {
-  it("hand 工具下拖拽平移视口（内容跟随鼠标）", () => {
+describe("空白平移（选择与小手合并：select 下左键空白拖动 = 平移画布，右键 = 框选）", () => {
+  it("select 下左键空白拖动平移视口（内容跟随鼠标）", () => {
     render(<Canvas viewportWidth={800} viewportHeight={600} />);
-    useCanvasStore.getState().setTool("hand");
     const svg = document.querySelector("svg")!;
     drag(svg, { x: 100, y: 50 }, { x: 160, y: 90 });
     const v = useCanvasStore.getState().view;
@@ -383,26 +385,25 @@ describe("小手工具", () => {
     expect(v.oy).toBe(40);
   });
 
-  it("hand 拖拽不选中、不移动元素", () => {
+  it("左键空白平移不移动、不选中元素", () => {
     const a = makeElement("rect", 10, 10, 100, 60);
     useCanvasStore.getState().addElement(a);
     useCanvasStore.getState().setSelection([a.id]);
     render(<Canvas viewportWidth={800} viewportHeight={600} />);
-    useCanvasStore.getState().setTool("hand");
-    const el = document.querySelector("[data-element-id]")!;
-    drag(el, { x: 50, y: 30 }, { x: 80, y: 90 });
+    // 空白坐标远离元素与缩放手柄（rect(10,10,100,60)，se 手柄中心约 (118,78)）
+    const svg = document.querySelector("svg")!;
+    drag(svg, { x: 500, y: 300 }, { x: 530, y: 330 });
     const e = useCanvasStore.getState().doc.elements[0];
     expect(e.x).toBe(10);
     expect(e.y).toBe(10);
+    expect(useCanvasStore.getState().selection).toEqual([a.id]);
     expect(useCanvasStore.getState().view.ox).toBe(30);
-    expect(useCanvasStore.getState().view.oy).toBe(60);
+    expect(useCanvasStore.getState().view.oy).toBe(30);
   });
 
-  it("hand 模式光标 grab，拖拽中 grabbing", () => {
+  it("select 模式空白光标 grab，平移中 grabbing", () => {
     render(<Canvas viewportWidth={800} viewportHeight={600} />);
     const svg = document.querySelector("svg")!;
-    expect(svg.classList.contains("cursor-grab")).toBe(false);
-    act(() => useCanvasStore.getState().setTool("hand"));
     expect(svg.classList.contains("cursor-grab")).toBe(true);
     fireEvent.pointerDown(svg, { clientX: 100, clientY: 50, button: 0 });
     fireEvent.pointerMove(svg, { clientX: 120, clientY: 60, buttons: 1 });
@@ -410,5 +411,18 @@ describe("小手工具", () => {
     fireEvent.pointerUp(svg, { clientX: 120, clientY: 60 });
     expect(svg.classList.contains("cursor-grabbing")).toBe(false);
     expect(svg.classList.contains("cursor-grab")).toBe(true);
+  });
+
+  it("右键空白点击清空选择且不平移视口（右键走 rubber 分支语义）", () => {
+    const a = makeElement("rect", 10, 10, 100, 60);
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().setSelection([a.id]);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const svg = document.querySelector("svg")!;
+    fireEvent.pointerDown(svg, { clientX: 700, clientY: 500, button: 2 });
+    fireEvent.pointerUp(svg, { clientX: 700, clientY: 500 });
+    expect(useCanvasStore.getState().selection).toEqual([]);
+    expect(useCanvasStore.getState().view.ox).toBe(0);
+    expect(useCanvasStore.getState().view.oy).toBe(0);
   });
 });
