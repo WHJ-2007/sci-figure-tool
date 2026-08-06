@@ -78,6 +78,26 @@ export function buildTools(draft: DraftCanvas) {
       }),
       execute: (args) => draft.applyMindMap(args),
     }),
+    applyChart: tool({
+      description:
+        "声明式一键绘制数据图表（柱状图/折线图/饼图/散点图）：只需声明类型/标题/坐标轴名/数据，系统自动计算坐标轴、刻度（自动取整）、柱形/折线/扇形、数据标签与图例。" +
+        "数据必须是用户给出的原值，或常识范围内的合理数值（如“中国 GDP 2023 约 126 万亿元”），3~12 项，禁止编造离谱数据。" +
+        "饼图数据项不宜超过 8 项；多系列（series 字段）用于柱状分组/折线多线对比。",
+      inputSchema: z.object({
+        type: z.enum(["bar", "line", "pie", "scatter"]).describe("图表类型：bar 柱状 / line 折线 / pie 饼图 / scatter 散点"),
+        title: z.string().optional().describe("图表标题（应尽量提供）"),
+        xLabel: z.string().optional().describe("x 轴名称"),
+        yLabel: z.string().optional().describe("y 轴名称"),
+        data: z.array(
+          z.object({
+            label: z.string().describe("分类标签（x 轴类别，如“Q1”“2021”）"),
+            value: z.number().describe("数值（非负）"),
+            series: z.string().optional().describe("系列名（多系列对比时用，如“本店”“他店”）"),
+          })
+        ).describe("数据（3~12 项）"),
+      }),
+      execute: (args) => draft.applyChart(args),
+    }),
     connectElements: tool({
       description:
         "用箭头精确连接两个已有元素：自动计算从源元素边缘到目标元素边缘的箭头（锚点精确落在两个形状的轮廓上，无需手算坐标）。" +

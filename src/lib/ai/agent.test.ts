@@ -305,6 +305,53 @@ describe("DraftCanvas", () => {
     expect(d.applyMindMap({ topic: "T", branches: Array.from({ length: 9 }, (_, i) => ({ keyword: `b${i}` })) }).ok).toBe(false);
     expect(d.serialize().elements).toHaveLength(0);
   });
+
+  it("applyChart 柱状图：坐标轴 + 柱 + 刻度 + 数据标签", () => {
+    const d = new DraftCanvas([]);
+    const r = d.applyChart({ type: "bar", title: "季度销售额", data: [{ label: "Q1", value: 120 }, { label: "Q2", value: 80 }] });
+    expect(r.ok).toBe(true);
+    const els = d.serialize().elements;
+    expect(els.filter((e) => e.type === "arrow")).toHaveLength(2);
+    expect(els.filter((e) => e.type === "rect")).toHaveLength(2);
+    expect(els.filter((e) => e.type === "text").some((t) => t.text === "季度销售额")).toBe(true);
+    expect(d.flushActivity().join("")).toContain("图表");
+  });
+
+  it("applyChart 饼图：扇形 + 百分比标签 + 图例", () => {
+    const d = new DraftCanvas([]);
+    const r = d.applyChart({ type: "pie", data: [{ label: "A", value: 3 }, { label: "B", value: 1 }] });
+    expect(r.ok).toBe(true);
+    const els = d.serialize().elements;
+    expect(els.filter((e) => e.type === "sector")).toHaveLength(2);
+    expect(els.filter((e) => e.type === "text").some((t) => t.text === "75%")).toBe(true);
+  });
+
+  it("applyChart 多系列折线图：多条无箭头折线 + 图例", () => {
+    const d = new DraftCanvas([]);
+    const r = d.applyChart({
+      type: "line",
+      data: [
+        { label: "A", value: 1, series: "x" },
+        { label: "A", value: 2, series: "y" },
+        { label: "B", value: 3, series: "x" },
+        { label: "B", value: 4, series: "y" },
+      ],
+    });
+    expect(r.ok).toBe(true);
+    const els = d.serialize().elements;
+    const lines = els.filter((e) => e.type === "polyline");
+    expect(lines).toHaveLength(2);
+    expect(lines.every((l) => l.arrow === false)).toBe(true);
+  });
+
+  it("applyChart 校验：空数据 / 负值 / 过多 / 未知类型报错且不创建元素", () => {
+    const d = new DraftCanvas([]);
+    expect(d.applyChart({ type: "bar", data: [] }).ok).toBe(false);
+    expect(d.applyChart({ type: "bar", data: [{ label: "a", value: -1 }] }).ok).toBe(false);
+    expect(d.applyChart({ type: "bar", data: Array.from({ length: 13 }, (_, i) => ({ label: `d${i}`, value: i })) }).ok).toBe(false);
+    expect(d.applyChart({ type: "weird" as never, data: [{ label: "a", value: 1 }] }).ok).toBe(false);
+    expect(d.serialize().elements).toHaveLength(0);
+  });
 });
 
 describe("tools", () => {

@@ -3,6 +3,8 @@ import { makeElement, estimateTextSize, logicBoxSize } from "@/lib/canvas/elemen
 import { layoutGraph } from "@/lib/canvas/graphLayout";
 import { layoutMindMap } from "@/lib/canvas/mindMapLayout";
 import type { MindMapBranch } from "@/lib/canvas/mindMapLayout";
+import { layoutChart } from "@/lib/canvas/chartLayout";
+import type { ChartSpec } from "@/lib/canvas/chartLayout";
 import type { CanvasDocument, CanvasElement, ElementType } from "@/lib/canvas/types";
 
 // updateElement 只接受白名单内的属性键，防止绕过工具层 schema 直接注入任意属性
@@ -267,6 +269,19 @@ export class DraftCanvas {
     return { ok: true };
   }
 
+  // 声明式图表：AI 只声明类型与数据，图表引擎自动计算坐标轴/刻度/图形/标签/图例
+  applyChart(args: { type: "bar" | "line" | "pie" | "scatter"; title?: string; xLabel?: string; yLabel?: string; data: { label: string; value: number; series?: string }[] }): { ok: boolean; error?: string } {
+    const types = ["bar", "line", "pie", "scatter"];
+    if (!types.includes(args.type)) return { ok: false, error: `不支持的图表类型: ${args.type}` };
+    if (!args.data || args.data.length === 0) return { ok: false, error: "数据不能为空" };
+    if (args.data.length > 12) return { ok: false, error: "数据项过多（最多 12 项）" };
+    if (args.data.some((d) => !Number.isFinite(d.value) || d.value < 0)) return { ok: false, error: "数值必须是非负数字" };
+    const els = layoutChart({ type: args.type, title: args.title, xLabel: args.xLabel, yLabel: args.yLabel, data: args.data });
+    for (const el of els) this.pushElement(el);
+    this.activity.push(`图表已生成：${chartTypeName(args.type)}（${args.data.length} 项数据）`);
+    return { ok: true };
+  }
+
   clear() {
     this.elements = [];
     this.activity.push("清空画布");
@@ -295,5 +310,10 @@ function typeName(t: string): string {
     hexagon: "六边形", arrow: "箭头", polyline: "折线", text: "文字", logic: "逻辑节点",
     curve: "曲线", sector: "扇形",
   };
+  return map[t] ?? t;
+}
+
+function chartTypeName(t: string): string {
+  const map: Record<string, string> = { bar: "柱状图", line: "折线图", pie: "饼图", scatter: "散点图" };
   return map[t] ?? t;
 }
