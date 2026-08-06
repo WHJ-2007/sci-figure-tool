@@ -55,13 +55,20 @@ const CURSOR_ICON = (
   </svg>
 );
 
+// 图形图标：圆角矩形描边（图案工具组入口）
+const SHAPE_ICON = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true">
+    <rect x="4" y="6" width="16" height="12" rx="1.5" />
+  </svg>
+);
+
 interface ToolItem {
   title: string;
   tool: ToolType;
   label: ReactNode;
 }
 
-// 工具分组：图案 = 所有图形/标注（含箭头连线），逻辑 = 逻辑节点；选择/小手已合并进默认交互（无按钮）
+// 工具分组：图案 = 所有图形/标注（含箭头连线）
 const SHAPE_TOOLS: ToolItem[] = [
   { title: "矩形", tool: "rect", label: "▢" },
   { title: "圆角矩形", tool: "rounded", label: "▭" },
@@ -73,7 +80,6 @@ const SHAPE_TOOLS: ToolItem[] = [
   { title: "折线", tool: "polyline", label: "↯" },
   { title: "文字", tool: "text", label: "T" },
 ];
-const LOGIC_TOOLS: ToolItem[] = [{ title: "逻辑节点", tool: "logic", label: LOGIC_ICON }];
 const SHAPE_TOOL_SET = new Set(SHAPE_TOOLS.map((t) => t.tool));
 
 function ToolButton({ item, active, onClick }: { item: ToolItem; active: boolean; onClick: () => void }) {
@@ -104,7 +110,7 @@ export default function Toolbar() {
   const createProject = useCanvasStore((s) => s.createProject);
   const renameProject = useCanvasStore((s) => s.renameProject);
   const deleteProject = useCanvasStore((s) => s.deleteProject);
-  const [open, setOpen] = useState<"tool" | null>(null);
+  const [open, setOpen] = useState<"shape" | null>(null);
   const [chartOpen, setChartOpen] = useState(false);
   const toolRef = useRef<HTMLDivElement>(null);
 
@@ -128,13 +134,6 @@ export default function Toolbar() {
   const onDelete = () => deleteProject(currentProjectId);
 
   const shapeActive = SHAPE_TOOL_SET.has(tool);
-  const currentIcon = shapeActive
-    ? SHAPE_TOOLS.find((t) => t.tool === tool)?.label ?? SHAPE_TOOLS[0].label
-    : tool === "logic"
-      ? LOGIC_ICON
-      : tool === "select"
-        ? CURSOR_ICON
-        : SHAPE_TOOLS[0].label;
 
   return (
     <>
@@ -161,21 +160,33 @@ export default function Toolbar() {
         <span className="flex-1" />
         <Link href="/settings" className="lift flex h-8 w-8 items-center justify-center rounded hover:bg-gray-100" title="设置">{SETTINGS_ICON}</Link>
       </div>
-      {/* 左侧悬浮玻璃坞：工具（图案+逻辑两区气泡）+ 编辑（撤销/重做） */}
+      {/* 左侧悬浮玻璃坞：撤销/重做最上，下面依次选择/图形/逻辑/图表 */}
       {/* top-[4.625rem]（74px）= 顶栏 41px（h-8 + py-1 + border-b）+ FirstRunHint 33px（py-1.5 + text-sm + border-b），坞落在提示条下方 */}
       <div className="fixed left-4 top-[4.625rem] z-40 flex flex-col items-center gap-1 rounded-2xl border border-white/50 bg-white/70 p-1.5 shadow-xl backdrop-blur-md">
+        <button title="撤销" onClick={undo} disabled={isGenerating} className="lift flex h-9 w-9 items-center justify-center rounded hover:bg-gray-100 disabled:bg-transparent disabled:opacity-40">{UNDO_ICON}</button>
+        <button title="重做" onClick={redo} disabled={isGenerating} className="lift flex h-9 w-9 items-center justify-center rounded hover:bg-gray-100 disabled:bg-transparent disabled:opacity-40">{REDO_ICON}</button>
+        <div className="my-0.5 h-px w-7 bg-gray-200" />
+        <button
+          title="选择"
+          onClick={() => setTool("select")}
+          className={`lift flex h-9 w-9 items-center justify-center rounded ${
+            tool === "select" ? "bg-blue-100 text-blue-700 ring-1 ring-blue-400" : "hover:bg-gray-100"
+          }`}
+        >
+          {CURSOR_ICON}
+        </button>
         <div className="relative" ref={toolRef}>
           <button
-            title="工具"
-            onClick={() => setOpen(open === "tool" ? null : "tool")}
-            aria-expanded={open === "tool"}
-            className={`lift flex h-9 w-9 items-center justify-center rounded text-base leading-none ${
-              shapeActive || tool === "logic" || open === "tool" ? "bg-blue-100 text-blue-700 ring-1 ring-blue-400" : "hover:bg-gray-100"
+            title="图形"
+            onClick={() => setOpen(open === "shape" ? null : "shape")}
+            aria-expanded={open === "shape"}
+            className={`lift flex h-9 w-9 items-center justify-center rounded ${
+              shapeActive || open === "shape" ? "bg-blue-100 text-blue-700 ring-1 ring-blue-400" : "hover:bg-gray-100"
             }`}
           >
-            {currentIcon}
+            {SHAPE_ICON}
           </button>
-          {open === "tool" && (
+          {open === "shape" && (
             <div className="absolute left-full top-0 z-40 ml-2 w-40 rounded-xl border border-white/50 bg-white/80 p-2 shadow-xl backdrop-blur-md">
               <div className="mb-1 px-1 text-[10px] font-medium text-gray-400">图案</div>
               <div className="grid grid-cols-3 gap-1">
@@ -183,17 +194,18 @@ export default function Toolbar() {
                   <ToolButton key={t.tool} item={t} active={t.tool === tool} onClick={() => setTool(t.tool)} />
                 ))}
               </div>
-              <div className="mb-1 mt-2 px-1 text-[10px] font-medium text-gray-400">逻辑</div>
-              <div className="grid grid-cols-3 gap-1">
-                {LOGIC_TOOLS.map((t) => (
-                  <ToolButton key={t.tool} item={t} active={t.tool === tool} onClick={() => setTool(t.tool)} />
-                ))}
-              </div>
             </div>
           )}
         </div>
-        <button title="撤销" onClick={undo} disabled={isGenerating} className="lift flex h-9 w-9 items-center justify-center rounded hover:bg-gray-100 disabled:bg-transparent disabled:opacity-40">{UNDO_ICON}</button>
-        <button title="重做" onClick={redo} disabled={isGenerating} className="lift flex h-9 w-9 items-center justify-center rounded hover:bg-gray-100 disabled:bg-transparent disabled:opacity-40">{REDO_ICON}</button>
+        <button
+          title="逻辑"
+          onClick={() => setTool("logic")}
+          className={`lift flex h-9 w-9 items-center justify-center rounded ${
+            tool === "logic" ? "bg-blue-100 text-blue-700 ring-1 ring-blue-400" : "hover:bg-gray-100"
+          }`}
+        >
+          {LOGIC_ICON}
+        </button>
         <button title="图表" onClick={() => setChartOpen(true)} className="lift flex h-9 w-9 items-center justify-center rounded hover:bg-gray-100">{CHART_ICON}</button>
       </div>
       <ChartDialog open={chartOpen} onClose={() => setChartOpen(false)} />
