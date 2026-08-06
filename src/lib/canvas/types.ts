@@ -19,6 +19,8 @@ export interface BaseElement {
   zIndex: number;
   parentId?: string;
   chartId?: string; // 属于哪个图表（图表数据编辑/整图重排用）
+  flipH?: boolean; // 水平镜像（绕元素中心翻转）
+  flipV?: boolean; // 垂直镜像
 }
 
 export interface RectElement extends BaseElement {
@@ -93,4 +95,7 @@ export interface CanvasDocument {
   height: number;
   elements: CanvasElement[];
   charts?: Record<string, ChartSpec>; // chartId → 图表声明（数据/类型），编辑图表数据与导出用
+  // 画布样式（右键画布菜单设置）：缺省 = 纯白；"none" = 无填充透明；
+  // "#rrggbb" = 纯色；"linear:#c1,#c2" = 对角低饱和渐变（渲染与导出一致）
+  background?: string;
 }

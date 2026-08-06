@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { makeElement } from "@/lib/canvas/elements";
 import { hitTestElement, logicAnchors, arrowPoints, distToSegment, projectOnSegment } from "@/lib/canvas/geometry";
@@ -9,7 +9,23 @@ import type { CanvasElement } from "@/lib/canvas/types";
 import ElementShape from "./ElementShape";
 import SelectionOverlay, { boundsOf } from "./SelectionOverlay";
 import TextEditor from "./TextEditor";
+import CanvasStyleMenu from "./CanvasStyleMenu";
 import { usePointerInteraction, type DrawPreview } from "./usePointerInteraction";
+
+// 画布背景：缺省纯白；"none" 透明；"linear:#c1,#c2" 对角渐变
+export function backgroundFill(bg: string | undefined): string {
+  if (!bg || bg === "#ffffff") return "#ffffff";
+  if (bg === "none") return "none";
+  if (bg.startsWith("linear:")) return "url(#canvas-bg-grad)";
+  return bg;
+}
+
+function backgroundGradient(bg: string | undefined): [string, string] | null {
+  if (!bg?.startsWith("linear:")) return null;
+  const [c1, c2] = bg.slice(7).split(",");
+  if (!c1 || !c2) return null;
+  return [c1, c2];
+}
 
 function previewElement(p: DrawPreview): CanvasElement {
   // 注：TS 对"判别字段本身是联合字面量"的联合在 === 分支后不做剔除，需用结构判别（"points" in p）
@@ -45,7 +61,25 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
     return (clientY - (rect?.top ?? 0) - v.oy) / v.scale;
   }, []);
 
-  const { rubber, preview, panning, anchorHint, onPointerDown, onPointerMove, onPointerUp, modeRef, startTouchArrow } = usePointerInteraction(worldX, worldY);
+  const { rubber, preview, panning, anchorHint, onPointerDown, onPointerMove, onPointerUp, modeRef, startTouchArrow, lastRightClickRef } = usePointerInteraction(worldX, worldY);
+
+  // 右键画布样式菜单（右键空白画布弹出；右键元素/右键拖拽多选不弹）
+  const [styleMenu, setStyleMenu] = useState<{ x: number; y: number } | null>(null);
+  const closeStyleMenu = useCallback(() => setStyleMenu(null), []);
+  useEffect(() => {
+    if (!styleMenu) return;
+    const onDown = (e: PointerEvent) => {
+      if ((e.target as Element).closest("[data-testid='canvas-style-menu']")) return;
+      setStyleMenu(null);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setStyleMenu(null); };
+    window.addEventListener("pointerdown", onDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [styleMenu]);
 
   // 图片导入：文件 → 图片元素并选中（失败静默）
   const importImageFile = useCallback(async (file: File, cx: number, cy: number) => {
@@ -106,34 +140,48 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
     [worldX, worldY]
   );
 
-  // 箭头折点：右键已有折点删除；右键线段（中间部分）在点击处插入折点（投影到线上，箭头弯折），可无限加
+  // 右键菜单：单箭头选中 → 折点增删；右键空白画布 → 画布样式菜单
   const onContextMenu = useCallback(
     (e: React.MouseEvent<SVGSVGElement>) => {
       e.preventDefault();
       const s = useCanvasStore.getState();
-      if (s.selection.length !== 1) return;
-      const sel = s.doc.elements.find((x) => x.id === s.selection[0]);
-      if (!sel || sel.type !== "arrow") return;
-      if (s.aiLockedIds.includes(sel.id)) return;
-      const p = { x: worldX(e.clientX), y: worldY(e.clientY) };
-      const tol = 8 / s.view.scale;
-      const mid = sel.midPoints ?? [];
-      for (let i = 0; i < mid.length; i++) {
-        if (Math.hypot(p.x - mid[i].x, p.y - mid[i].y) <= tol) {
-          s.updateElement(sel.id, { midPoints: mid.filter((_, j) => j !== i) });
-          return;
+      if (s.selection.length === 1) {
+        const sel = s.doc.elements.find((x) => x.id === s.selection[0]);
+        if (sel?.type === "arrow" && !s.aiLockedIds.includes(sel.id)) {
+          const p = { x: worldX(e.clientX), y: worldY(e.clientY) };
+          const tol = 8 / s.view.scale;
+          const mid = sel.midPoints ?? [];
+          for (let i = 0; i < mid.length; i++) {
+            if (Math.hypot(p.x - mid[i].x, p.y - mid[i].y) <= tol) {
+              s.updateElement(sel.id, { midPoints: mid.filter((_, j) => j !== i) });
+              return;
+            }
+          }
+          const pts = arrowPoints(sel);
+          for (let i = 1; i < pts.length; i++) {
+            if (distToSegment(p, pts[i - 1], pts[i]) <= tol) {
+              const proj = projectOnSegment(p, pts[i - 1], pts[i]);
+              s.updateElement(sel.id, { midPoints: [...mid.slice(0, i - 1), proj, ...mid.slice(i - 1)] });
+              return;
+            }
+          }
+          // 右键点在箭头附近（如空白容差内）不弹样式菜单——箭头折点操作优先
+          if (hitTestElement(sel, p, 12 / s.view.scale)) return;
         }
       }
-      const pts = arrowPoints(sel);
-      for (let i = 1; i < pts.length; i++) {
-        if (distToSegment(p, pts[i - 1], pts[i]) <= tol) {
-          const proj = projectOnSegment(p, pts[i - 1], pts[i]);
-          s.updateElement(sel.id, { midPoints: [...mid.slice(0, i - 1), proj, ...mid.slice(i - 1)] });
-          return;
-        }
-      }
+      // 右键元素（非箭头）不弹画布样式菜单；右键拖拽多选后（lastRightClickRef.dragged）也不弹
+      if ((e.target as Element).closest("[data-element-id]")) return;
+      const rc = lastRightClickRef.current;
+      lastRightClickRef.current = null;
+      if (rc?.dragged) return;
+      const M_W = 200;
+      const M_H = 300;
+      setStyleMenu({
+        x: Math.min(e.clientX, window.innerWidth - M_W - 8),
+        y: Math.min(e.clientY, window.innerHeight - M_H - 8),
+      });
     },
-    [worldX, worldY]
+    [worldX, worldY, lastRightClickRef]
   );
 
   const onWheel = (e: React.WheelEvent) => {
@@ -155,6 +203,7 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
 
   const sorted = [...doc.elements].sort((a, b) => a.zIndex - b.zIndex);
   const editing = doc.elements.find((e) => e.id === editingText && e.type === "text");
+  const grad = backgroundGradient(doc.background);
 
   return (
     <div className="relative h-full w-full select-none overflow-hidden" onWheel={onWheel} onDragOver={onDragOver} onDrop={onDrop}>
@@ -173,10 +222,18 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
         onDoubleClick={onDoubleClick}
         onContextMenu={onContextMenu}
       >
-        <rect data-testid="canvas-bg" width={viewportWidth} height={viewportHeight} rx={10} fill="#ffffff" pointerEvents="none" />
+        {grad && (
+          <defs>
+            <linearGradient id="canvas-bg-grad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stopColor={grad[0]} />
+              <stop offset="1" stopColor={grad[1]} />
+            </linearGradient>
+          </defs>
+        )}
+        <rect data-testid="canvas-bg" width={viewportWidth} height={viewportHeight} rx={10} fill={backgroundFill(doc.background)} pointerEvents="none" />
         <g transform={`translate(${view.ox} ${view.oy}) scale(${view.scale})`}>
           {sorted.map((e) => (
-            <ElementShape key={e.id} e={e} />
+            <ElementShape key={e.id} e={e} locked={aiLockedIds.includes(e.id)} />
           ))}
           {preview && <ElementShape e={previewElement(preview)} />}
           {/* AI 非阻塞：本轮生成中 AI 正在编辑的元素——蓝色虚线呼吸框，不可交互 */}
@@ -234,6 +291,7 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
         )}
       </svg>
       </div>
+      {styleMenu && <CanvasStyleMenu x={styleMenu.x} y={styleMenu.y} onClose={closeStyleMenu} />}
     </div>
   );
 }

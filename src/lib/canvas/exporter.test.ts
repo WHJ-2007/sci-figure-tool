@@ -142,4 +142,40 @@ describe("exporter", () => {
     expect(svg).toContain("<polyline");
     expect(svg).not.toContain("<polygon");
   });
+
+  it("elementToSvg 水平镜像：以中心为轴缩放 -1", () => {
+    const r = makeElement("rect", 10, 10, 100, 60, { flipH: true });
+    const svg = elementToSvg(r);
+    expect(svg).toContain('transform="translate(60 40) rotate(0) scale(-1 1) translate(-60 -40)"');
+  });
+
+  it("elementToSvg 垂直镜像：y 轴缩放 -1", () => {
+    const r = makeElement("rect", 10, 10, 100, 60, { flipV: true });
+    const svg = elementToSvg(r);
+    expect(svg).toContain('translate(60 40) rotate(0) scale(1 -1) translate(-60 -40)');
+  });
+
+  it("elementToSvg 旋转+镜像组合：transform 含旋转与翻转", () => {
+    const r = makeElement("rect", 10, 10, 100, 60, { rotation: 45, flipH: true });
+    const svg = elementToSvg(r);
+    expect(svg).toContain('transform="translate(60 40) rotate(45) scale(-1 1) translate(-60 -40)"');
+  });
+
+  it("serializeSVG 缺省背景输出白色背景 rect（所见即所得）", () => {
+    const svg = serializeSVG({ width: 1600, height: 1000, elements: [] });
+    expect(svg).toContain('<rect width="1600" height="1000" fill="#ffffff"/>');
+  });
+
+  it("serializeSVG background none 不输出背景 rect", () => {
+    const svg = serializeSVG({ width: 1600, height: 1000, background: "none", elements: [] });
+    expect(svg).not.toContain('width="1600" height="1000" fill="#ffffff"');
+  });
+
+  it("serializeSVG 渐变背景输出 linearGradient defs 与 url 引用", () => {
+    const svg = serializeSVG({ width: 1600, height: 1000, background: "linear:#eef4ff,#fdf2f8", elements: [] });
+    expect(svg).toContain('<linearGradient id="canvas-bg-grad"');
+    expect(svg).toContain('stop-color="#eef4ff"');
+    expect(svg).toContain('stop-color="#fdf2f8"');
+    expect(svg).toContain('fill="url(#canvas-bg-grad)"');
+  });
 });

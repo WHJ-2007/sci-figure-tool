@@ -1,19 +1,24 @@
 import type { CanvasElement } from "@/lib/canvas/types";
 import { shapePoints, arrowHeadPoints, curveControl } from "@/lib/canvas/geometry";
-import { contrastTextColor } from "@/lib/canvas/elements";
+import { contrastTextColor, elementTransform } from "@/lib/canvas/elements";
 
-export default function ElementShape({ e }: { e: CanvasElement }) {
-  const rot = e.rotation
-    ? `rotate(${e.rotation} ${e.x + e.width / 2} ${e.y + e.height / 2})`
-    : undefined;
+export default function ElementShape({ e, locked = false }: { e: CanvasElement; locked?: boolean }) {
+  const t = elementTransform(e);
   const common = {
     fill: e.fill,
     stroke: e.stroke,
     strokeWidth: e.strokeWidth,
     opacity: e.opacity,
   };
-  const g = <g transform={rot}>{renderBody(e, common)}</g>;
-  return <g data-element-id={e.id}>{g}</g>;
+  // 悬浮动效包在变换组外层（CSS transform 会覆盖 transform 属性，不能共用同一 g）：
+  // 锁定元素（AI 编辑中）不参与悬浮动效
+  return (
+    <g data-element-id={e.id}>
+      <g className={locked ? undefined : "el-hover"}>
+        <g transform={t}>{renderBody(e, common)}</g>
+      </g>
+    </g>
+  );
 }
 
 function renderBody(
@@ -37,12 +42,15 @@ function renderBody(
       // 带折点的箭头：折线路径 + 箭头方向取末段（起点→折点…→终点）
       if ((e.midPoints?.length ?? 0) > 0) {
         const pts = [{ x: e.x, y: e.y }, ...e.midPoints!, { x: x2, y: y2 }];
+        const ptsStr = pointsToString(pts);
         const last = pts[pts.length - 1];
         const prev = pts[pts.length - 2] ?? pts[0];
         return (
           <g>
-            <polyline points={pointsToString(pts)} fill="none" stroke={e.stroke} strokeWidth={e.strokeWidth} opacity={e.opacity} strokeLinejoin="round" />
+            <polyline points={ptsStr} fill="none" stroke={e.stroke} strokeWidth={e.strokeWidth} opacity={e.opacity} strokeLinejoin="round" />
             <polygon points={pointsToString(arrowHeadPoints(prev.x, prev.y, last.x, last.y))} fill={e.stroke} opacity={e.opacity} />
+            {/* 透明加宽命中层：细线难点，12px 宽透明描边扩大点击范围 */}
+            <polyline points={ptsStr} fill="none" stroke="transparent" strokeWidth={12} strokeLinecap="round" strokeLinejoin="round" pointerEvents="all" />
           </g>
         );
       }
@@ -50,6 +58,7 @@ function renderBody(
         <g>
           <line x1={e.x} y1={e.y} x2={x2} y2={y2} stroke={e.stroke} strokeWidth={e.strokeWidth} opacity={e.opacity} />
           <polygon points={pointsToString(arrowHeadPoints(e.x, e.y, x2, y2))} fill={e.stroke} opacity={e.opacity} />
+          <line x1={e.x} y1={e.y} x2={x2} y2={y2} stroke="transparent" strokeWidth={12} strokeLinecap="round" pointerEvents="all" />
         </g>
       );
     }

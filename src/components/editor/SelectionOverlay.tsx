@@ -111,7 +111,7 @@ export default function SelectionOverlay({
                   data-handle="rotate"
                   data-element-id={e.id}
                   x={cx - H / 2}
-                  y={b.y - H - 8 / scale}
+                  y={b.y - H - 14 / scale}
                   width={H}
                   height={H}
                   rx={H / 2}

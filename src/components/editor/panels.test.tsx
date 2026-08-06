@@ -5,6 +5,7 @@ import PropertyPanel from "./PropertyPanel";
 import ChatPanel from "./ChatPanel";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { makeElement } from "@/lib/canvas/elements";
+import { layoutChart, type ChartSpec } from "@/lib/canvas/chartLayout";
 
 beforeEach(() => useCanvasStore.setState(useCanvasStore.getInitialState()));
 
@@ -135,5 +136,46 @@ describe("PropertyPanel", () => {
     useCanvasStore.getState().setSelection([a.id]);
     render(<PropertyPanel />);
     expect(screen.getByText("逻辑节点")).toBeInTheDocument();
+  });
+
+  it("水平镜像按钮切换 flipH", () => {
+    const a = makeElement("rect", 0, 0, 100, 60);
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().setSelection([a.id]);
+    render(<PropertyPanel />);
+    fireEvent.click(screen.getByTitle("水平镜像"));
+    expect(useCanvasStore.getState().doc.elements[0].flipH).toBe(true);
+    fireEvent.click(screen.getByTitle("水平镜像"));
+    expect(useCanvasStore.getState().doc.elements[0].flipH).toBe(false);
+  });
+
+  it("垂直镜像按钮切换 flipV", () => {
+    const a = makeElement("rect", 0, 0, 100, 60);
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().setSelection([a.id]);
+    render(<PropertyPanel />);
+    fireEvent.click(screen.getByTitle("垂直镜像"));
+    expect(useCanvasStore.getState().doc.elements[0].flipV).toBe(true);
+  });
+
+  it("选择整个图表：选中图表全部元素（可统一移动/删除）", () => {
+    const spec: ChartSpec = { type: "bar", title: "销售", data: [{ label: "Q1", value: 10 }, { label: "Q2", value: 20 }, { label: "Q3", value: 15 }] };
+    const els = layoutChart(spec).map((e) => ({ ...e, chartId: "c1" }));
+    useCanvasStore.getState().applyChartEdit("c1", spec, els, []);
+    const ids = useCanvasStore.getState().doc.elements.map((e) => e.id);
+    expect(ids.length).toBeGreaterThan(1);
+    useCanvasStore.getState().setSelection([ids[0]]);
+    render(<PropertyPanel />);
+    fireEvent.click(screen.getByText("选择整个图表"));
+    expect(useCanvasStore.getState().selection).toEqual(ids);
+  });
+
+  it("操作卡删除按钮删除选中元素", () => {
+    const a = makeElement("rect", 0, 0, 100, 60);
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().setSelection([a.id]);
+    render(<PropertyPanel />);
+    fireEvent.click(screen.getByText("删除"));
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(0);
   });
 });

@@ -1,6 +1,6 @@
 import type { CanvasDocument, CanvasElement } from "./types";
 import { shapePoints, arrowHeadPoints, curveControl } from "./geometry";
-import { contrastTextColor } from "./elements";
+import { contrastTextColor, elementTransform } from "./elements";
 
 const XML_ESCAPE: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" };
 
@@ -10,9 +10,8 @@ function esc(s: string): string {
 
 export function elementToSvg(e: CanvasElement): string {
   const attrs = `x="${e.x}" y="${e.y}" fill="${e.fill}" stroke="${e.stroke}" stroke-width="${e.strokeWidth}" opacity="${e.opacity}"`;
-  const rot = e.rotation
-    ? ` transform="rotate(${e.rotation} ${e.x + e.width / 2} ${e.y + e.height / 2})"`
-    : "";
+  const t = elementTransform(e);
+  const rot = t ? ` transform="${t}"` : "";
   switch (e.type) {
     case "rect":
       return `<rect ${attrs} width="${e.width}" height="${e.height}" rx="${e.rx}"${rot}/>`;
@@ -101,12 +100,29 @@ export function elementToSvg(e: CanvasElement): string {
   }
 }
 
+// 画布背景输出：缺省纯白（所见即所得）；"none" 透明不画；"linear:#c1,#c2" 对角渐变
+function backgroundSvg(doc: CanvasDocument): string {
+  const bg = doc.background ?? "#ffffff";
+  if (bg === "none") return "";
+  if (bg.startsWith("linear:")) {
+    const [c1, c2] = bg.slice(7).split(",");
+    if (!c1 || !c2) return `<rect width="${doc.width}" height="${doc.height}" fill="#ffffff"/>`;
+    return (
+      `<defs><linearGradient id="canvas-bg-grad" x1="0" y1="0" x2="1" y2="1">` +
+      `<stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/>` +
+      `</linearGradient></defs><rect width="${doc.width}" height="${doc.height}" fill="url(#canvas-bg-grad)"/>`
+    );
+  }
+  return `<rect width="${doc.width}" height="${doc.height}" fill="${bg}"/>`;
+}
+
 export function serializeSVG(doc: CanvasDocument): string {
   const body = [...doc.elements]
     .sort((a, b) => a.zIndex - b.zIndex)
     .map(elementToSvg)
     .join("\n");
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${doc.width}" height="${doc.height}" viewBox="0 0 ${doc.width} ${doc.height}">\n${body}\n</svg>`;
+  const bg = backgroundSvg(doc);
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${doc.width}" height="${doc.height}" viewBox="0 0 ${doc.width} ${doc.height}">\n${bg}${bg ? "\n" : ""}${body}\n</svg>`;
 }
 
 export async function svgToPngDataUrl(svg: string, width: number, height: number): Promise<string> {

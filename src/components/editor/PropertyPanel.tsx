@@ -173,11 +173,38 @@ export default function PropertyPanel() {
 
       {chartId && doc.charts?.[chartId] && (
         <Section title="数据">
-          <button onClick={() => setChartOpen(true)} className="lift rounded-lg bg-blue-600/85 px-3 py-1.5 text-sm text-white">编辑图表数据</button>
+          <div className="flex gap-2">
+            <button onClick={() => setChartOpen(true)} className="lift rounded-lg bg-blue-600/85 px-3 py-1.5 text-sm text-white">编辑图表数据</button>
+            {/* 选中图表的单个元素后，可一键选中整个图表（统一移动/删除等操作） */}
+            {!multi && (
+              <button
+                onClick={() => setSelection(doc.elements.filter((e) => e.chartId === chartId).map((e) => e.id))}
+                className="lift rounded-lg border border-white/60 bg-white/70 px-3 py-1.5 text-sm text-gray-600 shadow-sm hover:bg-white/90"
+              >
+                选择整个图表
+              </button>
+            )}
+          </div>
         </Section>
       )}
 
       <Section title="操作">
+        <div className="flex gap-2">
+          <button
+            onClick={() => patch({ flipH: !one.flipH })}
+            title="水平镜像"
+            className={`lift rounded-lg border px-2 py-1 text-xs ${one.flipH ? "border-blue-300 bg-blue-100 text-blue-700" : "border-white/60 bg-white/70 text-gray-600 shadow-sm hover:bg-white/90"}`}
+          >
+            ↔ 水平镜像
+          </button>
+          <button
+            onClick={() => patch({ flipV: !one.flipV })}
+            title="垂直镜像"
+            className={`lift rounded-lg border px-2 py-1 text-xs ${one.flipV ? "border-blue-300 bg-blue-100 text-blue-700" : "border-white/60 bg-white/70 text-gray-600 shadow-sm hover:bg-white/90"}`}
+          >
+            ↕ 垂直镜像
+          </button>
+        </div>
         <div className="flex gap-2">
           <button onClick={() => deleteElements(selection)} className="lift rounded-lg border border-red-200/70 bg-red-50/70 px-3 py-1 text-red-500 shadow-sm hover:bg-red-100/80">删除</button>
           <button onClick={() => setSelection([])} className="lift rounded-lg border border-white/60 bg-white/70 px-3 py-1 text-gray-600 shadow-sm hover:bg-white/90">取消选择</button>

@@ -71,6 +71,7 @@ export interface CanvasStore {
   setSelection: (ids: string[]) => void;
   setTool: (t: ToolType) => void;
   setView: (v: { scale: number; ox: number; oy: number }) => void;
+  setBackground: (bg: string | undefined) => void;
   setDoc: (doc: CanvasDocument) => void;
   applyChartEdit: (chartId: string, spec: ChartSpec, elements: CanvasElement[], replaceIds: string[]) => void;
   applyAISnapshot: (doc: CanvasDocument) => void;
@@ -194,6 +195,14 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => {
     setGenerating: (v) => set({ isGenerating: v }),
     setDoc: (doc) =>
       set((s) => ({ ...syncProject(s, structuredClone(doc), pushHistory(s.history, s.doc)), selection: [], editingText: null })),
+    // 画布样式（右键画布菜单）：一步撤销，随画布持久化
+    setBackground: (bg) =>
+      set((s) => {
+        const doc = structuredClone(s.doc);
+        if (bg) doc.background = bg;
+        else delete doc.background;
+        return { ...syncProject(s, doc, pushHistory(s.history, s.doc)) };
+      }),
     // 图表数据编辑（手动生成/编辑共用）：替换指定 chartId 的旧元素 + 登记 spec，一次手势 = 一步撤销
     applyChartEdit: (chartId, spec, elements, replaceIds) =>
       set((s) => {

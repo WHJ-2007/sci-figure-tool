@@ -414,3 +414,21 @@ describe("aiLockedIds 与快照合并", () => {
     expect(useCanvasStore.getState().doc.elements).toHaveLength(0);
   });
 });
+
+describe("画布背景", () => {
+  it("setBackground 设置背景并入历史，undo 恢复缺省、redo 恢复设置", () => {
+    const s = useCanvasStore.getState();
+    s.setBackground("#eef4ff");
+    expect(useCanvasStore.getState().doc.background).toBe("#eef4ff");
+    useCanvasStore.getState().undo();
+    expect(useCanvasStore.getState().doc.background).toBeUndefined();
+    useCanvasStore.getState().redo();
+    expect(useCanvasStore.getState().doc.background).toBe("#eef4ff");
+  });
+
+  it("setBackground 传 undefined 清除背景（回到缺省纯白语义）", () => {
+    useCanvasStore.getState().setBackground("#eef4ff");
+    useCanvasStore.getState().setBackground(undefined);
+    expect(useCanvasStore.getState().doc.background).toBeUndefined();
+  });
+});

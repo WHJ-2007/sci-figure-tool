@@ -75,6 +75,18 @@ nextjs-portal {
   filter: brightness(0.96);
 }
 
+/* 画布元素悬浮：微微放大 + 蓝色柔光高亮（transform-box: fill-box 绕元素自身中心缩放，
+   不随画布原点偏移；CSS transform 会覆盖 SVG transform 属性，故动效层包在旋转组外层） */
+.el-hover {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 150ms ease, filter 150ms ease;
+}
+.el-hover:hover {
+  transform: scale(1.05);
+  filter: brightness(1.12) drop-shadow(0 0 6px rgb(37 99 235 / 0.45));
+}
+
 /* AI 非阻塞：本轮生成中 AI 正在编辑的元素——蓝色虚线呼吸框 */
 .ai-lock-overlay {
   fill: none;

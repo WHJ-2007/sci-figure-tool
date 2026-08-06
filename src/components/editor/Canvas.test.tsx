@@ -141,4 +141,64 @@ describe("Canvas", () => {
     expect(useCanvasStore.getState().doc.elements).toHaveLength(0);
     expect(prevented).toBe(false);
   });
+
+  it("箭头渲染透明加宽命中层（细线扩大点击范围）", () => {
+    useCanvasStore.getState().addElement(makeElement("arrow", 100, 100, 200, 0));
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const hit = document.querySelector('line[stroke="transparent"]');
+    expect(hit).toBeTruthy();
+    expect(hit!.getAttribute("stroke-width")).toBe("12");
+    expect(hit!.getAttribute("pointer-events")).toBe("all");
+  });
+
+  it("带折点的箭头命中层为透明加宽 polyline", () => {
+    useCanvasStore.getState().addElement(makeElement("arrow", 100, 100, 200, 0, { midPoints: [{ x: 200, y: 40 }] }));
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const hit = document.querySelector('polyline[stroke="transparent"]');
+    expect(hit).toBeTruthy();
+    expect(hit!.getAttribute("stroke-width")).toBe("12");
+  });
+
+  it("右键空白画布弹出样式菜单，选纯色背景写入 doc 并渲染", () => {
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    fireEvent.contextMenu(document.querySelector("svg")!, { clientX: 300, clientY: 200 });
+    expect(screen.getByTestId("canvas-style-menu")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("画布样式 淡蓝"));
+    expect(useCanvasStore.getState().doc.background).toBe("#eef4ff");
+    expect(document.querySelector('[data-testid="canvas-bg"]')!.getAttribute("fill")).toBe("#eef4ff");
+  });
+
+  it("样式菜单选无填充：background none 且画布透明", () => {
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    fireEvent.contextMenu(document.querySelector("svg")!, { clientX: 300, clientY: 200 });
+    fireEvent.click(screen.getByLabelText("画布样式 无填充"));
+    expect(useCanvasStore.getState().doc.background).toBe("none");
+    expect(document.querySelector('[data-testid="canvas-bg"]')!.getAttribute("fill")).toBe("none");
+  });
+
+  it("样式菜单选渐变：渲染 linearGradient defs 并引用", () => {
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    fireEvent.contextMenu(document.querySelector("svg")!, { clientX: 300, clientY: 200 });
+    fireEvent.click(screen.getByLabelText("画布样式 蓝粉渐变"));
+    expect(useCanvasStore.getState().doc.background).toBe("linear:#eef4ff,#fdf2f8");
+    expect(document.querySelector("linearGradient#canvas-bg-grad")).toBeTruthy();
+    expect(document.querySelector('[data-testid="canvas-bg"]')!.getAttribute("fill")).toBe("url(#canvas-bg-grad)");
+  });
+
+  it("元素渲染带悬浮动效层（el-hover，锁定元素除外）", () => {
+    useCanvasStore.getState().addElement(makeElement("rect", 10, 10, 100, 60));
+    useCanvasStore.getState().setAiLocked(["locked1"]);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const g = document.querySelector('[data-element-id] > g');
+    expect(g!.getAttribute("class")).toBe("el-hover");
+  });
+
+  it("锁定的元素（AI 编辑中）不参与悬浮动效", () => {
+    const a = makeElement("rect", 10, 10, 100, 60, { id: "locked1" });
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().setAiLocked(["locked1"]);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const g = document.querySelector('[data-element-id] > g');
+    expect(g!.getAttribute("class")).toBeNull();
+  });
 });

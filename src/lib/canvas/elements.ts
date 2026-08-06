@@ -60,6 +60,16 @@ export function logicBoxSize(
   };
 }
 
+// 元素渲染/导出的变换：仅旋转时保持旧格式 rotate(deg cx cy)（兼容既有测试/导出文件）；
+// 有镜像时用 平移→旋转→缩放→平移 的组合（绕元素中心翻转）
+export function elementTransform(e: CanvasElement): string | undefined {
+  const cx = e.x + e.width / 2;
+  const cy = e.y + e.height / 2;
+  if (!e.rotation && !e.flipH && !e.flipV) return undefined;
+  if (!e.flipH && !e.flipV) return `rotate(${e.rotation} ${cx} ${cy})`;
+  return `translate(${cx} ${cy}) rotate(${e.rotation || 0}) scale(${e.flipH ? -1 : 1} ${e.flipV ? -1 : 1}) translate(${-cx} ${-cy})`;
+}
+
 // 按填充色亮度取对比文字色（亮底深字、暗底白字）；logic 节点标题用
 export function contrastTextColor(fill: string): string {
   const hex = fill.startsWith("#") ? fill.slice(1) : "ffffff";
@@ -98,6 +108,8 @@ export function makeElement(
     width,
     height,
     rotation: extra.rotation ?? 0,
+    flipH: extra.flipH ?? false,
+    flipV: extra.flipV ?? false,
     fill: extra.fill ?? DEFAULT_FILL,
     stroke: extra.stroke ?? DEFAULT_STROKE,
     strokeWidth: extra.strokeWidth ?? 2,

@@ -29,7 +29,6 @@ export default function ChatPanel() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [error, setError] = useState<string>("");
-  const [open, setOpen] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
   const setActivity = useCanvasStore((s) => s.setActivity);
   const setGenerating = useCanvasStore((s) => s.setGenerating);
@@ -237,9 +236,8 @@ export default function ChatPanel() {
 
   return (
     <div className="flex h-full flex-col bg-transparent">
-      <div className="flex items-center justify-between border-b border-white/50 px-4 py-3">
+      <div className="border-b border-white/50 px-4 py-3">
         <span className="text-sm font-semibold text-gray-700">AI 助手</span>
-        <button onClick={() => setOpen(!open)} className="lift rounded-lg px-2 py-0.5 text-xs text-gray-500 hover:bg-white/60">{open ? "收起" : "展开"}</button>
       </div>
       {/* 模式条（玻璃层次第一层）：纯文字胶囊多选 */}
       <div className="border-b border-white/50 px-3 py-2">

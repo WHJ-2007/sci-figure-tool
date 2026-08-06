@@ -122,8 +122,8 @@ describe("Canvas 交互", () => {
     useCanvasStore.getState().setSelection([a.id]);
     render(<Canvas viewportWidth={800} viewportHeight={600} />);
     const rot = document.querySelector('[data-handle="rotate"]')!;
-    // 中心 (150,130)，手柄在正上方 (150,84)，拖到正右方 (194,130) → 顺时针 90°
-    drag(rot, { x: 150, y: 84 }, { x: 194, y: 130 });
+    // 中心 (150,130)，手柄在正上方 (150,78)（上移后位置），拖到正右方 (194,130) → 顺时针 90°
+    drag(rot, { x: 150, y: 78 }, { x: 194, y: 130 });
     const e = useCanvasStore.getState().doc.elements[0];
     expect(e.rotation).toBeCloseTo(90, 0);
   });

@@ -29,6 +29,9 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
   const tool = useCanvasStore((s) => s.tool);
   // 箭头工具下高亮的最近锚点（悬停或绘制吸附时）
   const [anchorHint, setAnchorHint] = useState<Anchor | null>(null);
+  // 右键手势跟踪：右键空白按下即记（rubber 起点），拖拽过则标记 dragged——
+  // Canvas 的 contextmenu 据此区分「右键点击弹画布样式菜单」与「右键拖拽多选后不弹」
+  const lastRightClickRef = useRef<{ x: number; y: number; dragged: boolean } | null>(null);
 
   // 切走箭头工具时取消待定起点（否则残留预览会跟着别的工具）
   useEffect(() => {
@@ -134,6 +137,10 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
           width: Math.abs(m.x - m.startX),
           height: Math.abs(m.y - m.startY),
         };
+        if (r.width >= 3 || r.height >= 3) {
+          // 右键拖拽 = 多选框选：标记 dragged，松手后的 contextmenu 不弹画布样式菜单
+          if (lastRightClickRef.current) lastRightClickRef.current.dragged = true;
+        }
         if (r.width < 3 && r.height < 3) {
           if (!m.additive) s.setSelection([]);
         } else {
@@ -326,6 +333,7 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
           }
           // 右键拖动 = 多选框选（原 rubber 逻辑）
           modeRef.current = { kind: "rubber", startX: wx, startY: wy, x: wx, y: wy, additive: e.shiftKey };
+          lastRightClickRef.current = { x: wx, y: wy, dragged: false };
           startDrag();
         } else if (e.button === 0) {
           // 左键空白拖动 = 平移画布（原小手功能）；shiftKey 记在按下时——点击判定按手势意图，
@@ -366,5 +374,5 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
 
   const onPointerUp = useCallback(() => {}, []);
 
-  return { rubber, preview, panning, anchorHint, onPointerDown, onPointerMove, onPointerUp, modeRef, startTouchArrow };
+  return { rubber, preview, panning, anchorHint, onPointerDown, onPointerMove, onPointerUp, modeRef, startTouchArrow, lastRightClickRef };
 }
