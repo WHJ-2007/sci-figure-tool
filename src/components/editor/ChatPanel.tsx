@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { loadSettings } from "@/lib/settings";
 import type { CanvasDocument } from "@/lib/canvas/types";
@@ -24,6 +24,35 @@ const MODE_OPTIONS: { value: AIMode; label: string }[] = [
   { value: "mindmap", label: "思维导图" },
   { value: "chart", label: "图表制作" },
 ];
+
+const MODE_ICONS: Record<"auto" | AIMode, ReactNode> = {
+  auto: (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z" />
+    </svg>
+  ),
+  sci: (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M10 3v6L4.5 18a2 2 0 0 0 1.8 3h11.4a2 2 0 0 0 1.8-3L14 9V3" />
+      <path d="M8 3h8" />
+    </svg>
+  ),
+  mindmap: (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="2" fill="currentColor" stroke="none" />
+      <circle cx="5" cy="5" r="1.6" fill="currentColor" stroke="none" />
+      <circle cx="19" cy="5" r="1.6" fill="currentColor" stroke="none" />
+      <circle cx="5" cy="19" r="1.6" fill="currentColor" stroke="none" />
+      <path d="M10.2 10.2L6.6 6.6M13.8 10.2l3.6-3.6M10.2 13.8l-3.6 3.6" />
+    </svg>
+  ),
+  chart: (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+      <path d="M4 20V4M4 20h16" />
+      <path d="M8 16v-4M13 16V8M18 16v-7" />
+    </svg>
+  ),
+};
 
 export default function ChatPanel() {
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -241,45 +270,55 @@ export default function ChatPanel() {
         <span className="text-sm font-semibold text-gray-700">AI 助手</span>
         <button onClick={() => setOpen(!open)} className="lift rounded-lg px-2 py-0.5 text-xs text-gray-500 hover:bg-white/60">{open ? "收起" : "展开"}</button>
       </div>
-      <div className="flex-1 space-y-2 overflow-y-auto p-3.5 text-sm" ref={bodyRef}>
-        {messages.map((m, i) => (
-          <div
-            key={i}
-            className={`msg-in max-w-[85%] rounded-2xl border px-3.5 py-2 shadow-sm backdrop-blur-md ${
-              m.role === "user"
-                ? "ml-auto border-blue-400/40 bg-blue-500/75 text-white"
-                : "border-white/60 bg-white/75 text-gray-800"
-            }`}
-          >
-            {m.content}
-          </div>
-        ))}
-        {error && <div className="rounded-xl border border-red-200/60 bg-red-100/40 p-2 text-xs text-red-700 backdrop-blur-md">{error}</div>}
-      </div>
-      <div className="border-t border-white/50 p-3">
-        <div className="mb-2 flex rounded-full border border-white/60 bg-white/50 p-0.5 shadow-sm backdrop-blur-md">
+      {/* 模式条（玻璃层次第一层）：图标胶囊多选 */}
+      <div className="border-b border-white/50 px-3 py-2">
+        <div className="flex rounded-full border border-white/60 bg-white/50 p-0.5 shadow-sm backdrop-blur-md">
           <button
             onClick={selectAuto}
             aria-pressed={auto}
-            className={`lift flex-1 rounded-full px-1 py-1 text-xs ${
+            className={`lift flex flex-1 items-center justify-center rounded-full px-1 py-1 text-xs ${
               auto ? "bg-blue-600 text-white shadow-sm" : "text-gray-500 hover:bg-white/70"
             }`}
           >
-            自动
+            {MODE_ICONS.auto}<span className="ml-1">自动</span>
           </button>
           {MODE_OPTIONS.map((m) => (
             <button
               key={m.value}
               onClick={() => selectMode(m.value)}
               aria-pressed={modes.includes(m.value)}
-              className={`lift flex-1 rounded-full px-1 py-1 text-xs ${
+              className={`lift flex flex-1 items-center justify-center rounded-full px-1 py-1 text-xs ${
                 modes.includes(m.value) ? "bg-blue-600 text-white shadow-sm" : "text-gray-500 hover:bg-white/70"
               }`}
             >
-              {m.label}
+              {MODE_ICONS[m.value]}<span className="ml-1">{m.label}</span>
             </button>
           ))}
         </div>
+      </div>
+      <div className="flex-1 space-y-2 overflow-y-auto p-3.5 text-sm" ref={bodyRef}>
+        {messages.map((m, i) => (
+          <div
+            key={i}
+            className={`msg-in max-w-[85%] border px-3.5 py-2 backdrop-blur-md ${
+              m.role === "user"
+                ? "ml-auto rounded-[14px_14px_4px_14px] border-blue-400/40 bg-blue-500/85 text-white shadow-md"
+                : "rounded-[14px_14px_14px_4px] border-white/60 bg-white/80 text-gray-800 shadow-md"
+            }`}
+          >
+            {m.content}
+          </div>
+        ))}
+        {isGenerating && messages.length > 0 && messages[messages.length - 1].role === "user" && (
+          <div data-testid="ai-typing" className="msg-in flex w-fit items-center gap-1 rounded-[14px_14px_14px_4px] border border-white/60 bg-white/80 px-3.5 py-2 shadow-md backdrop-blur-md">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500 [animation-delay:150ms]" />
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500 [animation-delay:300ms]" />
+          </div>
+        )}
+        {error && <div className="rounded-xl border border-red-200/60 bg-red-100/40 p-2 text-xs text-red-700 backdrop-blur-md">{error}</div>}
+      </div>
+      <div className="border-t border-white/50 p-3">
         <textarea
           id="chat-input"
           value={input}

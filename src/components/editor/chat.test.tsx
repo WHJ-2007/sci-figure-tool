@@ -183,27 +183,27 @@ describe("ChatPanel", () => {
   it("再点已选模式取消选中；点自动清空全部具体模式", async () => {
     render(<ChatPanel />);
     fireEvent.click(screen.getByText("思维导图"));
-    expect(screen.getByText("思维导图")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("思维导图").closest("button")!).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(screen.getByText("思维导图"));
-    expect(screen.getByText("思维导图")).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByText("思维导图").closest("button")!).toHaveAttribute("aria-pressed", "false");
     fireEvent.click(screen.getByText("图表制作"));
     fireEvent.click(screen.getByText("自动"));
-    expect(screen.getByText("自动")).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText("图表制作")).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByText("自动").closest("button")!).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("图表制作").closest("button")!).toHaveAttribute("aria-pressed", "false");
   });
 
   it("刷新后从 localStorage 恢复模式选择", () => {
     localStorage.setItem(`chartMode-${useCanvasStore.getState().currentProjectId}`, "chart");
     render(<ChatPanel />);
-    expect(screen.getByText("图表制作")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("图表制作").closest("button")!).toHaveAttribute("aria-pressed", "true");
   });
 
   it("恢复新格式 JSON 数组；非法数组与全部取消后回到自动", () => {
     localStorage.setItem(`chartMode-${useCanvasStore.getState().currentProjectId}`, JSON.stringify(["mindmap", "chart"]));
     const { unmount } = render(<ChatPanel />);
-    expect(screen.getByText("思维导图")).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText("图表制作")).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText("自动")).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByText("思维导图").closest("button")!).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("图表制作").closest("button")!).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("自动").closest("button")!).toHaveAttribute("aria-pressed", "false");
     unmount();
 
     // 全部具体模式取消 → 自动并持久化 "auto"
@@ -211,14 +211,30 @@ describe("ChatPanel", () => {
     const { unmount: unmount2 } = render(<ChatPanel />);
     fireEvent.click(screen.getByText("思维导图"));
     fireEvent.click(screen.getByText("图表制作"));
-    expect(screen.getByText("自动")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("自动").closest("button")!).toHaveAttribute("aria-pressed", "true");
     expect(localStorage.getItem(`chartMode-${useCanvasStore.getState().currentProjectId}`)).toBe("auto");
     unmount2();
 
     // 非法内容 → 默认自动
     localStorage.setItem(`chartMode-${useCanvasStore.getState().currentProjectId}`, "garbage{");
     render(<ChatPanel />);
-    expect(screen.getByText("自动")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("自动").closest("button")!).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("模式按钮带图标（SVG）", () => {
+    render(<ChatPanel />);
+    for (const label of ["自动", "科研绘图", "思维导图", "图表制作"]) {
+      const btn = screen.getByText(label).closest("button")!;
+      expect(btn.querySelector("svg")).not.toBeNull();
+    }
+  });
+
+  it("生成中显示 AI 流式光标气泡", async () => {
+    vi.mocked(fetch).mockReturnValue(new Promise<Response>(() => {}));
+    render(<ChatPanel />);
+    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "画图" } });
+    fireEvent.click(screen.getByText("一键生成"));
+    await waitFor(() => expect(screen.getByTestId("ai-typing")).toBeInTheDocument());
   });
 });
 
