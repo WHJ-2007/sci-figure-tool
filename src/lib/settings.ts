@@ -2,6 +2,7 @@ export interface AppSettings {
   apiKey: string;
   model: string;
   baseURL: string;
+  tavilyApiKey?: string;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {

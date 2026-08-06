@@ -123,6 +123,16 @@ export default function SettingsPage() {
           <span className="text-gray-600">Base URL</span>
           <input value={form.baseURL} onChange={(e) => setForm({ ...form, baseURL: e.target.value })} className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5" />
         </label>
+        <label className="block text-sm">
+          <span className="text-gray-600">Tavily API Key（可选，配置后 AI 可联网搜索权威数据）</span>
+          <input
+            type="password"
+            value={form.tavilyApiKey ?? ""}
+            onChange={(e) => setForm({ ...form, tavilyApiKey: e.target.value })}
+            placeholder="tvly-..."
+            className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5"
+          />
+        </label>
         <div className="flex gap-2">
           <button type="submit" className="lift rounded bg-blue-600 px-4 py-1.5 text-sm text-white hover:bg-blue-700">保存</button>
           <button type="button" onClick={test} disabled={testing} className="lift rounded border border-gray-300 px-4 py-1.5 text-sm hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50">测试连接</button>

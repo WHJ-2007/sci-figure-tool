@@ -47,6 +47,24 @@ describe("设置页", () => {
     expect(screen.getByText("已保存")).toBeInTheDocument();
   });
 
+  it("Tavily API Key 可选字段：缺省为空，保存后写入 localStorage", () => {
+    render(<SettingsPage />);
+    const tv = screen.getByPlaceholderText("tvly-...");
+    expect((tv as HTMLInputElement).value).toBe("");
+    fireEvent.change(tv, { target: { value: "tvly-save" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    const saved = JSON.parse(localStorage.getItem("fig-tool-settings")!);
+    expect(saved.tavilyApiKey).toBe("tvly-save");
+  });
+
+  it("Tavily API Key 挂载后回显已保存值", async () => {
+    localStorage.setItem("fig-tool-settings", JSON.stringify({ apiKey: "sk-1", tavilyApiKey: "tvly-123" }));
+    render(<SettingsPage />);
+    await waitFor(() => {
+      expect((screen.getByPlaceholderText("tvly-...") as HTMLInputElement).value).toBe("tvly-123");
+    });
+  });
+
   it("测试连接成功显示结果", async () => {
     (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ json: async () => ({ ok: true, text: "OK" }) });
     render(<SettingsPage />);

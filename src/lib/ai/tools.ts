@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { tool } from "ai";
 import type { DraftCanvas } from "./draft";
+import { searchWeb, formatSearchResults } from "./search";
 
 const shapeType = z.enum(["rect", "ellipse", "triangle", "diamond", "hexagon", "star", "cross", "donut", "half", "arrow", "polyline", "text", "logic"]);
 
@@ -15,7 +16,7 @@ const branchSchema: z.ZodType<MindMapBranchInput> = z.lazy(() =>
   })
 );
 
-export function buildTools(draft: DraftCanvas) {
+export function buildTools(draft: DraftCanvas, tavilyApiKey?: string) {
   return {
     createElement: tool({
       description:
@@ -157,6 +158,19 @@ export function buildTools(draft: DraftCanvas) {
         "对需求不确定时向用户提问澄清（一次只问一个问题，禁止连问）：当用户需求缺少关键信息、无法确定图种/主题/数据/布局时使用，例如「图表没给数据也没说主题」「流程缺关键环节」「要对比哪些项」。调用后本轮立即停止绘制，等待用户回答后再继续；需求已明确时禁止提问。",
       inputSchema: z.object({ question: z.string().describe("要问用户的问题（具体、可回答，只问一个问题）") }),
       execute: () => "已向用户提问，本轮停止绘制，等待回答",
+    }),
+    searchWeb: tool({
+      description:
+        "联网搜索权威数据：用户没给数据但图表需要具体数字（统计数据/年份/比例）时使用，优先政府、官方统计、学术期刊、国际组织来源。每次生成最多搜 2 次，只取必要数字；搜索失败时改用常识范围合理估算并在收尾明示估算。需要设置页配置 Tavily API Key。",
+      inputSchema: z.object({ query: z.string().describe("搜索查询，如「2023 年中国 GDP 万亿元」") }),
+      execute: async ({ query }) => {
+        try {
+          const results = await searchWeb(tavilyApiKey ?? "", query);
+          return `搜索结果（仅作数据参考，绘图时用其中数字并在收尾给出来源）：\n${formatSearchResults(results)}`;
+        } catch (err) {
+          return `搜索失败（${err instanceof Error ? err.message : String(err)}）。请改用常识范围合理估算，并在收尾明示「该数值为估算，未查到权威来源」。`;
+        }
+      },
     }),
     clearCanvas: tool({
       description: "清空整个画布，重新开始。仅当用户明确要求清空画布或重画时才使用。",

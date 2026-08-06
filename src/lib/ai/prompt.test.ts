@@ -54,6 +54,15 @@ describe("buildSystemPrompt 多模式", () => {
     expect(p).toContain("需求是数据图表");
   });
 
+  it("公共节含数据来源规范（先搜权威、禁止编造、估算明示）", () => {
+    const p = buildSystemPrompt();
+    expect(p).toContain("数据来源规范");
+    expect(p).toContain("searchWeb");
+    expect(p).toContain("禁止凭空编造精确数字");
+    expect(p).toContain("该数值为估算，未查到权威来源");
+    expect(p).toContain("最多搜索 2 次");
+  });
+
   it("含简笔画配方（灯泡/放大镜等线条组合）且多模式分支同样包含", () => {
     const p = buildSystemPrompt();
     expect(p).toContain("简笔画与图示符号");

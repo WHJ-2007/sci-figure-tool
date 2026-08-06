@@ -479,6 +479,24 @@ describe("tools", () => {
     expect(d.serialize().elements).toHaveLength(0);
     expect(d.flushActivity()).toHaveLength(0);
   });
+
+  it("searchWeb 工具：配置 key 时返回搜索结果，未配置时返回估算提示", async () => {
+    // 未配置 key：直接返回估算提示，不发起网络请求
+    const d1 = new DraftCanvas([]);
+    const r1 = await (buildTools(d1) as any).searchWeb.execute({ query: "2023 年中国 GDP" });
+    expect(r1).toContain("搜索失败");
+    expect(r1).toContain("估算");
+    // 配置 key：mock Tavily 返回结果
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ results: [{ title: "中国 GDP", url: "https://www.stats.gov.cn/x", content: "126 万亿元" }] }),
+    }));
+    const d2 = new DraftCanvas([]);
+    const r2 = await (buildTools(d2, "tvly-test") as any).searchWeb.execute({ query: "2023 年中国 GDP" });
+    expect(r2).toContain("126 万亿元");
+    expect(r2).toContain("https://www.stats.gov.cn");
+    vi.unstubAllGlobals();
+  });
 });
 
 describe("DraftCanvas onChange", () => {

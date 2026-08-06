@@ -132,6 +132,7 @@ export default function ChatPanel() {
           apiKey: settings.apiKey,
           baseURL: settings.baseURL,
           model: settings.model,
+          tavilyApiKey: settings.tavilyApiKey ?? "",
           modes: auto ? null : modes,
         }),
       });

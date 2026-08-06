@@ -237,6 +237,19 @@ describe("ChatPanel", () => {
     await waitFor(() => expect(screen.getByTestId("ai-typing")).toBeInTheDocument());
   });
 
+  it("请求体携带 tavilyApiKey（设置中配置后透传）", async () => {
+    localStorage.setItem("fig-tool-settings", JSON.stringify({ apiKey: "sk-1", tavilyApiKey: "tvly-9" }));
+    vi.mocked(fetch).mockResolvedValueOnce(
+      mockStream([{ type: "complete", canvas: { width: 1600, height: 1000, elements: [] }, summary: "好" }])
+    );
+    render(<ChatPanel />);
+    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "画图" } });
+    fireEvent.click(screen.getByText("一键生成"));
+    await waitFor(() => expect(screen.getByText(/好/)).toBeInTheDocument());
+    const body = JSON.parse((vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string);
+    expect(body.tavilyApiKey).toBe("tvly-9");
+  });
+
   it("AI 提问澄清：question 事件显示问题气泡与等待提示，回答后复用主流程继续生成", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(mockStream([{ type: "question", question: "请问要画柱状图还是折线图？" }]))

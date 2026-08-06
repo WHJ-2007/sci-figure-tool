@@ -26,6 +26,7 @@ export async function runAgent(opts: {
   apiKey: string;
   baseURL: string;
   model: string;
+  tavilyApiKey?: string;
   modes?: AIMode[] | null;
   onEvent: (ev: AgentEvent) => void;
 }): Promise<string> {
@@ -41,7 +42,7 @@ export async function runAgent(opts: {
     model: provider(opts.model),
     system: buildSystemPrompt(opts.modes?.length ? opts.modes : undefined),
     messages: opts.messages,
-    tools: buildTools(draft),
+    tools: buildTools(draft, opts.tavilyApiKey),
     // AI SDK v5 已移除 maxSteps，改用 stopWhen 限制多轮工具调用步数（默认只跑 1 步）
     stopWhen: [hasToolCall("askUser"), stepCountIs(20)],
     onStepFinish: () => {
