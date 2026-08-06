@@ -126,7 +126,7 @@ export function makeElement(
             { x, y },
             { x: x + width, y: y + height },
           ];
-      return { ...base, type: "polyline", points } as CanvasElement;
+      return { ...base, type: "polyline", points, arrow: extra.arrow } as CanvasElement;
     }
     case "text": {
       const t = extra.text ?? "文字";

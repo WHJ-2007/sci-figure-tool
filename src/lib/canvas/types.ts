@@ -46,6 +46,7 @@ export interface ArrowElement extends BaseElement {
 export interface PolylineElement extends BaseElement {
   type: "polyline";
   points: { x: number; y: number }[];
+  arrow?: boolean; // 是否画端点箭头（默认 true；图表折线用 false）
 }
 
 // 逻辑节点：流程/结构图节点，圆角矩形 + 内置居中标题 + 多行正文（body，\n 分隔），自带上下左右 4 个箭头锚点

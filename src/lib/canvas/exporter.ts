@@ -36,12 +36,17 @@ export function elementToSvg(e: CanvasElement): string {
     }
     case "polyline": {
       const pts = e.points.map((p) => `${p.x},${p.y}`).join(" ");
-      const last = e.points[e.points.length - 1];
-      const prev = e.points[e.points.length - 2] ?? e.points[0];
-      const head = arrowHeadPoints(prev.x, prev.y, last.x, last.y)
-        .map((p) => `${p.x},${p.y}`)
-        .join(" ");
-      return `<g${rot}><polyline points="${pts}" fill="none" stroke="${e.stroke}" stroke-width="${e.strokeWidth}" opacity="${e.opacity}"/><polygon points="${head}" fill="${e.stroke}" opacity="${e.opacity}"/></g>`;
+      const head = e.arrow === false
+        ? ""
+        : (() => {
+            const last = e.points[e.points.length - 1];
+            const prev = e.points[e.points.length - 2] ?? e.points[0];
+            const h = arrowHeadPoints(prev.x, prev.y, last.x, last.y)
+              .map((p) => `${p.x},${p.y}`)
+              .join(" ");
+            return `<polygon points="${h}" fill="${e.stroke}" opacity="${e.opacity}"/>`;
+          })();
+      return `<g${rot}><polyline points="${pts}" fill="none" stroke="${e.stroke}" stroke-width="${e.strokeWidth}" opacity="${e.opacity}"/>${head}</g>`;
     }
     case "curve": {
       const c = curveControl(e);

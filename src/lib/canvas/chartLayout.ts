@@ -1,0 +1,182 @@
+import { makeElement, estimateTextSize } from "./elements";
+import { CANVAS_WIDTH, CANVAS_HEIGHT } from "./geometry";
+import type { CanvasElement } from "./types";
+
+export interface ChartDatum {
+  label: string;
+  value: number;
+  series?: string;
+}
+export interface ChartSpec {
+  type: "bar" | "line" | "pie" | "scatter";
+  title?: string;
+  xLabel?: string;
+  yLabel?: string;
+  data: ChartDatum[];
+}
+
+export const CHART_PALETTE = ["#eef4ff", "#f0fff0", "#fff8e6", "#f3efff", "#ffeef0", "#ffffff"];
+const AXIS = "#2f2f2f";
+const LABEL = "#4a5568";
+
+const PLOT = { left: 150, right: CANVAS_WIDTH - 60, top: 130, bottom: CANVAS_HEIGHT - 150 };
+
+// 刻度取整：5 档候选 {1,2,2.5,5,10}×10^k 取首个 ≥ max/5，上限 = ceil(max/step)×step
+export function niceScale(maxV: number): { step: number; max: number } {
+  const raw = Math.max(maxV, 1);
+  const rough = raw / 5;
+  const pow = Math.pow(10, Math.floor(Math.log10(rough)));
+  const step = [1, 2, 2.5, 5, 10].map((n) => n * pow).find((c) => c >= rough)!;
+  return { step, max: Math.ceil(raw / step) * step };
+}
+
+// 语义与布局分离：AI 只声明图表类型与数据，本模块产出全部元素（轴/刻度/图形/标签/图例）
+export function layoutChart(spec: ChartSpec): CanvasElement[] {
+  if (spec.type === "pie") return pie(spec);
+  return cartesian(spec);
+}
+
+function textEl(text: string, fontSize: number, x: number, y: number, opts: { bold?: boolean; fill?: string; align?: "left" | "center" | "right"; zIndex?: number } = {}): CanvasElement {
+  const size = estimateTextSize(text, fontSize, opts.bold ?? false);
+  const align = opts.align ?? "center";
+  const tx = align === "left" ? x : align === "right" ? x - size.width : x - size.width / 2;
+  return makeElement("text", tx, y - size.height / 2, size.width, size.height, {
+    text,
+    fontSize,
+    bold: opts.bold ?? false,
+    fill: opts.fill ?? LABEL,
+    align,
+    zIndex: opts.zIndex ?? 3,
+  });
+}
+
+function cartesian(spec: ChartSpec): CanvasElement[] {
+  const out: CanvasElement[] = [];
+  const plotW = PLOT.right - PLOT.left;
+  const plotH = PLOT.bottom - PLOT.top;
+  const maxV = Math.max(...spec.data.map((d) => d.value), 1);
+  const { step, max } = niceScale(maxV);
+  const y = (v: number) => PLOT.bottom - (v / max) * plotH;
+
+  // 标题 / 轴名
+  if (spec.title) out.push(textEl(spec.title, 22, 800, 52, { bold: true, fill: AXIS }));
+  if (spec.xLabel) out.push(textEl(spec.xLabel, 14, PLOT.left + plotW / 2, PLOT.bottom + 56));
+  if (spec.yLabel) {
+    const el = textEl(spec.yLabel, 14, PLOT.left - 56, PLOT.top + plotH / 2);
+    el.rotation = -90;
+    out.push(el);
+  }
+
+  // 坐标轴（y 轴向上 = 负高度，直接 makeElement 不经钳制）
+  out.push(makeElement("arrow", PLOT.left, PLOT.bottom, plotW, 0, { stroke: AXIS, strokeWidth: 2, zIndex: 1 }));
+  out.push(makeElement("arrow", PLOT.left, PLOT.bottom, 0, -plotH, { stroke: AXIS, strokeWidth: 2, zIndex: 1 }));
+
+  // y 刻度值
+  for (let v = step; v <= max + 1e-9; v += step) {
+    const ty = y(v);
+    out.push(textEl(Number.isInteger(v) ? String(v) : v.toFixed(1), 12, PLOT.left - 12, ty, { align: "right" }));
+  }
+
+  // 系列与分类
+  const seriesNames = Array.from(new Set(spec.data.map((d) => d.series ?? "默认")));
+  const series = seriesNames.map((name, i) => ({ name, color: CHART_PALETTE[i % CHART_PALETTE.length] }));
+  const cats = Array.from(new Set(spec.data.map((d) => d.label)));
+  const catW = plotW / cats.length;
+
+  for (const [ci, cat] of cats.entries()) {
+    const cx0 = PLOT.left + ci * catW + catW / 2;
+    const rows = spec.data.filter((d) => d.label === cat);
+    const vals = rows.map((d) => ({ si: seriesNames.indexOf(d.series ?? "默认"), value: d.value }));
+
+    if (spec.type === "bar") {
+      const groupW = catW - 24;
+      const bw = Math.min(70, groupW / series.length);
+      const off = (groupW - bw * series.length) / 2;
+      for (const v of vals) {
+        const bx = cx0 - groupW / 2 + off + v.si * bw;
+        const by = y(v.value);
+        out.push(makeElement("rect", bx, by, bw, Math.max(1, PLOT.bottom - by), {
+          fill: series[v.si].color, stroke: AXIS, strokeWidth: 1, zIndex: 2,
+        }));
+        out.push(textEl(String(v.value), 12, bx + bw / 2, by - 12));
+      }
+    } else {
+      for (const v of vals) {
+        const px = cx0;
+        const py = y(v.value);
+        if (spec.type === "line") {
+          out.push(makeElement("ellipse", px - 4, py - 4, 8, 8, {
+            fill: "#ffffff", stroke: series[v.si].color, strokeWidth: 2, zIndex: 2,
+          }));
+          out.push(textEl(String(v.value), 12, px, py - 14));
+        } else {
+          // scatter：数据点圆点
+          out.push(makeElement("ellipse", px - 5, py - 5, 10, 10, {
+            fill: series[v.si].color, stroke: AXIS, strokeWidth: 1, zIndex: 2,
+          }));
+        }
+      }
+    }
+    out.push(textEl(cat, 14, cx0, PLOT.bottom + 24));
+  }
+
+  // 折线：每个系列一条 polyline（无箭头）
+  if (spec.type === "line") {
+    for (const [si, name] of seriesNames.entries()) {
+      const pts = cats
+        .map((cat, ci) => ({ cat, ci }))
+        .filter(({ cat }) => spec.data.some((d) => d.label === cat && (d.series ?? "默认") === name))
+        .map(({ cat, ci }) => {
+          const row = spec.data.find((d) => d.label === cat && (d.series ?? "默认") === name)!;
+          return { x: PLOT.left + ci * catW + catW / 2, y: y(row.value) };
+        });
+      if (pts.length >= 2) {
+        out.push(makeElement("polyline", 0, 0, 0, 0, {
+          points: pts, stroke: series[si].color, strokeWidth: 2, arrow: false, zIndex: 1,
+        }));
+      }
+    }
+  }
+
+  // 多系列图例（右上角）
+  if (series.length > 1) {
+    let ly = PLOT.top + 10;
+    for (const s of series) {
+      out.push(makeElement("rect", PLOT.right - 170, ly, 14, 14, { fill: s.color, stroke: AXIS, strokeWidth: 1, zIndex: 2 }));
+      out.push(textEl(s.name, 13, PLOT.right - 148, ly + 7, { align: "left" }));
+      ly += 26;
+    }
+  }
+
+  return out;
+}
+
+function pie(spec: ChartSpec): CanvasElement[] {
+  const out: CanvasElement[] = [];
+  const total = spec.data.reduce((s, d) => s + d.value, 0);
+  if (total <= 0) return out;
+  if (spec.title) out.push(textEl(spec.title, 22, 800, 52, { bold: true, fill: AXIS }));
+  const cx = 800;
+  const cy = 500;
+  const r = 280;
+  let angle = -Math.PI / 2;
+  spec.data.forEach((d, i) => {
+    const sweep = (d.value / total) * Math.PI * 2;
+    const start = angle;
+    const end = angle + sweep;
+    out.push(makeElement("sector", cx, cy, r * 2, r * 2, {
+      radius: r, startAngle: start, endAngle: end,
+      fill: CHART_PALETTE[i % CHART_PALETTE.length], stroke: AXIS, strokeWidth: 1, zIndex: 2,
+    }));
+    const mid = (start + end) / 2;
+    out.push(textEl(`${Math.round((d.value / total) * 100)}%`, 13, cx + Math.cos(mid) * r * 0.62, cy + Math.sin(mid) * r * 0.62, { fill: AXIS }));
+    angle = end;
+  });
+  let ly = 200;
+  spec.data.forEach((d, i) => {
+    out.push(makeElement("rect", 1350, ly, 14, 14, { fill: CHART_PALETTE[i % CHART_PALETTE.length], stroke: AXIS, strokeWidth: 1, zIndex: 2 }));
+    out.push(textEl(d.label, 13, 1372, ly + 7, { align: "left" }));
+    ly += 26;
+  });
+  return out;
+}

@@ -126,4 +126,11 @@ describe("exporter", () => {
     const svg = elementToSvg(s);
     expect(svg).toContain("A 10 10 0 0 1");
   });
+
+  it("elementToSvg polyline arrow:false 不输出箭头多边形", () => {
+    const p = makeElement("polyline", 0, 0, 0, 0, { points: [{ x: 0, y: 0 }, { x: 100, y: 50 }], arrow: false });
+    const svg = elementToSvg(p);
+    expect(svg).toContain("<polyline");
+    expect(svg).not.toContain("<polygon");
+  });
 });

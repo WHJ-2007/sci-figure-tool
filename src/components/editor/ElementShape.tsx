@@ -47,7 +47,9 @@ function renderBody(
       return (
         <g>
           <polyline points={pointsToString(e.points)} fill="none" stroke={e.stroke} strokeWidth={e.strokeWidth} opacity={e.opacity} />
-          <polygon points={pointsToString(arrowHeadPoints(prev.x, prev.y, last.x, last.y))} fill={e.stroke} opacity={e.opacity} />
+          {e.arrow !== false && (
+            <polygon points={pointsToString(arrowHeadPoints(prev.x, prev.y, last.x, last.y))} fill={e.stroke} opacity={e.opacity} />
+          )}
         </g>
       );
     }
