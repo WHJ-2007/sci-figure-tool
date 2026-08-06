@@ -191,6 +191,8 @@ export default function ChatPanel() {
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         setError(data.error ?? `确认失败 (${res.status})`);
+        // 失败必须关闭对话框：会话过期(404)等场景下残留 confirmReq 会让用户永远卡在弹窗，且 send() 守卫永久拦截后续生成
+        setConfirmReq(null);
         return;
       }
       const reader = res.body!.getReader();
@@ -229,6 +231,7 @@ export default function ChatPanel() {
       });
     } catch (err) {
       setError("确认失败：" + String(err));
+      setConfirmReq(null);
     } finally {
       setConfirmBusy(false);
     }

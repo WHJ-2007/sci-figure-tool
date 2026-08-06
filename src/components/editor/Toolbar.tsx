@@ -64,6 +64,14 @@ const SHAPE_ICON = (
   </svg>
 );
 
+// 箭头图标：简单直箭头（水平直线 + 箭头尖，描边风格，无弯折）
+const ARROW_ICON = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M3 12h14" />
+    <path d="M13 5l7 7-7 7" />
+  </svg>
+);
+
 // 文本框图标：字母 T 字形（描边风格，与图形/逻辑等常驻按钮一致）
 const TEXT_ICON = (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
@@ -103,7 +111,7 @@ const SHAPE_TOOLS: ToolItem[] = [
   { title: "三角形", tool: "triangle", label: "△" },
   { title: "菱形", tool: "diamond", label: "◇" },
   { title: "六边形", tool: "hexagon", label: "⬡" },
-  { title: "箭头", tool: "arrow", label: "→" },
+  { title: "箭头", tool: "arrow", label: ARROW_ICON },
   { title: "折线", tool: "polyline", label: "↯" },
 ];
 const SHAPE_TOOL_SET = new Set(SHAPE_TOOLS.map((t) => t.tool));

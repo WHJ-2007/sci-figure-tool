@@ -30,6 +30,22 @@ describe("exporter", () => {
     expect(elementToSvg(a)).toContain("<polygon");
   });
 
+  it("elementToSvg 箭头样式：none 无箭头多边形，double 两个（终点 + 起点反向）", () => {
+    const none = makeElement("arrow", 0, 0, 100, 50, { head: "none" });
+    expect(elementToSvg(none)).not.toContain("<polygon");
+    const single = makeElement("arrow", 0, 0, 100, 50, { head: "single" });
+    expect(elementToSvg(single).match(/<polygon/g)).toHaveLength(1);
+    const dbl = makeElement("arrow", 0, 0, 100, 0, { head: "double" });
+    const out = elementToSvg(dbl);
+    expect(out.match(/<polygon/g)).toHaveLength(2);
+    // 起点反向箭头尖在 (0,0)（终点箭头尖在 (100,0)）
+    expect(out).toContain('points="0,0 ');
+    expect(out).toContain('points="100,0 ');
+    // 缺省 = single：旧数据无 head 字段仍只有一个箭头
+    const legacy = makeElement("arrow", 0, 0, 100, 50);
+    expect(elementToSvg(legacy).match(/<polygon/g)).toHaveLength(1);
+  });
+
   it("elementToSvg 带折点的箭头输出 polyline 折线与箭头多边形（折点为相对坐标）", () => {
     // 起点 (50,30)，折点相对 (100,40) → 世界 (150,70)；终点 x2 = 50+200 = 250
     const a = makeElement("arrow", 50, 30, 200, 0, { midPoints: [{ x: 100, y: 40 }] });

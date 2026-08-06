@@ -28,25 +28,39 @@ export function elementToSvg(e: CanvasElement): string {
     case "arrow": {
       const x2 = e.x + e.width;
       const y2 = e.y + e.height;
+      // 箭头头部 polygon（none=空，single=终点，double=终点+起点反向）
+      const headPts = (pts: { x: number; y: number }[]): string => {
+        const head = e.head ?? "single";
+        if (head === "none") return "";
+        const last = pts[pts.length - 1];
+        const prev = pts[pts.length - 2] ?? pts[0];
+        const polys = [
+          arrowHeadPoints(prev.x, prev.y, last.x, last.y)
+            .map((p) => `${p.x},${p.y}`)
+            .join(" "),
+        ];
+        if (head === "double") {
+          const first = pts[0];
+          const second = pts[1] ?? last;
+          polys.push(
+            arrowHeadPoints(second.x, second.y, first.x, first.y)
+              .map((p) => `${p.x},${p.y}`)
+              .join(" ")
+          );
+        }
+        return polys.map((p) => `<polygon points="${p}" fill="${e.stroke}" opacity="${e.opacity}"/>`).join("");
+      };
       // 带折点的箭头：折线路径 + 箭头方向取末段（折点为相对坐标，arrowPoints 转世界坐标）
       if ((e.midPoints?.length ?? 0) > 0) {
         const pts = arrowPoints(e);
-        const last = pts[pts.length - 1];
-        const prev = pts[pts.length - 2] ?? pts[0];
-        const head = arrowHeadPoints(prev.x, prev.y, last.x, last.y)
-          .map((p) => `${p.x},${p.y}`)
-          .join(" ");
         // 含平滑折点 → Catmull-Rom 曲线路径（与渲染一致）；全尖锐 → 折线
         const hasSmooth = e.midPoints!.some((m) => m.smooth);
         const line = hasSmooth
           ? `<path d="${arrowPathD(pts)}" fill="none" stroke="${e.stroke}" stroke-width="${e.strokeWidth}" opacity="${e.opacity}" stroke-linejoin="round"/>`
           : `<polyline points="${pts.map((p) => `${p.x},${p.y}`).join(" ")}" fill="none" stroke="${e.stroke}" stroke-width="${e.strokeWidth}" opacity="${e.opacity}"/>`;
-        return `<g${rot}>${line}<polygon points="${head}" fill="${e.stroke}" opacity="${e.opacity}"/></g>`;
+        return `<g${rot}>${line}${headPts(pts)}</g>`;
       }
-      const head = arrowHeadPoints(e.x, e.y, x2, y2)
-        .map((p) => `${p.x},${p.y}`)
-        .join(" ");
-      return `<g${rot}><line x1="${e.x}" y1="${e.y}" x2="${x2}" y2="${y2}" stroke="${e.stroke}" stroke-width="${e.strokeWidth}" opacity="${e.opacity}"/><polygon points="${head}" fill="${e.stroke}" opacity="${e.opacity}"/></g>`;
+      return `<g${rot}><line x1="${e.x}" y1="${e.y}" x2="${x2}" y2="${y2}" stroke="${e.stroke}" stroke-width="${e.strokeWidth}" opacity="${e.opacity}"/>${headPts([{ x: e.x, y: e.y }, { x: x2, y: y2 }])}</g>`;
     }
     case "polyline": {
       const pts = e.points.map((p) => `${p.x},${p.y}`).join(" ");

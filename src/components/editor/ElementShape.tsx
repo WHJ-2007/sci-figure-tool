@@ -43,17 +43,15 @@ function renderBody(
       if ((e.midPoints?.length ?? 0) > 0) {
         const pts = arrowPoints(e);
         const ptsStr = pointsToString(pts);
-        const last = pts[pts.length - 1];
-        const prev = pts[pts.length - 2] ?? pts[0];
         // 含平滑折点 → Catmull-Rom 曲线路径（平滑穿过折点）；全尖锐 → 折线
         const hasSmooth = e.midPoints!.some((m) => m.smooth);
         const d = arrowPathD(pts);
-        const head = pointsToString(arrowHeadPoints(prev.x, prev.y, last.x, last.y));
+        const heads = arrowHeadPolygons(e, pts);
         if (hasSmooth) {
           return (
             <g>
               <path d={d} fill="none" stroke={e.stroke} strokeWidth={e.strokeWidth} opacity={e.opacity} strokeLinejoin="round" />
-              <polygon points={head} fill={e.stroke} opacity={e.opacity} />
+              {heads.map((h, i) => <polygon key={i} points={h} fill={e.stroke} opacity={e.opacity} />)}
               {/* 透明加宽命中层：细线难点，12px 宽透明描边扩大点击范围 */}
               <path d={d} fill="none" stroke="transparent" strokeWidth={12} strokeLinecap="round" strokeLinejoin="round" pointerEvents="all" />
             </g>
@@ -62,16 +60,20 @@ function renderBody(
         return (
           <g>
             <polyline points={ptsStr} fill="none" stroke={e.stroke} strokeWidth={e.strokeWidth} opacity={e.opacity} strokeLinejoin="round" />
-            <polygon points={head} fill={e.stroke} opacity={e.opacity} />
+            {heads.map((h, i) => <polygon key={i} points={h} fill={e.stroke} opacity={e.opacity} />)}
             {/* 透明加宽命中层：细线难点，12px 宽透明描边扩大点击范围 */}
             <polyline points={ptsStr} fill="none" stroke="transparent" strokeWidth={12} strokeLinecap="round" strokeLinejoin="round" pointerEvents="all" />
           </g>
         );
       }
+      const heads = arrowHeadPolygons(e, [
+        { x: e.x, y: e.y },
+        { x: x2, y: y2 },
+      ]);
       return (
         <g>
           <line x1={e.x} y1={e.y} x2={x2} y2={y2} stroke={e.stroke} strokeWidth={e.strokeWidth} opacity={e.opacity} />
-          <polygon points={pointsToString(arrowHeadPoints(e.x, e.y, x2, y2))} fill={e.stroke} opacity={e.opacity} />
+          {heads.map((h, i) => <polygon key={i} points={h} fill={e.stroke} opacity={e.opacity} />)}
           <line x1={e.x} y1={e.y} x2={x2} y2={y2} stroke="transparent" strokeWidth={12} strokeLinecap="round" pointerEvents="all" />
         </g>
       );
@@ -188,4 +190,21 @@ function renderBody(
 
 function pointsToString(pts: { x: number; y: number }[]): string {
   return pts.map((p) => `${p.x},${p.y}`).join(" ");
+}
+
+// 箭头头部 polygon 列表（按 head 样式）：none=空，single=终点箭头，double=终点 + 起点反向箭头。
+// pts 为世界坐标点列（含折点），末段方向 → 终点箭头，首段方向 → 起点箭头
+function arrowHeadPolygons(e: CanvasElement, pts: { x: number; y: number }[]): string[] {
+  if (e.type !== "arrow") return [];
+  const head = e.head ?? "single";
+  if (head === "none") return [];
+  const last = pts[pts.length - 1];
+  const prev = pts[pts.length - 2] ?? pts[0];
+  const res = [pointsToString(arrowHeadPoints(prev.x, prev.y, last.x, last.y))];
+  if (head === "double") {
+    const first = pts[0];
+    const second = pts[1] ?? last;
+    res.push(pointsToString(arrowHeadPoints(second.x, second.y, first.x, first.y)));
+  }
+  return res;
 }

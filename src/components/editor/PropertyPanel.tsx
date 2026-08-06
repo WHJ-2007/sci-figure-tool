@@ -44,9 +44,11 @@ export default function PropertyPanel() {
   const updateElement = useCanvasStore((s) => s.updateElement);
   const deleteElements = useCanvasStore((s) => s.deleteElements);
   const setSelection = useCanvasStore((s) => s.setSelection);
+  const aiLockedIds = useCanvasStore((s) => s.aiLockedIds);
 
   // 钩子必须先于任何早退调用：空选区的早退返回不能改变钩子数量
   const [chartOpen, setChartOpen] = useState(false);
+  const [dragLayer, setDragLayer] = useState<string | null>(null);
 
   const selected = selection.map((id) => doc.elements.find((e) => e.id === id)).filter((e): e is CanvasElement => Boolean(e));
   if (selected.length === 0) {
@@ -92,42 +94,70 @@ export default function PropertyPanel() {
         {"text" in one && one.text && <span className="truncate text-xs text-gray-500">{one.text}</span>}
       </header>
 
-      {/* 背景图案：外观——填充/边框/旋转等（对任意元素都有意义） */}
-      <Section title="背景图案">
-        <div className="flex items-center gap-1.5">
-          {PALETTE.map((c) => (
-            <button
-              key={c}
-              title={`预设色 ${c}`}
-              aria-label={`预设色 ${c}`}
-              onClick={() => patch({ fill: c })}
-              className={`lift h-6 w-6 rounded-full border ${one.fill.toLowerCase() === c ? "border-blue-500 ring-2 ring-blue-300" : "border-black/10"}`}
-              style={{ background: c }}
-            />
-          ))}
-          <label className="ml-1 flex items-center gap-1 text-xs text-gray-500">
-            自定义
-            <input type="color" aria-label="填充色" value={one.fill} onChange={(e) => patch({ fill: e.target.value })} className="h-6 w-8 cursor-pointer rounded-md border border-white/70 bg-white/70 p-0.5" />
-          </label>
-        </div>
-        <SliderRow label="线宽" ariaLabel="线宽" value={one.strokeWidth} min={0} max={20} step={1} onChange={(v) => patch({ strokeWidth: v })} />
-        <SliderRow label="透明度" ariaLabel="透明度" value={one.opacity} min={0} max={1} step={0.05} onChange={(v) => patch({ opacity: v })} />
-        {(one.type === "rect" || one.type === "logic") && (
-          <SliderRow label="圆角" ariaLabel="圆角" value={one.rx} min={0} max={50} step={1} onChange={(v) => patch({ rx: v })} />
-        )}
-        {one.type !== "curve" && one.type !== "sector" && (
-          <SliderRow label="旋转" ariaLabel="旋转" value={one.rotation} min={-360} max={360} step={1} onChange={(v) => patch({ rotation: v })} />
-        )}
-        {one.type === "curve" && (
-          <SliderRow label="弯曲" ariaLabel="弯曲度" value={one.curvature} min={-2} max={2} step={0.1} onChange={(v) => patch({ curvature: v } as Partial<CanvasElement>)} />
-        )}
-        {one.type === "sector" && (
-          <div className="space-y-1 text-xs text-gray-500/90">
-            <div>圆心 ({Math.round(one.x)}, {Math.round(one.y)})　半径 {Math.round(one.radius)}</div>
-            <div>角度 {Math.round((one.startAngle * 180) / Math.PI)}° → {Math.round((one.endAngle * 180) / Math.PI)}°</div>
+      {/* 箭头专属卡片：粗细 → 箭头样式 → 透明度 → 旋转 → 箭头颜色（填充色对箭头无意义） */}
+      {one.type === "arrow" ? (
+        <Section title="箭头">
+          <SliderRow label="粗细" ariaLabel="粗细" value={one.strokeWidth} min={0} max={20} step={1} onChange={(v) => patch({ strokeWidth: v })} />
+          <div className="flex items-center gap-1.5">
+            <span className="w-8 shrink-0 text-xs text-gray-500">样式</span>
+            {([["none", "无箭头"], ["single", "单箭头"], ["double", "双箭头"]] as const).map(([h, label]) => (
+              <button
+                key={h}
+                title={label}
+                onClick={() => patch({ head: h } as Partial<CanvasElement>)}
+                className={`lift rounded-lg border px-2 py-0.5 text-xs ${(one.head ?? "single") === h ? "border-blue-300 bg-blue-100 text-blue-700" : "border-white/60 bg-white/70 text-gray-600 shadow-sm hover:bg-white/90"}`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
-        )}
-      </Section>
+          <SliderRow label="透明度" ariaLabel="透明度" value={one.opacity} min={0} max={1} step={0.05} onChange={(v) => patch({ opacity: v })} />
+          <SliderRow label="旋转" ariaLabel="旋转" value={one.rotation} min={-360} max={360} step={1} onChange={(v) => patch({ rotation: v })} />
+          <div className="flex items-center gap-1.5">
+            <span className="w-8 shrink-0 text-xs text-gray-500">颜色</span>
+            <label className="flex items-center gap-1 text-xs text-gray-500">
+              <input type="color" aria-label="箭头颜色" value={one.stroke} onChange={(e) => patch({ stroke: e.target.value })} className="h-6 w-8 cursor-pointer rounded-md border border-white/70 bg-white/70 p-0.5" />
+              描边色
+            </label>
+          </div>
+        </Section>
+      ) : (
+        <Section title="背景图案">
+          <div className="flex items-center gap-1.5">
+            {PALETTE.map((c) => (
+              <button
+                key={c}
+                title={`预设色 ${c}`}
+                aria-label={`预设色 ${c}`}
+                onClick={() => patch({ fill: c })}
+                className={`lift h-6 w-6 rounded-full border ${one.fill.toLowerCase() === c ? "border-blue-500 ring-2 ring-blue-300" : "border-black/10"}`}
+                style={{ background: c }}
+              />
+            ))}
+            <label className="ml-1 flex items-center gap-1 text-xs text-gray-500">
+              自定义
+              <input type="color" aria-label="填充色" value={one.fill} onChange={(e) => patch({ fill: e.target.value })} className="h-6 w-8 cursor-pointer rounded-md border border-white/70 bg-white/70 p-0.5" />
+            </label>
+          </div>
+          <SliderRow label="线宽" ariaLabel="线宽" value={one.strokeWidth} min={0} max={20} step={1} onChange={(v) => patch({ strokeWidth: v })} />
+          <SliderRow label="透明度" ariaLabel="透明度" value={one.opacity} min={0} max={1} step={0.05} onChange={(v) => patch({ opacity: v })} />
+          {(one.type === "rect" || one.type === "logic") && (
+            <SliderRow label="圆角" ariaLabel="圆角" value={one.rx} min={0} max={50} step={1} onChange={(v) => patch({ rx: v })} />
+          )}
+          {one.type !== "curve" && one.type !== "sector" && (
+            <SliderRow label="旋转" ariaLabel="旋转" value={one.rotation} min={-360} max={360} step={1} onChange={(v) => patch({ rotation: v })} />
+          )}
+          {one.type === "curve" && (
+            <SliderRow label="弯曲" ariaLabel="弯曲度" value={one.curvature} min={-2} max={2} step={0.1} onChange={(v) => patch({ curvature: v } as Partial<CanvasElement>)} />
+          )}
+          {one.type === "sector" && (
+            <div className="space-y-1 text-xs text-gray-500/90">
+              <div>圆心 ({Math.round(one.x)}, {Math.round(one.y)})　半径 {Math.round(one.radius)}</div>
+              <div>角度 {Math.round((one.startAngle * 180) / Math.PI)}° → {Math.round((one.endAngle * 180) / Math.PI)}°</div>
+            </div>
+          )}
+        </Section>
+      )}
 
       {/* 标题：逻辑节点标题或文字内容 + 字号样式 */}
       {isTextLike && (
@@ -193,6 +223,62 @@ export default function PropertyPanel() {
           </div>
         </Section>
       )}
+
+      {/* 层级：优先级排序——列表顶部 = 最顶层、底部 = 最底层，拖拽条目调整遮挡顺序（drop 时一步撤销） */}
+      <Section title="层级">
+        <p className="text-[10px] leading-relaxed text-gray-400">顶部 = 最顶层、底部 = 最底层；拖动条目调整遮挡顺序</p>
+        <ul className="space-y-1">
+          {[...doc.elements].sort((x, y) => y.zIndex - x.zIndex).map((el, i) => {
+            const locked = aiLockedIds.includes(el.id);
+            return (
+              <li
+                key={el.id}
+                data-testid="layer-item"
+                data-element-id={el.id}
+                draggable={!locked}
+                title={locked ? "AI 生成中，暂不可调整层级" : "拖动调整层级，点击选中"}
+                onClick={() => setSelection([el.id])}
+                onDragStart={(e) => {
+                  e.dataTransfer.effectAllowed = "move";
+                  e.dataTransfer.setData("text/plain", el.id);
+                  setDragLayer(el.id);
+                }}
+                onDragOver={(e) => {
+                  if (!dragLayer || dragLayer === el.id) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const src = dragLayer ?? e.dataTransfer.getData("text/plain");
+                  if (src && src !== el.id) {
+                    const order = [...doc.elements].sort((x, y) => y.zIndex - x.zIndex).map((l) => l.id);
+                    const from = order.indexOf(src);
+                    const to = order.indexOf(el.id);
+                    if (from >= 0 && to >= 0) {
+                      order.splice(from, 1);
+                      order.splice(to, 0, src);
+                      useCanvasStore.getState().reorderElements(order);
+                    }
+                  }
+                  setDragLayer(null);
+                }}
+                onDragEnd={() => setDragLayer(null)}
+                className={`lift flex cursor-pointer items-center gap-1.5 rounded-lg border px-2 py-1 text-xs ${
+                  selection.includes(el.id) ? "border-blue-300 bg-blue-50 text-gray-700" : "border-white/60 bg-white/70 text-gray-600 shadow-sm hover:bg-white/90"
+                } ${locked ? "opacity-60" : ""}`}
+              >
+                <span className="shrink-0 rounded bg-gray-100/90 px-1 py-0.5 text-[10px] text-gray-500">{TYPE_NAMES[el.type]}</span>
+                <span className="min-w-0 flex-1 truncate">{"text" in el && el.text ? el.text : TYPE_NAMES[el.type]}</span>
+                {i === 0 && <span className="shrink-0 text-[10px] text-blue-500">顶层</span>}
+                {i === doc.elements.length - 1 && doc.elements.length > 1 && (
+                  <span className="shrink-0 text-[10px] text-gray-400">底层</span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      </Section>
 
       <Section title="操作">
         <div className="flex gap-2">

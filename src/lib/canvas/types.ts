@@ -46,6 +46,8 @@ export interface ArrowElement extends BaseElement {
   type: "arrow";
   startId?: string;
   endId?: string;
+  // 箭头头部样式：single=终点单箭头（缺省），double=两端箭头，none=无箭头（纯线）
+  head?: "none" | "single" | "double";
   // 中间折点（相对坐标，相对箭头起点 e.x/e.y；整体移动时折点自动跟随，无需平移）：
   // 渲染为起点→折点…→终点的折线，右键菜单可增删、无限个；
   // smooth=true 的折点为平滑折点（Catmull-Rom 曲线平滑穿过），false/缺省为尖锐折点（直线拐角）

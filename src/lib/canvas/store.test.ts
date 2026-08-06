@@ -63,6 +63,35 @@ describe("canvas store", () => {
     expect(el.width).toBeCloseTo(32 * 2 * 1.06);
   });
 
+  it("reorderElements 按列表顺序重分配 zIndex（第一个最顶层），一步撤销恢复", () => {
+    const a = makeElement("rect", 0, 0, 100, 60);
+    const b = makeElement("ellipse", 10, 10, 50, 50);
+    const c = makeElement("text", 20, 20, 80, 20, { text: "T" });
+    useCanvasStore.getState().addElements([a, b, c]); // zIndex 1,2,3（c 最顶层）
+    // c 移到最底层、a 提到中间：顺序 [b, c, a]
+    useCanvasStore.getState().reorderElements([b.id, c.id, a.id]);
+    const byId = new Map(useCanvasStore.getState().doc.elements.map((e) => [e.id, e.zIndex]));
+    expect(byId.get(b.id)).toBe(3);
+    expect(byId.get(c.id)).toBe(2);
+    expect(byId.get(a.id)).toBe(1);
+    // 一步撤销恢复原层级
+    useCanvasStore.getState().undo();
+    const back = new Map(useCanvasStore.getState().doc.elements.map((e) => [e.id, e.zIndex]));
+    expect(back.get(a.id)).toBe(1);
+    expect(back.get(b.id)).toBe(2);
+    expect(back.get(c.id)).toBe(3);
+  });
+
+  it("reorderElements 未列入列表的元素保持原相对顺序接到尾部", () => {
+    const a = makeElement("rect", 0, 0, 100, 60);
+    const b = makeElement("ellipse", 10, 10, 50, 50);
+    useCanvasStore.getState().addElements([a, b]);
+    useCanvasStore.getState().reorderElements([b.id]); // 仅提 b 到最顶
+    const byId = new Map(useCanvasStore.getState().doc.elements.map((e) => [e.id, e.zIndex]));
+    expect(byId.get(b.id)).toBe(2);
+    expect(byId.get(a.id)).toBe(1);
+  });
+
   it("deleteElements 删除并支持撤销恢复", () => {
     const a = makeElement("rect", 0, 0, 100, 60);
     useCanvasStore.getState().addElement(a);

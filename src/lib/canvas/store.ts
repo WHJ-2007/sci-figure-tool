@@ -67,6 +67,7 @@ export interface CanvasStore {
   updateElementFast: (id: string, patch: Partial<CanvasElement>) => void;
   deleteElements: (ids: string[]) => void;
   moveElements: (ids: string[], dx: number, dy: number) => void;
+  reorderElements: (orderedIds: string[]) => void;
   commitHistory: () => void;
   setSelection: (ids: string[]) => void;
   setTool: (t: ToolType) => void;
@@ -160,6 +161,17 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => {
         const doc = structuredClone(s.doc);
         doc.elements = doc.elements.map((e) => (e.id === id ? ({ ...e, ...patch } as CanvasElement) : e));
         return { ...syncProject(s, doc, s.history) };
+      }),
+    // 层级排序：orderedIds 按"顶层在前"排列（第一个 zIndex 最高），未列入的元素保持原相对顺序接到尾部；
+    // 一次排序 = 一步撤销（解决遮挡的拖拽排序在 drop 时调用一次）
+    reorderElements: (orderedIds) =>
+      set((s) => {
+        const doc = structuredClone(s.doc);
+        const byId = new Map(doc.elements.map((e) => [e.id, e]));
+        const rest = doc.elements.filter((e) => !orderedIds.includes(e.id)).sort((x, y) => x.zIndex - y.zIndex);
+        const list = orderedIds.filter((id) => byId.has(id)).concat(rest.map((e) => e.id));
+        doc.elements = list.map((id, i) => ({ ...byId.get(id)!, zIndex: list.length - i }));
+        return { ...syncProject(s, doc, pushHistory(s.history, s.doc)) };
       }),
     deleteElements: (ids) =>
       set((s) => {

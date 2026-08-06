@@ -6,6 +6,7 @@ import ChatPanel from "./ChatPanel";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { makeElement } from "@/lib/canvas/elements";
 import { layoutChart, type ChartSpec } from "@/lib/canvas/chartLayout";
+import type { ArrowElement } from "@/lib/canvas/types";
 
 beforeEach(() => useCanvasStore.setState(useCanvasStore.getInitialState()));
 
@@ -49,6 +50,39 @@ describe("悬浮动效", () => {
 });
 
 describe("PropertyPanel", () => {
+  it("选中箭头显示箭头专属卡片：粗细/样式/透明度/旋转/颜色按序，无背景图案卡片", () => {
+    const a = makeElement("arrow", 100, 100, 200, 0, { id: "a1" });
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().setSelection([a.id]);
+    render(<PropertyPanel />);
+    // 箭头卡片替代背景图案卡片（填充色对箭头无意义）
+    expect(screen.queryByText("背景图案")).toBeNull();
+    const card = [...document.querySelectorAll("section")].find((s) => s.querySelector("h3")?.textContent === "箭头")!;
+    const seq = [...card.querySelectorAll("[aria-label],button")].map((el) => el.getAttribute("aria-label") ?? el.textContent!.trim());
+    // 编辑顺序：粗细 → 箭头样式（无/单/双）→ 透明度 → 旋转 → 箭头颜色
+    expect(seq).toEqual(["粗细", "粗细 数值", "无箭头", "单箭头", "双箭头", "透明度", "透明度 数值", "旋转", "旋转 数值", "箭头颜色"]);
+  });
+
+  it("箭头卡片交互：样式切换 head，粗细/透明度/旋转/颜色写入元素", () => {
+    const a = makeElement("arrow", 100, 100, 200, 0, { id: "a1" });
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().setSelection([a.id]);
+    render(<PropertyPanel />);
+    fireEvent.click(screen.getByText("双箭头"));
+    expect((useCanvasStore.getState().doc.elements[0] as ArrowElement).head).toBe("double");
+    fireEvent.click(screen.getByText("无箭头"));
+    expect((useCanvasStore.getState().doc.elements[0] as ArrowElement).head).toBe("none");
+    fireEvent.change(screen.getByLabelText("粗细"), { target: { value: "6" } });
+    fireEvent.change(screen.getByLabelText("透明度"), { target: { value: "0.5" } });
+    fireEvent.change(screen.getByLabelText("旋转"), { target: { value: "45" } });
+    fireEvent.change(screen.getByLabelText("箭头颜色"), { target: { value: "#ff0000" } });
+    const e = useCanvasStore.getState().doc.elements[0] as ArrowElement;
+    expect(e.strokeWidth).toBe(6);
+    expect(e.opacity).toBe(0.5);
+    expect(e.rotation).toBe(45);
+    expect(e.stroke).toBe("#ff0000");
+  });
+
   it("选中矩形显示填充色并可修改", () => {
     const a = makeElement("rect", 0, 0, 100, 60);
     useCanvasStore.getState().addElement(a);
@@ -166,7 +200,9 @@ describe("PropertyPanel", () => {
     useCanvasStore.getState().addElement(a);
     useCanvasStore.getState().setSelection([a.id]);
     render(<PropertyPanel />);
-    expect(screen.getByText("逻辑节点")).toBeInTheDocument();
+    // 类型徽章（层级列表条目里的类型标签不算）
+    const badges = screen.getAllByText("逻辑节点").filter((el) => el.classList.contains("bg-blue-100/70"));
+    expect(badges).toHaveLength(1);
   });
 
   it("水平镜像按钮切换 flipH", () => {
@@ -199,6 +235,44 @@ describe("PropertyPanel", () => {
     render(<PropertyPanel />);
     fireEvent.click(screen.getByText("选择整个图表"));
     expect(useCanvasStore.getState().selection).toEqual(ids);
+  });
+
+  it("层级卡片：按 zIndex 降序列出全部元素（首个顶层、末个底层），点击条目选中元素", () => {
+    const a = makeElement("rect", 0, 0, 100, 60, { id: "a1" });
+    const b = makeElement("ellipse", 10, 10, 50, 50, { id: "b1" });
+    useCanvasStore.getState().addElements([a, b]); // a z=1、b z=2（b 更顶）
+    useCanvasStore.getState().setSelection([a.id]);
+    render(<PropertyPanel />);
+    const items = screen.getAllByTestId("layer-item");
+    expect(items.map((i) => i.getAttribute("data-element-id"))).toEqual([b.id, a.id]);
+    expect(items[0].textContent).toContain("顶层");
+    expect(items[1].textContent).toContain("底层");
+    // 当前选中的条目高亮
+    expect(items[1].classList.contains("bg-blue-50")).toBe(true);
+    // 点击条目切换选中
+    fireEvent.click(items[0]);
+    expect(useCanvasStore.getState().selection).toEqual([b.id]);
+  });
+
+  it("层级卡片拖拽排序：把底层条目拖到顶层条目上 → 该元素变最顶层，一步撤销恢复", () => {
+    const a = makeElement("rect", 0, 0, 100, 60, { id: "a1" });
+    const b = makeElement("ellipse", 10, 10, 50, 50, { id: "b1" });
+    useCanvasStore.getState().addElements([a, b]);
+    useCanvasStore.getState().setSelection([a.id]);
+    render(<PropertyPanel />);
+    const items = screen.getAllByTestId("layer-item"); // [b(顶层), a(底层)]
+    const dt = { effectAllowed: "", dropEffect: "", setData: () => {}, getData: () => "" };
+    fireEvent.dragStart(items[1], { dataTransfer: dt });
+    fireEvent.dragOver(items[0], { dataTransfer: dt });
+    fireEvent.drop(items[0], { dataTransfer: dt });
+    const byId = new Map(useCanvasStore.getState().doc.elements.map((e) => [e.id, e.zIndex]));
+    expect(byId.get(a.id)).toBe(2); // a 被提到最顶
+    expect(byId.get(b.id)).toBe(1);
+    // 一步撤销恢复原层级
+    useCanvasStore.getState().undo();
+    const back = new Map(useCanvasStore.getState().doc.elements.map((e) => [e.id, e.zIndex]));
+    expect(back.get(a.id)).toBe(1);
+    expect(back.get(b.id)).toBe(2);
   });
 
   it("操作卡删除按钮删除选中元素", () => {

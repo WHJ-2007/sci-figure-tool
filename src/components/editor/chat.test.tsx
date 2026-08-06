@@ -317,6 +317,27 @@ describe("ChatPanel 画布级操作确认", () => {
     await waitFor(() => expect(screen.getByText(/第二次生成/)).toBeInTheDocument());
   });
 
+  it("确认请求失败（会话过期 404）时对话框关闭，不卡死", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        mockStream([
+          { type: "confirm-request", sessionId: "s-expired", summary: "等您确认", pending: [{ id: "new-canvas", description: "新建空白画布并切换到它" }] },
+        ])
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "确认会话已过期，请重新生成" }), { status: 404, headers: { "Content-Type": "application/json" } })
+      );
+    render(<ChatPanel />);
+    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "换个画布画" } });
+    fireEvent.click(screen.getByText("一键生成"));
+    await waitFor(() => expect(screen.getByTestId("confirm-dialog")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("允许"));
+    // 404：不新建画布、对话框必须关闭（否则用户永远卡在弹窗里）、显示错误
+    await waitFor(() => expect(screen.queryByTestId("confirm-dialog")).toBeNull());
+    expect(useCanvasStore.getState().projects).toHaveLength(1);
+    expect(screen.getByText(/确认会话已过期/)).toBeInTheDocument();
+  });
+
   it("点击遮罩不能跳过：必须点允许/不允许才关闭", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(

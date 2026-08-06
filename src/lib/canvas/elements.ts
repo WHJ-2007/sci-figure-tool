@@ -131,7 +131,7 @@ export function makeElement(
     case "hexagon":
       return { ...base, type: "hexagon" } as CanvasElement;
     case "arrow":
-      return { ...base, type: "arrow", startId: extra.startId, endId: extra.endId, midPoints: extra.midPoints } as CanvasElement;
+      return { ...base, type: "arrow", startId: extra.startId, endId: extra.endId, head: extra.head, midPoints: extra.midPoints } as CanvasElement;
     case "polyline": {
       const pts = extra.points as { x: number; y: number }[] | undefined;
       const points = pts?.length

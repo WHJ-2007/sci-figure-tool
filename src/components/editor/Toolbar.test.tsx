@@ -143,6 +143,21 @@ describe("Toolbar 悬浮坞", () => {
     expect(screen.queryByTitle("导出 PNG")).toBeNull();
   });
 
+  it("箭头工具为简单直箭头 SVG 图标（直线 + 箭头尖，无弯折、无字符箭头）", () => {
+    render(<Toolbar />);
+    fireEvent.click(screen.getByTitle("图形"));
+    const btn = screen.getByTitle("箭头");
+    const svg = btn.querySelector("svg");
+    expect(svg).not.toBeNull();
+    const paths = svg!.querySelectorAll("path");
+    expect(paths).toHaveLength(2);
+    // 第一段是水平直线，第二段是箭头尖
+    expect(paths[0].getAttribute("d")).toMatch(/M[^L]+h\d+/);
+    expect(paths[1].getAttribute("d")).toMatch(/l-?7/);
+    // 不再用文本字符 "→"
+    expect(btn.textContent).not.toContain("→");
+  });
+
   it("点击图形按钮展开图案气泡（无逻辑分区/文字，文本框是独立按钮），再点关闭（toggle）", () => {
     render(<Toolbar />);
     fireEvent.click(screen.getByTitle("图形"));

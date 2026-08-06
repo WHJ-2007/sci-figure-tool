@@ -356,8 +356,13 @@ describe("箭头中间折点", () => {
     useCanvasStore.getState().addElement(a);
     useCanvasStore.getState().setSelection(["a1"]);
     render(<Canvas viewportWidth={800} viewportHeight={600} />);
-    expect(document.querySelector('[data-handle="start"]')).toBeTruthy();
-    expect(document.querySelector('[data-handle="end"]')).toBeTruthy();
+    const start = document.querySelector('[data-handle="start"]');
+    const end = document.querySelector('[data-handle="end"]');
+    expect(start).toBeTruthy();
+    expect(end).toBeTruthy();
+    // 端点手柄为实心蓝色圆形（与逻辑节点锚点一致，白色画布上醒目可见，提示可自由拖动）
+    expect(start!.getAttribute("fill")).toBe("#2563eb");
+    expect(end!.getAttribute("fill")).toBe("#2563eb");
     for (const h of ["e", "w", "n", "s", "nw", "ne", "sw", "se", "rotate"]) {
       expect(document.querySelector(`[data-handle="${h}"]`)).toBeNull();
     }

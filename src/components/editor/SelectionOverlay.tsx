@@ -112,9 +112,9 @@ export default function SelectionOverlay({
                           data-element-id={e.id}
                           cx={p.x}
                           cy={p.y}
-                          r={H / 2}
-                          fill="#ffffff"
-                          stroke="#2563eb"
+                          r={5 / scale}
+                          fill="#2563eb"
+                          stroke="#ffffff"
                           strokeWidth={1.5 / scale}
                           style={{ cursor: "move", pointerEvents: "all" }}
                           onPointerDown={(ev) => {
