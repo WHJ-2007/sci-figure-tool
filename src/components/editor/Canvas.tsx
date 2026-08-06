@@ -137,7 +137,8 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
             <rect x={rubber.x} y={rubber.y} width={rubber.width} height={rubber.height} fill="#2563eb22" stroke="#2563eb" strokeWidth={1} />
           </g>
         )}
-        {tool === "arrow" && (
+        {/* 锚点候选层：箭头工具悬停/绘制中，或逻辑触点拉箭头拖动中（preview.type === "arrow"） */}
+        {(tool === "arrow" || preview?.type === "arrow") && (
           <g transform={`translate(${view.ox} ${view.oy}) scale(${view.scale})`} pointerEvents="none">
             {doc.elements.flatMap((e) => logicAnchors(e)).map((a) => {
               const active = anchorHint?.id === a.id;

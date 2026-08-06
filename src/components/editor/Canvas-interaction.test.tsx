@@ -337,6 +337,30 @@ describe("逻辑节点", () => {
     expect(arrow.x + arrow.width).toBe(214);
   });
 
+  it("触点拉箭头拖动中显示其他逻辑块的锚点候选，松手后消失", () => {
+    const a = makeElement("logic", 100, 100, 120, 60, { text: "源" });
+    const b = makeElement("logic", 300, 100, 120, 60, { text: "目标" });
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().addElement(b);
+    useCanvasStore.getState().setSelection([a.id]);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    // 未拖动（select 工具下）：锚点候选层不显示，只有源节点的 4 个触点
+    expect(document.querySelectorAll("[data-anchor-layer]")).toHaveLength(0);
+    expect(document.querySelectorAll("[data-anchor]")).toHaveLength(4);
+    const right = [...document.querySelectorAll("[data-anchor]")].find((d) => d.getAttribute("data-anchor") === "right")!;
+    fireEvent.pointerDown(right, { clientX: 220, clientY: 130, button: 0 });
+    // 拖动中：两个逻辑块共 8 个锚点候选显示；最近锚点（目标 b 的 left (300,130)）高亮
+    fireEvent.pointerMove(window, { clientX: 292, clientY: 130, buttons: 1 });
+    expect(document.querySelectorAll("[data-anchor-layer]")).toHaveLength(8);
+    const hl = document.querySelectorAll("[data-anchor-layer][data-active='true']");
+    expect(hl).toHaveLength(1);
+    expect(hl[0].getAttribute("data-anchor-layer")).toBe("left");
+    expect(hl[0].getAttribute("data-element-id")).toBe(b.id);
+    // 松手：锚点候选层消失
+    fireEvent.pointerUp(window, { clientX: 292, clientY: 130 });
+    expect(document.querySelectorAll("[data-anchor-layer]")).toHaveLength(0);
+  });
+
   it("触点之外的逻辑节点本体拖动不受影响（边界正常拖拉）", () => {
     const l = makeElement("logic", 100, 100, 120, 60, { text: "处理" });
     useCanvasStore.getState().addElement(l);
