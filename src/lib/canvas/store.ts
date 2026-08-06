@@ -280,6 +280,9 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => {
             history: entry.project.history,
             selection: [],
             editingText: null,
+            // 画布切换一律清空 AI 锁定/基线：上一画布残留的生成会话不得污染新画布
+            aiLockedIds: [],
+            aiBaselineIds: [],
           };
         }
         const r = undoHistory(s.history, s.doc);
@@ -309,6 +312,8 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => {
             history: next.history,
             selection: [],
             editingText: null,
+            aiLockedIds: [],
+            aiBaselineIds: [],
           };
         }
         const rr = redoHistory(s.history, s.doc);
@@ -327,6 +332,8 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => {
         editingText: null,
         view: { ...EMPTY_VIEW },
         restoredProjects: [],
+        aiLockedIds: [],
+        aiBaselineIds: [],
       }));
       return id;
     },
@@ -355,6 +362,8 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => {
           history: next.history,
           selection: [],
           editingText: null,
+          aiLockedIds: [],
+          aiBaselineIds: [],
         };
       }),
     setCurrentProject: (id) =>
@@ -367,6 +376,8 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => {
           history: p.history,
           selection: [],
           editingText: null,
+          aiLockedIds: [],
+          aiBaselineIds: [],
         };
       }),
   };

@@ -475,3 +475,42 @@ describe("画布背景", () => {
     expect(useCanvasStore.getState().doc.background).toBeUndefined();
   });
 });
+
+describe("A5 画布切换：AI 锁定/基线随项目切换重置", () => {
+  it("setCurrentProject 清空 aiLockedIds/aiBaselineIds", () => {
+    useCanvasStore.getState().createProject();
+    const second = useCanvasStore.getState().currentProjectId;
+    const first = useCanvasStore.getState().projects.find((p) => p.id !== second)!.id;
+    useCanvasStore.getState().setAiLocked(["e1"]);
+    useCanvasStore.getState().setAiBaseline(["e1"]);
+    useCanvasStore.getState().setCurrentProject(first);
+    expect(useCanvasStore.getState().aiLockedIds).toEqual([]);
+    expect(useCanvasStore.getState().aiBaselineIds).toEqual([]);
+  });
+
+  it("createProject 新建画布时清空 AI 锁定", () => {
+    useCanvasStore.getState().setAiLocked(["e1"]);
+    useCanvasStore.getState().setAiBaseline(["e1"]);
+    useCanvasStore.getState().createProject();
+    expect(useCanvasStore.getState().aiLockedIds).toEqual([]);
+    expect(useCanvasStore.getState().aiBaselineIds).toEqual([]);
+  });
+
+  it("deleteProject 删除当前画布 / undo 恢复 / redo 再切走：全部清空 AI 锁定", () => {
+    const first = useCanvasStore.getState().currentProjectId;
+    useCanvasStore.getState().createProject();
+    const second = useCanvasStore.getState().currentProjectId;
+    useCanvasStore.getState().setAiLocked(["e1"]);
+    useCanvasStore.getState().deleteProject(second);
+    expect(useCanvasStore.getState().aiLockedIds).toEqual([]);
+    expect(useCanvasStore.getState().currentProjectId).toBe(first);
+    useCanvasStore.getState().setAiLocked(["e1"]);
+    useCanvasStore.getState().undo();
+    expect(useCanvasStore.getState().currentProjectId).toBe(second);
+    expect(useCanvasStore.getState().aiLockedIds).toEqual([]);
+    useCanvasStore.getState().setAiLocked(["e1"]);
+    useCanvasStore.getState().redo();
+    expect(useCanvasStore.getState().currentProjectId).toBe(first);
+    expect(useCanvasStore.getState().aiLockedIds).toEqual([]);
+  });
+});

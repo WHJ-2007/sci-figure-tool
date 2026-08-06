@@ -363,3 +363,32 @@ describe("ChatPanel 画布级操作确认", () => {
     await waitFor(() => expect(screen.queryByTestId("confirm-dialog")).toBeNull());
   });
 });
+
+describe("ChatPanel A5 画布切换守卫", () => {
+  it("生成中切换画布：迟到事件全部丢弃，提示已丢弃，不污染新画布", async () => {
+    useCanvasStore.getState().addElement(makeElement("ellipse", 10, 10, 40, 30));
+    const firstId = useCanvasStore.getState().currentProjectId;
+    let ctrl!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({ start(c) { ctrl = c; } });
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(stream, { headers: { "Content-Type": "application/x-ndjson" } }));
+    const enc = new TextEncoder();
+    render(<ChatPanel />);
+    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "画图" } });
+    fireEvent.click(screen.getByText("一键生成"));
+    await waitFor(() => expect(useCanvasStore.getState().isGenerating).toBe(true));
+    // 生成中切到新画布（模拟侧边栏点击）
+    useCanvasStore.getState().createProject();
+    expect(useCanvasStore.getState().currentProjectId).not.toBe(firstId);
+    // 迟到的 snapshot/complete 必须被丢弃：不应用画布、不追加总结、不残留 AI 锁定
+    ctrl.enqueue(enc.encode(JSON.stringify({ type: "snapshot", canvas: { width: 1600, height: 1000, elements: [makeElement("rect", 0, 0, 50, 30)] }, touched: ["r1"] }) + "\n"));
+    ctrl.enqueue(enc.encode(JSON.stringify({ type: "complete", canvas: { width: 1600, height: 1000, elements: [makeElement("rect", 0, 0, 50, 30)] }, summary: "画好了" }) + "\n"));
+    ctrl.close();
+    await waitFor(() => expect(screen.getByText(/画布已切换，本次生成已丢弃/)).toBeInTheDocument());
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(0);
+    expect(useCanvasStore.getState().aiLockedIds).toHaveLength(0);
+    expect(useCanvasStore.getState().aiBaselineIds).toHaveLength(0);
+    expect(screen.queryByText(/画好了/)).toBeNull();
+    // 对话会话已随切换清空：用户消息不残留
+    expect(screen.queryByText("画图")).toBeNull();
+  });
+});

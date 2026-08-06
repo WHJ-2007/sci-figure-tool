@@ -38,6 +38,10 @@ export default function ChatPanel() {
   const [modes, setModes] = useState<AIMode[]>([]);
   const [confirmReq, setConfirmReq] = useState<{ sessionId: string; summary: string; pending: { id: string; description: string }[] } | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
+  // A5 画布守卫：记录本轮请求对应的画布 id，生成中切换画布 → 后续事件全部丢弃
+  const requestProjectIdRef = useRef<string | null>(null);
+  // AI 发起的画布切换（new-canvas 事件）：不当作"用户切画布"，对话会话保留
+  const aiCanvasSwitchRef = useRef(false);
 
   // 模式选择按画布持久化：切换画布/刷新恢复（新格式 JSON 数组；旧格式字符串 → 单模式；自动 = "auto"）
   useEffect(() => {
@@ -53,6 +57,19 @@ export default function ChatPanel() {
     if (saved === "sci" || saved === "mindmap" || saved === "chart") { setAuto(false); setModes([saved]); return; }
     setAuto(true);
     setModes([]);
+  }, [currentProjectId]);
+
+  // A5 画布守卫：用户切换画布 → 清空对话会话（消息/输入/错误/确认框）；
+  // AI 的 new-canvas 事件也会改 currentProjectId，但那是同一会话的延续，不清空
+  useEffect(() => {
+    if (aiCanvasSwitchRef.current) {
+      aiCanvasSwitchRef.current = false;
+      return;
+    }
+    setMessages([]);
+    setInput("");
+    setError("");
+    setConfirmReq(null);
   }, [currentProjectId]);
 
   const selectAuto = () => {
@@ -81,6 +98,7 @@ export default function ChatPanel() {
     // 但保险起见同时校验 pending.length（防残留真值死锁聊天）
     if (!text || useCanvasStore.getState().isGenerating || (confirmReq && confirmReq.pending.length > 0)) return;
     const s = useCanvasStore.getState();
+    requestProjectIdRef.current = s.currentProjectId;
     const settings = loadSettings();
     // 生成前画布作为撤销基线：snapshot 中间态不入栈，生成完成后整体一步 undo 回到该基线；
     // new-canvas 事件后基线重置为新画布的空态
@@ -119,6 +137,7 @@ export default function ChatPanel() {
       let lastSnapshot: CanvasDocument | null = null;
       // 行缓冲：网络分块可能把一行 JSON 拆成多段，必须先拼够 "\n" 再解析
       let buf = "";
+      let abandoned = false;
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -128,14 +147,22 @@ export default function ChatPanel() {
           const line = buf.slice(0, nl);
           buf = buf.slice(nl + 1);
           if (line) {
+            // A5 画布守卫：生成中切到其他画布 → 丢弃本轮全部事件（new-canvas 无例外，切换后到达的一样丢弃）
+            if (useCanvasStore.getState().currentProjectId !== requestProjectIdRef.current) {
+              abandoned = true;
+              break;
+            }
             const ev = JSON.parse(line) as AgentEvent;
             if (ev.type === "progress") {
               const items = ev.activity ?? [];
               if (items.length) useCanvasStore.setState((s) => ({ activity: [...s.activity, ...items] }));
             }
             else if (ev.type === "new-canvas") {
-              // AI 新建画布：创建并切换到新项目，撤销基线重置为新画布空态
+              // AI 新建画布：创建并切换到新项目，撤销基线重置为新画布空态；
+              // 本请求跟随新画布继续（刷新守卫基准，否则后续事件全部被误丢弃）
               useCanvasStore.getState().createProject();
+              requestProjectIdRef.current = useCanvasStore.getState().currentProjectId;
+              aiCanvasSwitchRef.current = true;
               baseline = structuredClone(useCanvasStore.getState().doc);
             } else if (ev.type === "snapshot") {
               useCanvasStore.getState().applyAISnapshot(ev.canvas);
@@ -163,8 +190,11 @@ export default function ChatPanel() {
           }
           nl = buf.indexOf("\n");
         }
+        if (abandoned) break;
       }
-      if (finalDoc) {
+      if (abandoned) {
+        setError("画布已切换，本次生成已丢弃");
+      } else if (finalDoc) {
         useCanvasStore.getState().applyAIResult(finalDoc, baseline);
         if (summary) setMessages((m) => [...m, { role: "assistant", content: summary }]);
       }
@@ -181,6 +211,7 @@ export default function ChatPanel() {
   // 破坏性操作逐条确认：POST /api/chat/confirm 二次流应用已确认的操作，快照回发合并进画布
   const confirmAction = async (id: string, approved: boolean) => {
     if (!confirmReq || confirmBusy) return;
+    let pid = useCanvasStore.getState().currentProjectId;
     setConfirmBusy(true);
     try {
       const res = await fetch("/api/chat/confirm", {
@@ -208,8 +239,18 @@ export default function ChatPanel() {
           const line = buf.slice(0, nl);
           buf = buf.slice(nl + 1);
           if (line) {
+            // A5 画布守卫：确认流期间切换画布 → 丢弃并关框
+            if (useCanvasStore.getState().currentProjectId !== pid) {
+              setConfirmReq(null);
+              return;
+            }
             const ev = JSON.parse(line) as ConfirmEvent;
-            if (ev.type === "new-canvas") useCanvasStore.getState().createProject();
+            if (ev.type === "new-canvas") {
+              // AI 新建画布：确认流跟随新画布继续（守卫基准同步更新，否则后续快照全被误丢弃）
+              useCanvasStore.getState().createProject();
+              pid = useCanvasStore.getState().currentProjectId;
+              aiCanvasSwitchRef.current = true;
+            }
             else if (ev.type === "snapshot") {
               // 先锁再合并：主生成结束已清空基线与锁定，被删除元素（touched）若不先锁定，
               // mergePreserved 会把它当作"用户本地新增"保留下来，删除将不生效
