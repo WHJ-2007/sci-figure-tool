@@ -29,6 +29,17 @@ export function elementToSvg(e: CanvasElement): string {
     case "arrow": {
       const x2 = e.x + e.width;
       const y2 = e.y + e.height;
+      // 带折点的箭头：折线路径 + 箭头方向取末段
+      if ((e.midPoints?.length ?? 0) > 0) {
+        const pts = [{ x: e.x, y: e.y }, ...e.midPoints!, { x: x2, y: y2 }];
+        const ptsStr = pts.map((p) => `${p.x},${p.y}`).join(" ");
+        const last = pts[pts.length - 1];
+        const prev = pts[pts.length - 2] ?? pts[0];
+        const head = arrowHeadPoints(prev.x, prev.y, last.x, last.y)
+          .map((p) => `${p.x},${p.y}`)
+          .join(" ");
+        return `<g${rot}><polyline points="${ptsStr}" fill="none" stroke="${e.stroke}" stroke-width="${e.strokeWidth}" opacity="${e.opacity}"/><polygon points="${head}" fill="${e.stroke}" opacity="${e.opacity}"/></g>`;
+      }
       const head = arrowHeadPoints(e.x, e.y, x2, y2)
         .map((p) => `${p.x},${p.y}`)
         .join(" ");

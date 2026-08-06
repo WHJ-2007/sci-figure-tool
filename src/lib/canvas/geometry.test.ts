@@ -54,6 +54,13 @@ describe("hitTestElement", () => {
     expect(hitTestElement(a, { x: 50, y: 3 })).toBe(true);
     expect(hitTestElement(a, { x: 50, y: 10 })).toBe(false);
   });
+  it("带折点的箭头按折线判定：中间段附近命中、远离不命中", () => {
+    const a = makeElement("arrow", 0, 0, 200, 0, { midPoints: [{ x: 100, y: 40 }] }) as CanvasElement;
+    expect(hitTestElement(a, { x: 50, y: 20 })).toBe(true); // 首段 (0,0)→(100,40) 上
+    expect(hitTestElement(a, { x: 150, y: 20 })).toBe(true); // 末段 (100,40)→(200,0) 上
+    expect(hitTestElement(a, { x: 100, y: 50 })).toBe(false); // 折点下方 10px
+    expect(hitTestElement(a, { x: 100, y: 30 })).toBe(false); // 折点上方 10px（离开两段）
+  });
 });
 
 describe("hitTestElement 多边形", () => {
@@ -139,6 +146,12 @@ describe("snapRect", () => {
     // 无邻元素（仅自身）时不吸附——保留原测试意图
     const alone = snapRect(self, [self], 6);
     expect(alone).toEqual({ dx: 0, dy: 0 });
+  });
+  it("带折点的箭头包围盒覆盖折点（吸附以折点边为准）", () => {
+    const a = makeElement("arrow", 0, 0, 200, 0, { midPoints: [{ x: 100, y: 40 }] }) as CanvasElement;
+    // 折点 (100,40) 是包围盒底边：目标点 y=42 距底边 2px → dy = -2（若包围盒不含折点则无吸附）
+    const offs = snapRect({ x: 101, y: 42, width: 0, height: 0 }, [a]);
+    expect(offs.dy).toBe(-2);
   });
 });
 

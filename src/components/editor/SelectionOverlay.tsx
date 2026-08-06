@@ -18,8 +18,11 @@ const HANDLE_POS: Record<(typeof HANDLES)[number], { x: number; y: number }> = {
 // 真实包围盒：arrow 负向拖拽时 width/height 为负，polyline 创建时宽高为 0，需归一化
 export function boundsOf(e: CanvasElement): { x: number; y: number; width: number; height: number } {
   if (e.type === "arrow") {
-    const x2 = e.x + e.width, y2 = e.y + e.height;
-    return { x: Math.min(e.x, x2), y: Math.min(e.y, y2), width: Math.abs(e.width), height: Math.abs(e.height) };
+    // 带折点的箭头包围盒覆盖全部折点；无折点时与原归一化语义一致
+    const xs = [e.x, e.x + e.width, ...(e.midPoints ?? []).map((p) => p.x)];
+    const ys = [e.y, e.y + e.height, ...(e.midPoints ?? []).map((p) => p.y)];
+    const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
   }
   if (e.type === "polyline") {
     const xs = e.points.map((p) => p.x), ys = e.points.map((p) => p.y);
@@ -123,6 +126,22 @@ export default function SelectionOverlay({
                 />
               </>
             )}
+            {/* 箭头折点手柄：右键折点删除（右键线段插入由 Canvas 的 contextmenu 处理） */}
+            {e.type === "arrow" &&
+              (e.midPoints ?? []).map((mp, i) => (
+                <circle
+                  key={`mid-${i}`}
+                  data-midpoint={i}
+                  data-element-id={e.id}
+                  cx={mp.x}
+                  cy={mp.y}
+                  r={H / 2}
+                  fill="#ffffff"
+                  stroke="#2563eb"
+                  strokeWidth={1.5 / scale}
+                  style={{ cursor: "crosshair", pointerEvents: "all" }}
+                />
+              ))}
           </g>
           {anchors.length > 0 && (
             <g>

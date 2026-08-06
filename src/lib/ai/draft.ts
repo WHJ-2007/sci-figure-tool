@@ -52,12 +52,10 @@ export class DraftCanvas {
   private onChange: (() => void) | undefined;
   private pendingConfirms: PendingConfirm[] = [];
   private newCanvasFlag = false;
-  private initialIds: Set<string>;
   private touchedIds = new Set<string>();
 
   constructor(elements: CanvasElement[], charts: Record<string, ChartSpec> = {}, onChange?: () => void) {
     this.elements = structuredClone(elements);
-    this.initialIds = new Set(elements.map((e) => e.id));
     this.charts = structuredClone(charts);
     this.onChange = onChange;
   }
@@ -81,7 +79,7 @@ export class DraftCanvas {
     this.onChange = cb;
   }
 
-  // 破坏性操作挂起列表：主生成结束后由 runAgent 上报，用户确认后经 /api/chat/confirm 逐个 apply
+  // 画布级操作挂起列表（当前仅 newCanvas）：主生成结束后由 runAgent 上报，用户确认后经 /api/chat/confirm 逐个 apply
   get pending(): PendingConfirm[] {
     return this.pendingConfirms;
   }
@@ -179,21 +177,10 @@ export class DraftCanvas {
     return { ok: true };
   }
 
-  deleteElement(args: { id: string }): { ok: boolean; error?: string; note?: string } {
+  deleteElement(args: { id: string }): { ok: boolean; error?: string } {
     const idx = this.elements.findIndex((e) => e.id === args.id);
     if (idx < 0) return { ok: false, error: `元素不存在: ${args.id}` };
-    // 破坏性操作确认：删除用户已有元素（生成前就存在）时挂起，等待前端确认；AI 本轮创建的直接删
-    if (this.initialIds.has(args.id)) {
-      // 重复挂起去重：同一元素已在等待确认时不重复挂起
-      if (this.pendingConfirms.some((p) => p.id === args.id)) return { ok: true, note: "该删除已在等待确认" };
-      const el = this.elements[idx];
-      this.pendingConfirms.push({
-        id: args.id,
-        description: `删除${titleOf(el)}`,
-        apply: () => this.applyDelete(args.id),
-      });
-      return { ok: true, note: "该删除已挂起，等待用户确认后执行" };
-    }
+    // 元素删除直接执行：仅画布级操作（新建画布）才需用户确认
     this.applyDelete(args.id);
     return { ok: true };
   }
@@ -362,20 +349,14 @@ export class DraftCanvas {
   }
 
   clear(): { ok: boolean; note?: string } {
-    // 空画布清空无破坏性，直接跳过不挂起
+    // 空画布清空无破坏性，直接跳过
     if (this.elements.length === 0) {
       this.activity.push("画布已是空的");
       return { ok: true };
     }
-    // 重复挂起去重：清空已在等待确认时不重复挂起
-    if (this.pendingConfirms.some((p) => p.id === "clear")) return { ok: true, note: "清空画布已在等待确认" };
-    const count = this.elements.length;
-    this.pendingConfirms.push({
-      id: "clear",
-      description: `清空画布（${count} 个元素）`,
-      apply: () => this.applyClear(),
-    });
-    return { ok: true, note: "清空画布已挂起，等待用户确认" };
+    // 清空 = 删除元素，不再挂起确认（仅画布级操作才需确认）
+    this.applyClear();
+    return { ok: true };
   }
 
   private applyClear() {

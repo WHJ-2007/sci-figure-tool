@@ -400,22 +400,21 @@ describe("DraftCanvas onChange", () => {
     expect(onChange).toHaveBeenCalledTimes(3);
     d.deleteElement({ id: "missing" });
     expect(onChange).toHaveBeenCalledTimes(3);
-    // 空画布 clear 无破坏性：直接跳过不挂起、不触发 onChange
+    // 空画布 clear 无破坏性：直接跳过、不触发 onChange
     d.clear();
     expect(onChange).toHaveBeenCalledTimes(3);
     expect(d.pending).toHaveLength(0);
-    // 非空画布 clear 挂起等待确认，确认后执行并触发 onChange
+    // 非空画布 clear 直接清空并触发 onChange（不再挂起确认）
     d.createElement({ type: "ellipse", x: 0, y: 0, width: 40, height: 30 });
     expect(onChange).toHaveBeenCalledTimes(4);
     d.clear();
-    expect(onChange).toHaveBeenCalledTimes(4); // 清空挂起等待确认，不立即触发
-    d.pending[0].apply();
     expect(onChange).toHaveBeenCalledTimes(5);
+    expect(d.pending).toHaveLength(0);
   });
 });
 
-describe("DraftCanvas 破坏性操作挂起", () => {
-  it("删除用户已有元素挂起等待确认，不直接删除", () => {
+describe("DraftCanvas 破坏性操作确认（仅画布级）", () => {
+  it("删除用户已有元素直接删除，不挂起确认", () => {
     const d = new DraftCanvas([]);
     const r = d.createElement({ type: "rect", x: 0, y: 0, width: 100, height: 60 });
     const userEl = d.serialize().elements[0];
@@ -423,16 +422,11 @@ describe("DraftCanvas 破坏性操作挂起", () => {
     const d2 = new DraftCanvas([userEl]);
     const res = d2.deleteElement({ id: userEl.id });
     expect(res.ok).toBe(true);
-    expect(res.note).toMatch(/挂起/);
-    expect(d2.serialize().elements).toHaveLength(1); // 未删除
-    expect(d2.pending.length).toBe(1);
-    expect(d2.pending[0].description).toContain("矩形");
-    // 确认后执行
-    d2.pending[0].apply();
+    expect(d2.pending.length).toBe(0);
     expect(d2.serialize().elements).toHaveLength(0);
   });
 
-  it("AI 本轮创建的元素删除不挂起，直接删除", () => {
+  it("AI 本轮创建的元素删除直接删除", () => {
     const d = new DraftCanvas([]);
     const r = d.createElement({ type: "rect", x: 0, y: 0, width: 100, height: 60 });
     const res = d.deleteElement({ id: r.id! });
@@ -449,48 +443,34 @@ describe("DraftCanvas 破坏性操作挂起", () => {
     expect(d.flushActivity().join("")).toContain("已是空的");
   });
 
-  it("重复挂起去重：同一元素重复删除只挂起一次，clear/newCanvas 同理", () => {
-    const userEl = makeElement("rect", 0, 0, 100, 60);
-    const d = new DraftCanvas([userEl]);
-    d.deleteElement({ id: userEl.id });
-    const dup = d.deleteElement({ id: userEl.id });
-    expect(dup.ok).toBe(true);
-    expect(dup.note).toMatch(/已在等待确认/);
-    expect(d.pending).toHaveLength(1);
-    d.clear();
-    expect(d.clear().note).toMatch(/已在等待确认/);
-    d.newCanvas();
-    expect(d.newCanvas().note).toMatch(/已在等待确认/);
-    expect(d.pending.map((p) => p.id)).toEqual([userEl.id, "clear", "new-canvas"]);
-  });
-
-  it("clear 与 newCanvas 总是挂起", () => {
+  it("clear 直接清空不挂起；newCanvas 挂起等确认", () => {
     const d = new DraftCanvas([]);
     d.createElement({ type: "rect", x: 0, y: 0, width: 100, height: 60 });
     d.clear();
+    expect(d.pending).toHaveLength(0);
+    expect(d.serialize().elements).toHaveLength(0);
     d.newCanvas();
-    expect(d.pending.map((p) => p.id)).toEqual(["clear", "new-canvas"]);
+    expect(d.pending.map((p) => p.id)).toEqual(["new-canvas"]);
     d.pending[0].apply();
     expect(d.serialize().elements).toHaveLength(0);
   });
 
-  it("确认后 applyClear/applyNewCanvas touch 全部被移除元素（确认快照 touched 据此加锁）", () => {
+  it("重复挂起去重：newCanvas 重复调用只挂起一次", () => {
+    const d = new DraftCanvas([]);
+    d.newCanvas();
+    expect(d.newCanvas().note).toMatch(/已在等待确认/);
+    expect(d.pending.map((p) => p.id)).toEqual(["new-canvas"]);
+  });
+
+  it("确认后 applyNewCanvas touch 被移除元素（确认快照 touched 据此加锁）", () => {
     // 关键场景是构造期已存在的用户元素（从未被 touch）：createElement 产生的 id 已自带 touch，
-    // 用构造器元素才能模拟「清空确认后 touched 为空、mergePreserved 全部保留」的原 bug
-    const a = makeElement("rect", 0, 0, 100, 60);
-    const b = makeElement("ellipse", 50, 50, 40, 40);
-    const d = new DraftCanvas([a, b]);
-    d.clear();
+    // 用构造器元素才能模拟「确认后 touched 为空、mergePreserved 全部保留」的原 bug
+    const c = makeElement("rect", 10, 10, 60, 40);
+    const d = new DraftCanvas([c]);
+    d.newCanvas();
     d.pending[0].apply();
     expect(d.serialize().elements).toHaveLength(0);
-    expect(d.takeTouched().sort()).toEqual([a.id, b.id].sort());
-    // newCanvas 确认后同样 touch 旧元素：旧 id 加锁不落新画布，不会误锁新画布上的元素
-    const c = makeElement("rect", 10, 10, 60, 40);
-    const d2 = new DraftCanvas([c]);
-    d2.newCanvas();
-    d2.pending[0].apply();
-    expect(d2.serialize().elements).toHaveLength(0);
-    expect(d2.takeTouched().sort()).toEqual([c.id]);
+    expect(d.takeTouched().sort()).toEqual([c.id]);
   });
 });
 
@@ -546,7 +526,7 @@ describe("runAgent", () => {
     expect(snaps[snaps.length - 1].canvas.elements).toHaveLength(2);
   });
 
-  it("删除用户已有元素挂起：confirm-request 携带挂起项，元素保留", async () => {
+  it("删除用户已有元素直接删除：complete 收尾，元素已移除", async () => {
     const userEl = makeElement("rect", 0, 0, 100, 60);
     mockGenerateText.mockImplementation(async ({ tools, onStepFinish }: any) => {
       await (tools as any).deleteElement.execute({ id: userEl.id });
@@ -562,13 +542,10 @@ describe("runAgent", () => {
       model: "deepseek-chat",
       onEvent: (ev) => events.push(ev),
     });
-    const req = events.find((e) => e.type === "confirm-request");
-    expect(req).toBeTruthy();
-    expect(req.pending).toHaveLength(1);
-    expect(req.pending[0].id).toBe(userEl.id);
-    expect(req.pending[0].description).toContain("矩形");
-    expect(events.some((e) => e.type === "complete")).toBe(false);
-    expect(events.some((e) => e.type === "snapshot")).toBe(false); // 挂起不触达画布
+    expect(events.some((e) => e.type === "confirm-request")).toBe(false);
+    const complete = events.find((e) => e.type === "complete");
+    expect(complete).toBeTruthy();
+    expect(complete.canvas.elements).toHaveLength(0);
   });
 
   it("驱动模型调用工具并把结果应用到草稿、发出 complete 事件", async () => {

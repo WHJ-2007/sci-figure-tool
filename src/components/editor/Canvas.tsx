@@ -3,7 +3,7 @@
 import { useEffect, useRef, useCallback } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { makeElement } from "@/lib/canvas/elements";
-import { hitTestElement, logicAnchors } from "@/lib/canvas/geometry";
+import { hitTestElement, logicAnchors, arrowPoints, distToSegment, projectOnSegment } from "@/lib/canvas/geometry";
 import { loadImageElement } from "@/lib/canvas/imageImport";
 import type { CanvasElement } from "@/lib/canvas/types";
 import ElementShape from "./ElementShape";
@@ -106,6 +106,36 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
     [worldX, worldY]
   );
 
+  // 箭头折点：右键已有折点删除；右键线段（中间部分）在点击处插入折点（投影到线上，箭头弯折），可无限加
+  const onContextMenu = useCallback(
+    (e: React.MouseEvent<SVGSVGElement>) => {
+      e.preventDefault();
+      const s = useCanvasStore.getState();
+      if (s.selection.length !== 1) return;
+      const sel = s.doc.elements.find((x) => x.id === s.selection[0]);
+      if (!sel || sel.type !== "arrow") return;
+      if (s.aiLockedIds.includes(sel.id)) return;
+      const p = { x: worldX(e.clientX), y: worldY(e.clientY) };
+      const tol = 8 / s.view.scale;
+      const mid = sel.midPoints ?? [];
+      for (let i = 0; i < mid.length; i++) {
+        if (Math.hypot(p.x - mid[i].x, p.y - mid[i].y) <= tol) {
+          s.updateElement(sel.id, { midPoints: mid.filter((_, j) => j !== i) });
+          return;
+        }
+      }
+      const pts = arrowPoints(sel);
+      for (let i = 1; i < pts.length; i++) {
+        if (distToSegment(p, pts[i - 1], pts[i]) <= tol) {
+          const proj = projectOnSegment(p, pts[i - 1], pts[i]);
+          s.updateElement(sel.id, { midPoints: [...mid.slice(0, i - 1), proj, ...mid.slice(i - 1)] });
+          return;
+        }
+      }
+    },
+    [worldX, worldY]
+  );
+
   const onWheel = (e: React.WheelEvent) => {
     e.preventDefault();
     // 拖动/绘制中锁定视口：缩放会改变换算基准，拖动中 view 变化（触控板惯性滚动等）会让
@@ -141,7 +171,7 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         onDoubleClick={onDoubleClick}
-        onContextMenu={(e) => e.preventDefault()}
+        onContextMenu={onContextMenu}
       >
         <rect data-testid="canvas-bg" width={viewportWidth} height={viewportHeight} rx={10} fill="#ffffff" pointerEvents="none" />
         <g transform={`translate(${view.ox} ${view.oy}) scale(${view.scale})`}>

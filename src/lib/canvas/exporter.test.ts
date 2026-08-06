@@ -30,6 +30,15 @@ describe("exporter", () => {
     expect(elementToSvg(a)).toContain("<polygon");
   });
 
+  it("elementToSvg 带折点的箭头输出 polyline 折线与箭头多边形", () => {
+    const a = makeElement("arrow", 0, 0, 200, 0, { midPoints: [{ x: 100, y: 40 }] });
+    const out = elementToSvg(a);
+    expect(out).toContain("<polyline");
+    expect(out).toContain('points="0,0 100,40 200,0"');
+    expect(out).toContain("<polygon");
+    expect(out).not.toContain("<line");
+  });
+
   it("serializeSVG 按 zIndex 排序输出", () => {
     const z2 = makeElement("rect", 0, 0, 10, 10, { zIndex: 2 });
     const z1 = makeElement("rect", 500, 0, 10, 10, { zIndex: 1 });

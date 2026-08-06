@@ -34,6 +34,18 @@ function renderBody(
     case "arrow": {
       const x2 = e.x + e.width;
       const y2 = e.y + e.height;
+      // 带折点的箭头：折线路径 + 箭头方向取末段（起点→折点…→终点）
+      if ((e.midPoints?.length ?? 0) > 0) {
+        const pts = [{ x: e.x, y: e.y }, ...e.midPoints!, { x: x2, y: y2 }];
+        const last = pts[pts.length - 1];
+        const prev = pts[pts.length - 2] ?? pts[0];
+        return (
+          <g>
+            <polyline points={pointsToString(pts)} fill="none" stroke={e.stroke} strokeWidth={e.strokeWidth} opacity={e.opacity} strokeLinejoin="round" />
+            <polygon points={pointsToString(arrowHeadPoints(prev.x, prev.y, last.x, last.y))} fill={e.stroke} opacity={e.opacity} />
+          </g>
+        );
+      }
       return (
         <g>
           <line x1={e.x} y1={e.y} x2={x2} y2={y2} stroke={e.stroke} strokeWidth={e.strokeWidth} opacity={e.opacity} />

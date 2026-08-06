@@ -1,7 +1,7 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { makeElement } from "@/lib/canvas/elements";
-import { snapRect, nearestAnchor } from "@/lib/canvas/geometry";
+import { snapRect, nearestAnchor, hitTestElement } from "@/lib/canvas/geometry";
 import type { ShapeType } from "@/lib/canvas/types";
 import type { Anchor } from "@/lib/canvas/geometry";
 
@@ -13,7 +13,9 @@ type Mode =
   | { kind: "resize"; id: string; handle: string; startX: number; startY: number; rect: { x: number; y: number; width: number; height: number } }
   | { kind: "rotate"; id: string; cx: number; cy: number }
   | { kind: "draw-shape"; tool: ShapeType | "rounded" | "logic"; startX: number; startY: number; x: number; y: number }
-  | { kind: "draw-line"; tool: "arrow" | "polyline"; startX: number; startY: number; points: { x: number; y: number }[]; sourceId?: string };
+  | { kind: "draw-line"; tool: "arrow" | "polyline"; startX: number; startY: number; points: { x: number; y: number }[]; sourceId?: string }
+  // 箭头两点制：起点已定（原地点击），等待第二次点击作为终点；预览跟随指针
+  | { kind: "arrow-wait"; startX: number; startY: number; sourceId?: string; startAnchorId?: string };
 
 export type DrawPreview =
   | { type: ShapeType | "rounded" | "logic"; x: number; y: number; width: number; height: number }
@@ -24,8 +26,18 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
   const [rubber, setRubber] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [preview, setPreview] = useState<DrawPreview | null>(null);
   const [panning, setPanning] = useState(false);
+  const tool = useCanvasStore((s) => s.tool);
   // 箭头工具下高亮的最近锚点（悬停或绘制吸附时）
   const [anchorHint, setAnchorHint] = useState<Anchor | null>(null);
+
+  // 切走箭头工具时取消待定起点（否则残留预览会跟着别的工具）
+  useEffect(() => {
+    if (tool !== "arrow" && modeRef.current.kind === "arrow-wait") {
+      modeRef.current = { kind: "idle" };
+      setPreview(null);
+      setAnchorHint(null);
+    }
+  }, [tool]);
 
   // 拖动/绘制期间的全局指针跟踪：事件挂在 window 上——指针移出画布甚至移出窗口，
   // 浏览器仍把 pointermove 派发给 window，元素持续跟随鼠标（"要时刻检测鼠标位置"）。
@@ -148,25 +160,40 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
         }
         setPreview(null);
       } else if (m.kind === "draw-line") {
-        if (m.points.length >= 2) {
-          const st = useCanvasStore.getState();
-          const p0 = m.points[0];
-          const last = m.points[m.points.length - 1];
-          // arrow 用 x/y/width/height 表示线（width/height 为终点相对偏移）；polyline 存 points。
+        const st = useCanvasStore.getState();
+        const p0 = m.points[0];
+        const last = m.points[m.points.length - 1];
+        if (m.tool === "arrow") {
+          // 两点制：拖拽（移动足够距离）直接成图；原地点击转为等待第二次点击
+          // arrow 用 x/y/width/height 表示线（width/height 为终点相对偏移）。
           // 端点已吸附到锚点（起点按下时、终点移动时），落点即锚点位置 → 反查记录 startId/endId
-          const el =
-            m.tool === "arrow"
-              ? makeElement("arrow", p0.x, p0.y, last.x - p0.x, last.y - p0.y, {
-                  startId: nearestAnchor(st.doc.elements, p0)?.elementId,
-                  endId: nearestAnchor(st.doc.elements, last, undefined, m.sourceId)?.elementId,
-                })
-              : makeElement("polyline", p0.x, p0.y, 0, 0, { points: m.points });
+          if (m.points.length >= 2 && Math.hypot(last.x - p0.x, last.y - p0.y) >= 4) {
+            const el = makeElement("arrow", p0.x, p0.y, last.x - p0.x, last.y - p0.y, {
+              startId: nearestAnchor(st.doc.elements, p0)?.elementId,
+              endId: nearestAnchor(st.doc.elements, last, undefined, m.sourceId)?.elementId,
+            });
+            st.addElement(el);
+            st.setSelection([el.id]);
+            setPreview(null);
+          } else {
+            modeRef.current = {
+              kind: "arrow-wait",
+              startX: p0.x,
+              startY: p0.y,
+              sourceId: m.sourceId,
+              startAnchorId: nearestAnchor(st.doc.elements, p0)?.elementId,
+            };
+            setPreview({ type: "arrow", points: [p0, { x: last.x, y: last.y }] });
+            setAnchorHint(null);
+          }
+        } else if (m.points.length >= 2) {
+          const el = makeElement("polyline", p0.x, p0.y, 0, 0, { points: m.points });
           st.addElement(el);
           st.setSelection([el.id]);
+          setPreview(null);
         }
-        setPreview(null);
       }
-      modeRef.current = { kind: "idle" };
+      if (modeRef.current.kind !== "arrow-wait") modeRef.current = { kind: "idle" };
       window.removeEventListener("pointermove", onWindowMove);
       window.removeEventListener("pointerup", endDrag);
       window.removeEventListener("pointercancel", endDrag);
@@ -229,6 +256,32 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
           return;
         }
         if (s.tool === "arrow" || s.tool === "polyline") {
+          if (s.tool === "arrow" && modeRef.current.kind === "arrow-wait") {
+            // 两点制第二击：起点已定，点击处为终点（吸附逻辑节点锚点）；右键取消待定起点
+            if (e.button === 2) {
+              modeRef.current = { kind: "idle" };
+              setPreview(null);
+              setAnchorHint(null);
+              return;
+            }
+            const wait = modeRef.current;
+            const endAnchor = nearestAnchor(s.doc.elements, { x: wx, y: wy }, undefined, wait.sourceId);
+            const ex = endAnchor ? endAnchor.x : wx;
+            const ey = endAnchor ? endAnchor.y : wy;
+            if (Math.hypot(ex - wait.startX, ey - wait.startY) >= 4) {
+              const el = makeElement("arrow", wait.startX, wait.startY, ex - wait.startX, ey - wait.startY, {
+                startId: wait.startAnchorId,
+                endId: endAnchor?.elementId,
+              });
+              s.addElement(el);
+              s.setSelection([el.id]);
+            }
+            modeRef.current = { kind: "idle" };
+            setPreview(null);
+            setAnchorHint(null);
+            return;
+          }
+          if (e.button === 2) return; // 箭头/折线工具右键不绘制
           // 箭头起点吸附到逻辑节点锚点：起点落在锚点附近 12px 内则精确对齐（记录锚点 id 供 arrow 的 startId）
           const startAnchor = s.tool === "arrow" ? nearestAnchor(s.doc.elements, { x: wx, y: wy }) : null;
           const sx = startAnchor ? startAnchor.x : wx;
@@ -265,6 +318,12 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
       }
       if (s.tool === "select") {
         if (e.button === 2) {
+          // 右键落在选中箭头上不进多选框选：交给 contextmenu 处理折点增删
+          // （否则右键点击会在 pointerup 清空选择，折点操作找不到目标）
+          const sel = s.selection.length === 1 ? s.doc.elements.find((x) => x.id === s.selection[0]) : null;
+          if (sel?.type === "arrow" && !s.aiLockedIds.includes(sel.id) && hitTestElement(sel, { x: wx, y: wy }, 8 / s.view.scale)) {
+            return;
+          }
           // 右键拖动 = 多选框选（原 rubber 逻辑）
           modeRef.current = { kind: "rubber", startX: wx, startY: wy, x: wx, y: wy, additive: e.shiftKey };
           startDrag();
@@ -280,10 +339,25 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
     [worldX, worldY, startDrag]
   );
 
-  // svg 上的 move/up 只处理空闲态（箭头悬停锚点高亮）；活动模式一律由 window 监听处理
+  // svg 上的 move/up 只处理空闲态（箭头悬停锚点高亮、两点制预览跟随）；活动模式一律由 window 监听处理
   const onPointerMove = useCallback(
     (e: React.PointerEvent<SVGSVGElement>) => {
-      if (modeRef.current.kind !== "idle") return;
+      const m = modeRef.current;
+      if (m.kind === "arrow-wait") {
+        // 两点制：预览 = 起点 → 当前指针（终点吸附逻辑节点锚点并高亮）
+        const s = useCanvasStore.getState();
+        let ex = worldX(e.clientX);
+        let ey = worldY(e.clientY);
+        const hint = nearestAnchor(s.doc.elements, { x: ex, y: ey }, undefined, m.sourceId);
+        if (hint) {
+          ex = hint.x;
+          ey = hint.y;
+        }
+        setAnchorHint(hint);
+        setPreview({ type: "arrow", points: [{ x: m.startX, y: m.startY }, { x: ex, y: ey }] });
+        return;
+      }
+      if (m.kind !== "idle") return;
       const s = useCanvasStore.getState();
       setAnchorHint(s.tool === "arrow" ? nearestAnchor(s.doc.elements, { x: worldX(e.clientX), y: worldY(e.clientY) }) : null);
     },

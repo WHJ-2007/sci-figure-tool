@@ -204,10 +204,33 @@ export function distToSegment(p: Point, a: Point, b: Point): number {
   return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
 }
 
+// 箭头完整点列：起点 → 中间折点… → 终点（无折点时即直线两点）
+export function arrowPoints(e: CanvasElement): Point[] {
+  if (e.type !== "arrow") return [{ x: e.x, y: e.y }, { x: e.x + e.width, y: e.y + e.height }];
+  const pts = [{ x: e.x, y: e.y }, ...(e.midPoints ?? []), { x: e.x + e.width, y: e.y + e.height }];
+  return pts;
+}
+
+// 点在线段上的投影（钳制到 [0,1]）：右键插入折点时折点精确落在线上
+export function projectOnSegment(p: Point, a: Point, b: Point): Point {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len2 = dx * dx + dy * dy;
+  if (len2 === 0) return { x: a.x, y: a.y };
+  const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2));
+  return { x: a.x + t * dx, y: a.y + t * dy };
+}
+
 function lineBounds(e: CanvasElement): Rect {
   if (e.type === "polyline") {
     const xs = e.points.map((p) => p.x);
     const ys = e.points.map((p) => p.y);
+    return { x: Math.min(...xs), y: Math.min(...ys), width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) };
+  }
+  if (e.type === "arrow" && (e.midPoints?.length ?? 0) > 0) {
+    // 带折点的箭头：包围盒须覆盖全部折点（对齐/分布/吸附用）
+    const xs = [e.x, e.x + e.width, ...e.midPoints!.map((p) => p.x)];
+    const ys = [e.y, e.y + e.height, ...e.midPoints!.map((p) => p.y)];
     return { x: Math.min(...xs), y: Math.min(...ys), width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) };
   }
   if (e.type === "curve") {
@@ -224,9 +247,9 @@ export function hitTestElement(e: CanvasElement, p: Point, tolerance = HIT_TOLER
   const r = lineBounds(e);
   const expanded = { x: r.x - tolerance, y: r.y - tolerance, width: r.width + tolerance * 2, height: r.height + tolerance * 2 };
   if (e.type === "arrow") {
-    const x2 = e.x + e.width;
-    const y2 = e.y + e.height;
-    return distToSegment(p, { x: e.x, y: e.y }, { x: x2, y: y2 }) <= tolerance;
+    // 折线命中：到任一段（起点→折点→终点）的距离在容差内
+    const pts = arrowPoints(e);
+    return pts.some((pt, i) => i > 0 && distToSegment(p, pts[i - 1], pt) <= tolerance);
   }
   if (e.type === "polyline") {
     return e.points.some((pt, i) => i > 0 && distToSegment(p, e.points[i - 1], pt) <= tolerance);

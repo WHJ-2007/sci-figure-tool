@@ -40,6 +40,14 @@ describe("Canvas", () => {
     expect(document.querySelector('[data-handle="rotate"]')).toBeTruthy();
   });
 
+  it("选中带折点的箭头渲染折点手柄", () => {
+    const a = makeElement("arrow", 100, 100, 200, 0, { id: "a1", midPoints: [{ x: 200, y: 100 }] });
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().setSelection(["a1"]);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    expect(document.querySelector('[data-midpoint="0"]')).toBeTruthy();
+  });
+
   it("画布容器屏蔽系统文本选择（select-none，避免 Shift 多选时选中页面文字）", () => {
     render(<Canvas viewportWidth={800} viewportHeight={600} />);
     expect(document.querySelector("div.relative")!.className).toContain("select-none");

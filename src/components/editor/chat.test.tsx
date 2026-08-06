@@ -238,97 +238,66 @@ describe("ChatPanel", () => {
   });
 });
 
-describe("ChatPanel 破坏性操作确认", () => {
-  it("confirm-request 后弹确认框，确认后应用删除并追加系统消息", async () => {
-    const mine = makeElement("rect", 0, 0, 100, 60);
-    useCanvasStore.getState().addElement(mine);
+describe("ChatPanel 画布级操作确认", () => {
+  it("confirm-request 后弹确认框，确认后新建画布并追加系统消息", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(
         mockStream([
-          { type: "confirm-request", sessionId: "s1", summary: "画好了，等您确认", pending: [{ id: mine.id, description: "删除「矩形」" }] },
+          { type: "confirm-request", sessionId: "s1", summary: "画好了，等您确认", pending: [{ id: "new-canvas", description: "新建空白画布并切换到它" }] },
         ])
       )
       .mockResolvedValueOnce(
         mockStream([
-          { type: "snapshot", canvas: { width: 1600, height: 1000, elements: [] }, touched: [mine.id] },
-          { type: "confirm-done", results: [{ id: mine.id, description: "删除「矩形」", approved: true }] },
+          { type: "new-canvas" },
+          { type: "snapshot", canvas: { width: 1600, height: 1000, elements: [] }, touched: [] },
+          { type: "confirm-done", results: [{ id: "new-canvas", description: "新建空白画布并切换到它", approved: true }] },
         ])
       );
     render(<ChatPanel />);
-    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "删掉矩形" } });
+    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "换个画布画" } });
     fireEvent.click(screen.getByText("一键生成"));
     await waitFor(() => expect(screen.getByTestId("confirm-dialog")).toBeInTheDocument());
-    expect(screen.getByText(/删除「矩形」/)).toBeInTheDocument();
+    expect(screen.getByText(/新建空白画布/)).toBeInTheDocument();
     fireEvent.click(screen.getByText("确认"));
-    await waitFor(() => expect(useCanvasStore.getState().doc.elements).toHaveLength(0));
-    await waitFor(() => expect(screen.getByText(/已确认：删除「矩形」/)).toBeInTheDocument());
+    // new-canvas 事件触发 createProject：多出一张画布
+    await waitFor(() => expect(useCanvasStore.getState().projects).toHaveLength(2));
+    await waitFor(() => expect(screen.getByText(/已确认：新建空白画布/)).toBeInTheDocument());
     expect(useCanvasStore.getState().aiLockedIds).toHaveLength(0);
   });
 
-  it("确认清空画布后所有元素移除", async () => {
-    const a = makeElement("rect", 0, 0, 100, 60);
-    const b = makeElement("ellipse", 200, 200, 40, 40);
-    useCanvasStore.getState().addElement(a);
-    useCanvasStore.getState().addElement(b);
+  it("取消后不新建画布，追加取消消息", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(
         mockStream([
-          { type: "confirm-request", sessionId: "s3", summary: "画布已清理完毕，等您确认", pending: [{ id: "clear", description: "清空画布（2 个元素）" }] },
+          { type: "confirm-request", sessionId: "s2", summary: "已准备新建画布，等您确认", pending: [{ id: "new-canvas", description: "新建空白画布并切换到它" }] },
         ])
       )
       .mockResolvedValueOnce(
         mockStream([
-          // touched 必须含被清空元素 id：route 实际会因 applyClear 的 touch 产生，
-          // 前端据此加锁后才不会被 mergePreserved 当作"用户本地新增"保留
-          { type: "snapshot", canvas: { width: 1600, height: 1000, elements: [] }, touched: [a.id, b.id] },
-          { type: "confirm-done", results: [{ id: "clear", description: "清空画布（2 个元素）", approved: true }] },
+          { type: "confirm-done", results: [{ id: "new-canvas", description: "新建空白画布并切换到它", approved: false }] },
         ])
       );
     render(<ChatPanel />);
-    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "清空画布" } });
-    fireEvent.click(screen.getByText("一键生成"));
-    await waitFor(() => expect(screen.getByTestId("confirm-dialog")).toBeInTheDocument());
-    fireEvent.click(screen.getByText("确认"));
-    await waitFor(() => expect(useCanvasStore.getState().doc.elements).toHaveLength(0));
-    await waitFor(() => expect(screen.getByText(/已确认：清空画布/)).toBeInTheDocument());
-    expect(useCanvasStore.getState().aiLockedIds).toHaveLength(0);
-  });
-
-  it("取消后元素保留，追加取消消息", async () => {
-    const mine = makeElement("rect", 0, 0, 100, 60);
-    useCanvasStore.getState().addElement(mine);
-    vi.mocked(fetch)
-      .mockResolvedValueOnce(
-        mockStream([
-          { type: "confirm-request", sessionId: "s2", summary: "已准备删除矩形，等您确认", pending: [{ id: mine.id, description: "删除「矩形」" }] },
-        ])
-      )
-      .mockResolvedValueOnce(
-        mockStream([
-          { type: "confirm-done", results: [{ id: mine.id, description: "删除「矩形」", approved: false }] },
-        ])
-      );
-    render(<ChatPanel />);
-    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "删掉矩形" } });
+    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "换个画布画" } });
     fireEvent.click(screen.getByText("一键生成"));
     await waitFor(() => expect(screen.getByTestId("confirm-dialog")).toBeInTheDocument());
     fireEvent.click(screen.getByText("取消"));
-    await waitFor(() => expect(useCanvasStore.getState().doc.elements).toHaveLength(1));
-    await waitFor(() => expect(screen.getByText(/已取消：删除「矩形」/)).toBeInTheDocument());
+    await waitFor(() => expect(useCanvasStore.getState().projects).toHaveLength(1));
+    await waitFor(() => expect(screen.getByText(/已取消：新建空白画布/)).toBeInTheDocument());
   });
 
   it("确认完成后可再次发起生成（无死锁）", async () => {
-    const mine = makeElement("rect", 0, 0, 100, 60);
-    useCanvasStore.getState().addElement(mine);
     vi.mocked(fetch)
       .mockResolvedValueOnce(
         mockStream([
-          { type: "confirm-request", sessionId: "sx", summary: "好的", pending: [{ id: mine.id, description: "删除「矩形」" }] },
+          { type: "confirm-request", sessionId: "sx", summary: "好的", pending: [{ id: "new-canvas", description: "新建空白画布并切换到它" }] },
         ])
       )
       .mockResolvedValueOnce(
         mockStream([
-          { type: "confirm-done", results: [{ id: mine.id, description: "删除「矩形」", approved: true }] },
+          { type: "new-canvas" },
+          { type: "snapshot", canvas: { width: 1600, height: 1000, elements: [] }, touched: [] },
+          { type: "confirm-done", results: [{ id: "new-canvas", description: "新建空白画布并切换到它", approved: true }] },
         ])
       )
       .mockResolvedValueOnce(
@@ -337,7 +306,7 @@ describe("ChatPanel 破坏性操作确认", () => {
         ])
       );
     render(<ChatPanel />);
-    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "删掉矩形" } });
+    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "换个画布画" } });
     fireEvent.click(screen.getByText("一键生成"));
     await waitFor(() => expect(screen.getByTestId("confirm-dialog")).toBeInTheDocument());
     fireEvent.click(screen.getByText("确认"));
@@ -346,52 +315,5 @@ describe("ChatPanel 破坏性操作确认", () => {
     fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "再来" } });
     fireEvent.click(screen.getByText("一键生成"));
     await waitFor(() => expect(screen.getByText(/第二次生成/)).toBeInTheDocument());
-  });
-
-  it("多条挂起项逐条确认：第一条确认后会话仍在，第二条可继续确认", async () => {
-    const a = makeElement("rect", 0, 0, 100, 60);
-    const b = makeElement("ellipse", 200, 200, 40, 40);
-    useCanvasStore.getState().addElement(a);
-    useCanvasStore.getState().addElement(b);
-    vi.mocked(fetch)
-      .mockResolvedValueOnce(
-        mockStream([
-          { type: "confirm-request", sessionId: "sm1", summary: "已生成待确认操作", pending: [
-            { id: a.id, description: `删除「矩形」` },
-            { id: b.id, description: "删除「椭圆」" },
-          ] },
-        ])
-      )
-      // 第一条确认：route 回发全部 pending 的汇总（a 已表态，b 尚未表态）
-      .mockResolvedValueOnce(
-        mockStream([
-          { type: "snapshot", canvas: { width: 1600, height: 1000, elements: [b] }, touched: [a.id] },
-          { type: "confirm-done", results: [
-            { id: a.id, description: `删除「矩形」`, approved: true },
-            { id: b.id, description: "删除「椭圆」", approved: false },
-          ] },
-        ])
-      )
-      // 第二条确认：b 表态后全部 resolved，会话可删除
-      .mockResolvedValueOnce(
-        mockStream([
-          { type: "snapshot", canvas: { width: 1600, height: 1000, elements: [] }, touched: [b.id] },
-          { type: "confirm-done", results: [
-            { id: a.id, description: `删除「矩形」`, approved: true },
-            { id: b.id, description: "删除「椭圆」", approved: true },
-          ] },
-        ])
-      );
-    render(<ChatPanel />);
-    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "删掉矩形和椭圆" } });
-    fireEvent.click(screen.getByText("一键生成"));
-    await waitFor(() => expect(screen.getByTestId("confirm-dialog")).toBeInTheDocument());
-    fireEvent.click(screen.getAllByText("确认")[0]); // 第一条确认
-    await waitFor(() => expect(useCanvasStore.getState().doc.elements).toHaveLength(1));
-    // 对话框仍在（第二条还在）
-    expect(screen.getByTestId("confirm-dialog")).toBeInTheDocument();
-    fireEvent.click(screen.getAllByText("确认")[0]); // 第二条确认（此时只剩一条）
-    await waitFor(() => expect(useCanvasStore.getState().doc.elements).toHaveLength(0));
-    expect(screen.queryByTestId("confirm-dialog")).toBeNull();
   });
 });

@@ -44,6 +44,8 @@ export interface ArrowElement extends BaseElement {
   type: "arrow";
   startId?: string;
   endId?: string;
+  // 中间折点（世界坐标，x/y 与起点同系）：渲染为起点→折点…→终点的折线，右键可增删、无限个
+  midPoints?: { x: number; y: number }[];
 }
 
 export interface PolylineElement extends BaseElement {
