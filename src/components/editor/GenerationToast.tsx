@@ -3,12 +3,15 @@
 import { useEffect, useState } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
 
-// AI 生成中的左下角提示气泡：弹出/收缩过渡，点击聚焦聊天输入框
+const MAX_ITEMS = 30;
+
+// AI 生成中的左下角提示气泡：折叠显示最新动作，点击展开完整时间线；每次新动作滑入弹出
 export default function GenerationToast() {
   const isGenerating = useCanvasStore((s) => s.isGenerating);
   const activity = useCanvasStore((s) => s.activity);
   const [mounted, setMounted] = useState(false);
   const [visible, setVisible] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     if (isGenerating) {
@@ -22,18 +25,44 @@ export default function GenerationToast() {
   }, [isGenerating, mounted]);
 
   if (!mounted) return null;
-  const latest = activity.length > 0 ? activity[activity.length - 1] : "AI 正在生成…";
+  const items = activity.length > 0 ? activity : ["AI 正在生成…"];
+  const latest = items[items.length - 1];
+  // 展开时最多回溯 30 条：首行即"当前动作"，其下为已完成步骤 ✓
+  const shown = expanded ? items.slice(-MAX_ITEMS) : [latest];
+
   return (
-    <button
-      type="button"
+    <div
       data-testid="generation-toast"
-      onClick={() => document.getElementById("chat-input")?.focus()}
-      className={`fixed bottom-4 left-4 z-50 max-w-xs rounded-lg border border-white/40 bg-white/70 px-3 py-2 text-left text-sm text-gray-800 shadow-lg backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 active:scale-[0.97] ${
+      role="button"
+      tabIndex={0}
+      aria-expanded={expanded}
+      aria-label={expanded ? "收起 AI 操作时间线" : "展开 AI 操作时间线"}
+      onClick={() => setExpanded((x) => !x)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          setExpanded((x) => !x);
+        }
+      }}
+      className={`fixed bottom-4 left-4 z-50 max-w-sm cursor-pointer rounded-2xl border border-white/50 bg-white/80 p-3 shadow-xl backdrop-blur-md transition-all duration-200 ${
         visible ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
       }`}
     >
-      <span className="mr-1.5 inline-block h-2 w-2 animate-pulse rounded-full bg-blue-500" />
-      {latest}
-    </button>
+      <div className="flex w-full items-center gap-2 text-left text-sm text-gray-800">
+        <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-blue-500" />
+        <span key={items.length} className="toast-in flex-1 truncate">{latest}</span>
+        <span className="shrink-0 text-xs text-gray-400">{expanded ? "▾ 收起" : "▸ 展开"}</span>
+      </div>
+      {expanded && (
+        <div className="mt-2 border-t border-white/60 pt-2">
+          {shown.slice(0, -1).map((a, i) => (
+            <div key={`${i}-${a}`} className="flex gap-2 py-0.5 text-xs text-gray-500">
+              <span className="shrink-0 text-emerald-500">✓</span>
+              <span>{a}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

@@ -10,6 +10,16 @@ import type { CanvasDocument, CanvasElement, ElementType } from "@/lib/canvas/ty
 // updateElement 只接受白名单内的属性键，防止绕过工具层 schema 直接注入任意属性
 const PATCH_KEYS = ["x", "y", "width", "height", "fill", "stroke", "strokeWidth", "rotation", "text", "body", "fontSize", "opacity", "bold", "italic", "align", "fontFamily", "curvature", "radius", "startAngle", "endAngle"] as const;
 
+// 属性键 → 人话名：活动文案不再暴露裸键（如 "fill"），直接说改了什么
+const PATCH_NAMES: Record<string, string> = {
+  x: "位置", y: "位置", width: "宽度", height: "高度",
+  fill: "填充色", stroke: "边框色", strokeWidth: "线宽",
+  rotation: "旋转", text: "文字内容", body: "正文", fontSize: "字号",
+  opacity: "透明度", bold: "加粗", italic: "斜体", align: "对齐",
+  fontFamily: "字体", curvature: "弯曲度", radius: "半径",
+  startAngle: "起始角度", endAngle: "结束角度",
+};
+
 export interface PendingConfirm {
   id: string;
   description: string;
@@ -128,7 +138,12 @@ export class DraftCanvas {
     this.elements.push(el);
     this.touch(el.id);
     this.ensureTextOnTop();
-    this.activity.push(`创建${typeName(el.type)} (${Math.round(r.x)}, ${Math.round(r.y)}, ${Math.round(r.width)}×${Math.round(r.height)})${"text" in el ? `：${el.text}` : ""}`);
+    if ("text" in el) {
+      const style = `${el.bold ? "加粗 " : ""}${el.fontSize ?? 14}px`;
+      this.activity.push(`在 (${Math.round(r.x)}, ${Math.round(r.y)}) 创建${typeName(el.type)}「${el.text}」（${style}）`);
+    } else {
+      this.activity.push(`在 (${Math.round(r.x)}, ${Math.round(r.y)}) 创建${typeName(el.type)}（${Math.round(r.width)}×${Math.round(r.height)}）`);
+    }
     this.changed();
     return { ok: true, id: el.id };
   }
@@ -157,8 +172,8 @@ export class DraftCanvas {
     this.touch(e.id);
     this.elements[idx] = next;
     this.ensureTextOnTop();
-    const changed = Object.keys(args.patch).join(", ");
-    this.activity.push(`修改元素 ${e.id.slice(0, 6)}：${changed}`);
+    const changed = [...new Set(Object.keys(args.patch))].map((k) => PATCH_NAMES[k] ?? k).join("、");
+    this.activity.push(`修改${titleOf(e)}：${changed}`);
     this.changed();
     return { ok: true };
   }
@@ -236,7 +251,7 @@ export class DraftCanvas {
     this.elements.push(el);
     this.touch(el.id);
     this.ensureTextOnTop();
-    this.activity.push(`连接 ${s.id.slice(0, 6)} → ${t.id.slice(0, 6)}`);
+    this.activity.push(`连线：${titleOf(s)} → ${titleOf(t)}`);
     this.changed();
     return { ok: true, id: el.id };
   }
@@ -292,7 +307,7 @@ export class DraftCanvas {
     for (const e of args.edges) {
       this.connectElements({ sourceId: idMap.get(e.from)!, targetId: idMap.get(e.to)! });
     }
-    this.activity.push(`自动布局绘制 ${sized.length} 个节点、${args.edges.length} 条连线（${args.direction ?? "TB"}）`);
+    this.activity.push(`完成流程图：${sized.length} 个节点、${args.edges.length} 条连线，已自动对齐`);
     return { ok: true };
   }
 

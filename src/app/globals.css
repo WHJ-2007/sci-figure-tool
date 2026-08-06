@@ -87,3 +87,12 @@ nextjs-portal {
   0%, 100% { opacity: 0.9; }
   50% { opacity: 0.35; }
 }
+
+/* 气泡新动作滑入：淡入 + 上浮（与 msg-in 同节奏） */
+.toast-in {
+  animation: toast-in 240ms ease-out;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}

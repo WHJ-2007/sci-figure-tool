@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import GenerationToast from "./GenerationToast";
-import ChatPanel from "./ChatPanel";
 import { useCanvasStore } from "@/lib/canvas/store";
 
 beforeEach(() => useCanvasStore.setState(useCanvasStore.getInitialState()));
@@ -14,11 +13,11 @@ describe("GenerationToast", () => {
     expect(screen.queryByTestId("generation-toast")).toBeNull();
     act(() => {
       useCanvasStore.getState().setGenerating(true);
-      useCanvasStore.setState({ activity: ["创建矩形", "创建箭头"] });
+      useCanvasStore.setState({ activity: ["在 (100, 50) 创建矩形", "在 (300, 200) 创建逻辑节点「编码器」"] });
     });
     expect(screen.getByTestId("generation-toast")).toBeInTheDocument();
-    expect(screen.getByTestId("generation-toast").classList.contains("active:scale-[0.97]")).toBe(true);
-    expect(screen.getByText(/创建箭头/)).toBeInTheDocument();
+    // 折叠态只显示最新一条
+    expect(screen.getByText(/编码器/)).toBeInTheDocument();
     expect(screen.queryByText(/创建矩形/)).toBeNull();
     // 无活动时显示兜底文案
     act(() => useCanvasStore.setState({ activity: [] }));
@@ -30,15 +29,27 @@ describe("GenerationToast", () => {
     expect(screen.queryByTestId("generation-toast")).toBeNull();
   });
 
-  it("点击气泡聚焦聊天输入框", () => {
-    render(
-      <>
-        <GenerationToast />
-        <ChatPanel />
-      </>
-    );
-    act(() => useCanvasStore.getState().setGenerating(true));
+  it("点击展开显示完整时间线，再点收起", () => {
+    act(() => {
+      useCanvasStore.getState().setGenerating(true);
+      useCanvasStore.setState({ activity: ["创建矩形", "创建箭头", "创建逻辑节点"] });
+    });
+    render(<GenerationToast />);
     fireEvent.click(screen.getByTestId("generation-toast"));
-    expect(document.activeElement).toBe(document.getElementById("chat-input"));
+    expect(screen.getByText("创建矩形")).toBeInTheDocument();
+    expect(screen.getByText("创建箭头")).toBeInTheDocument();
+    expect(screen.getByText("创建逻辑节点")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("generation-toast"));
+    expect(screen.queryByText("创建矩形")).toBeNull();
+  });
+
+  it("最新一条带动画类 toast-in（每次新动作重挂载）", () => {
+    act(() => {
+      useCanvasStore.getState().setGenerating(true);
+      useCanvasStore.setState({ activity: ["第一步"] });
+    });
+    render(<GenerationToast />);
+    const el = screen.getByText("第一步").closest("span")!;
+    expect(el.className).toContain("toast-in");
   });
 });

@@ -244,7 +244,7 @@ describe("DraftCanvas", () => {
     expect(arrows[0].endId).toBe(byText.get("处理"));
     expect(arrows[1].startId).toBe(byText.get("处理"));
     expect(arrows[1].endId).toBe(byText.get("输出"));
-    expect(d.flushActivity().join("")).toContain("自动布局");
+    expect(d.flushActivity().join("")).toContain("完成流程图");
   });
 
   it("applyGraph edges 引用不存在的节点时报错且不创建任何元素", () => {
