@@ -166,4 +166,22 @@ describe("ChatPanel", () => {
     fireEvent.click(screen.getByText("一键生成"));
     await waitFor(() => expect(screen.getByText(/生成中断/)).toBeInTheDocument());
   });
+
+  it("模式按钮默认自动，点击思维导图后请求体带 mode 且持久化", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(mockStream([{ type: "complete", canvas: { width: 1600, height: 1000, elements: [] }, summary: "好" }]));
+    render(<ChatPanel />);
+    fireEvent.click(screen.getByText("思维导图"));
+    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "梳理概念" } });
+    fireEvent.click(screen.getByText("一键生成"));
+    await waitFor(() => expect(screen.getByText(/好/)).toBeInTheDocument());
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string);
+    expect(body.mode).toBe("mindmap");
+    expect(localStorage.getItem(`chartMode-${useCanvasStore.getState().currentProjectId}`)).toBe("mindmap");
+  });
+
+  it("刷新后从 localStorage 恢复模式选择", () => {
+    localStorage.setItem(`chartMode-${useCanvasStore.getState().currentProjectId}`, "chart");
+    render(<ChatPanel />);
+    expect(screen.getByText("图表制作").className).toContain("bg-blue-600");
+  });
 });

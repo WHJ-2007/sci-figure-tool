@@ -11,6 +11,14 @@ interface Msg {
   content: string;
 }
 
+type AIChatMode = "auto" | "sci" | "mindmap" | "chart";
+const MODE_OPTIONS: { value: AIChatMode; label: string }[] = [
+  { value: "auto", label: "自动" },
+  { value: "sci", label: "科研绘图" },
+  { value: "mindmap", label: "思维导图" },
+  { value: "chart", label: "图表制作" },
+];
+
 export default function ChatPanel() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
@@ -20,6 +28,19 @@ export default function ChatPanel() {
   const setActivity = useCanvasStore((s) => s.setActivity);
   const setGenerating = useCanvasStore((s) => s.setGenerating);
   const isGenerating = useCanvasStore((s) => s.isGenerating);
+  const currentProjectId = useCanvasStore((s) => s.currentProjectId);
+  const [mode, setMode] = useState<AIChatMode>("auto");
+
+  // 模式选择按画布持久化：切换画布/刷新恢复
+  useEffect(() => {
+    const saved = localStorage.getItem(`chartMode-${currentProjectId}`);
+    setMode(saved === "sci" || saved === "mindmap" || saved === "chart" ? saved : "auto");
+  }, [currentProjectId]);
+
+  const selectMode = (m: AIChatMode) => {
+    setMode(m);
+    localStorage.setItem(`chartMode-${currentProjectId}`, m);
+  };
 
   useEffect(() => {
     bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
@@ -50,6 +71,7 @@ export default function ChatPanel() {
           apiKey: settings.apiKey,
           baseURL: settings.baseURL,
           model: settings.model,
+          mode,
         }),
       });
       if (!res.ok) {
@@ -123,6 +145,19 @@ export default function ChatPanel() {
         {error && <div className="rounded-xl border border-red-200/60 bg-red-100/40 p-2 text-xs text-red-700 backdrop-blur-md">{error}</div>}
       </div>
       <div className="border-t border-white/50 p-3">
+        <div className="mb-2 flex rounded-full border border-white/60 bg-white/50 p-0.5 shadow-sm backdrop-blur-md">
+          {MODE_OPTIONS.map((m) => (
+            <button
+              key={m.value}
+              onClick={() => selectMode(m.value)}
+              className={`lift flex-1 rounded-full px-1 py-1 text-xs ${
+                mode === m.value ? "bg-blue-600 text-white shadow-sm" : "text-gray-500 hover:bg-white/70"
+              }`}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
         <textarea
           id="chat-input"
           value={input}

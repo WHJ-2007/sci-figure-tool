@@ -451,4 +451,41 @@ describe("runAgent", () => {
     expect(complete.canvas.elements).toHaveLength(1);
     expect(summary).toBe("已创建矩形");
   });
+
+  it("手动模式在系统提示中注入模式锁", async () => {
+    mockGenerateText.mockClear();
+    mockGenerateText.mockImplementation(async ({ system }: any) => ({ text: "好" }));
+    const events: any[] = [];
+    await runAgent({
+      messages: [{ role: "user", content: "梳理一下深度学习" }],
+      canvas: { width: 1600, height: 1000, elements: [] },
+      apiKey: "sk-test",
+      baseURL: "https://api.deepseek.com",
+      model: "deepseek-chat",
+      mode: "mindmap",
+      onEvent: (ev) => events.push(ev),
+    });
+    const system = mockGenerateText.mock.calls[0][0].system as string;
+    expect(system).toContain("思维导图");
+    expect(system).toContain("强制");
+    expect(system).not.toContain("自动识别");
+  });
+
+  it("auto/缺省模式系统提示包含自动识别规则与全部三节", async () => {
+    mockGenerateText.mockClear();
+    mockGenerateText.mockImplementation(async ({ system }: any) => ({ text: "好" }));
+    await runAgent({
+      messages: [{ role: "user", content: "画个架构图" }],
+      canvas: { width: 1600, height: 1000, elements: [] },
+      apiKey: "sk-test",
+      baseURL: "https://api.deepseek.com",
+      model: "deepseek-chat",
+      onEvent: () => {},
+    });
+    const system = mockGenerateText.mock.calls[0][0].system as string;
+    expect(system).toContain("自动识别");
+    expect(system).toContain("科研绘图");
+    expect(system).toContain("思维导图");
+    expect(system).toContain("图表制作");
+  });
 });

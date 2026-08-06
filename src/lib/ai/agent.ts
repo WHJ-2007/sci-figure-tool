@@ -3,7 +3,7 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { CanvasDocument } from "@/lib/canvas/types";
 import { DraftCanvas } from "./draft";
 import { buildTools } from "./tools";
-import { SYSTEM_PROMPT } from "./prompt";
+import { buildSystemPrompt, type AIMode } from "./prompt";
 
 export interface ChatMessage {
   role: "user" | "assistant";
@@ -23,6 +23,7 @@ export async function runAgent(opts: {
   apiKey: string;
   baseURL: string;
   model: string;
+  mode?: "auto" | AIMode;
   onEvent: (ev: AgentEvent) => void;
 }): Promise<string> {
   const provider = createOpenAICompatible({ baseURL: opts.baseURL, apiKey: opts.apiKey, name: "deepseek" });
@@ -34,7 +35,7 @@ export async function runAgent(opts: {
   });
   const result = await generateText({
     model: provider(opts.model),
-    system: SYSTEM_PROMPT,
+    system: buildSystemPrompt(opts.mode === "auto" || opts.mode == null ? undefined : opts.mode),
     messages: opts.messages,
     tools: buildTools(draft),
     // AI SDK v5 已移除 maxSteps，改用 stopWhen 限制多轮工具调用步数（默认只跑 1 步）
