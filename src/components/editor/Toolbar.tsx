@@ -155,8 +155,8 @@ export default function Toolbar() {
         <Link href="/settings" className="lift flex h-8 w-8 items-center justify-center rounded hover:bg-gray-100" title="设置">{SETTINGS_ICON}</Link>
       </div>
       {/* 左侧悬浮玻璃坞：工具（图案+逻辑两区气泡）+ 编辑（撤销/重做） */}
-      {/* top-[4.5rem]（72px）= 顶栏 40px + FirstRunHint 提示条 32px，坞正好落在提示条下方不遮挡 */}
-      <div className="fixed left-4 top-[4.5rem] z-40 flex flex-col items-center gap-1 rounded-2xl border border-white/50 bg-white/70 p-1.5 shadow-xl backdrop-blur-md">
+      {/* top-[4.625rem]（74px）= 顶栏 41px（h-8 + py-1 + border-b）+ FirstRunHint 33px（py-1.5 + text-sm + border-b），坞落在提示条下方 */}
+      <div className="fixed left-4 top-[4.625rem] z-40 flex flex-col items-center gap-1 rounded-2xl border border-white/50 bg-white/70 p-1.5 shadow-xl backdrop-blur-md">
         <div className="relative" ref={toolRef}>
           <button
             title="工具"

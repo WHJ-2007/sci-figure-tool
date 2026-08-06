@@ -127,6 +127,7 @@ describe("Toolbar 悬浮坞", () => {
     render(<Toolbar />);
     const btn = screen.getByTitle("工具");
     expect(btn.classList.contains("bg-blue-100")).toBe(false);
+    expect(btn.querySelector("svg")).not.toBeNull();
   });
 
   it("逻辑节点工具时主按钮高亮", () => {
