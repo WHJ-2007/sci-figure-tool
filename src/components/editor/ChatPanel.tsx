@@ -5,13 +5,14 @@ import { useCanvasStore } from "@/lib/canvas/store";
 import { loadSettings } from "@/lib/settings";
 import type { CanvasDocument } from "@/lib/canvas/types";
 import type { AgentEvent } from "@/lib/ai/agent";
+import type { AIMode } from "@/lib/ai/prompt";
 
 interface Msg {
   role: "user" | "assistant";
   content: string;
 }
 
-type AIChatMode = "auto" | "sci" | "mindmap" | "chart";
+type AIChatMode = "auto" | AIMode;
 const MODE_OPTIONS: { value: AIChatMode; label: string }[] = [
   { value: "auto", label: "自动" },
   { value: "sci", label: "科研绘图" },
@@ -150,6 +151,7 @@ export default function ChatPanel() {
             <button
               key={m.value}
               onClick={() => selectMode(m.value)}
+              aria-pressed={mode === m.value}
               className={`lift flex-1 rounded-full px-1 py-1 text-xs ${
                 mode === m.value ? "bg-blue-600 text-white shadow-sm" : "text-gray-500 hover:bg-white/70"
               }`}

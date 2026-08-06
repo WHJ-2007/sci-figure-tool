@@ -182,6 +182,6 @@ describe("ChatPanel", () => {
   it("刷新后从 localStorage 恢复模式选择", () => {
     localStorage.setItem(`chartMode-${useCanvasStore.getState().currentProjectId}`, "chart");
     render(<ChatPanel />);
-    expect(screen.getByText("图表制作").className).toContain("bg-blue-600");
+    expect(screen.getByText("图表制作")).toHaveAttribute("aria-pressed", "true");
   });
 });
