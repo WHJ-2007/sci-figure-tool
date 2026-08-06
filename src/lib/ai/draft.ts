@@ -350,7 +350,11 @@ export class DraftCanvas {
   }
 
   private applyClear() {
+    // 清空前 touch 全部被移除元素：确认流回发的快照 touched 需包含它们，
+    // 前端才把这些 id 加锁，mergePreserved 才不会被当作"用户本地新增"保留
+    const removed = this.elements;
     this.elements = [];
+    for (const el of removed) this.touch(el.id);
     this.ensureTextOnTop();
     this.activity.push("清空画布");
     this.changed();
@@ -366,7 +370,11 @@ export class DraftCanvas {
   }
 
   private applyNewCanvas() {
+    // 与 applyClear 同理 touch 被移除元素（防御性）：若未来事件顺序变化把旧元素并入新画布，
+    // 这些 id 已在快照 touched 中加锁，可被正确丢弃
+    const removed = this.elements;
     this.elements = [];
+    for (const el of removed) this.touch(el.id);
     this.ensureTextOnTop();
     this.activity.push("新建画布");
     this.newCanvasFlag = true;

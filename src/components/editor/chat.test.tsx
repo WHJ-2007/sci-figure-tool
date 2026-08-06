@@ -213,6 +213,35 @@ describe("ChatPanel 破坏性操作确认", () => {
     expect(useCanvasStore.getState().aiLockedIds).toHaveLength(0);
   });
 
+  it("确认清空画布后所有元素移除", async () => {
+    const a = makeElement("rect", 0, 0, 100, 60);
+    const b = makeElement("ellipse", 200, 200, 40, 40);
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().addElement(b);
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        mockStream([
+          { type: "confirm-request", sessionId: "s3", pending: [{ id: "clear", description: "清空画布（2 个元素）" }] },
+        ])
+      )
+      .mockResolvedValueOnce(
+        mockStream([
+          // touched 必须含被清空元素 id：route 实际会因 applyClear 的 touch 产生，
+          // 前端据此加锁后才不会被 mergePreserved 当作"用户本地新增"保留
+          { type: "snapshot", canvas: { width: 1600, height: 1000, elements: [] }, touched: [a.id, b.id] },
+          { type: "confirm-done", results: [{ id: "clear", description: "清空画布（2 个元素）", approved: true }] },
+        ])
+      );
+    render(<ChatPanel />);
+    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "清空画布" } });
+    fireEvent.click(screen.getByText("一键生成"));
+    await waitFor(() => expect(screen.getByTestId("confirm-dialog")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("确认"));
+    await waitFor(() => expect(useCanvasStore.getState().doc.elements).toHaveLength(0));
+    await waitFor(() => expect(screen.getByText(/已确认：清空画布/)).toBeInTheDocument());
+    expect(useCanvasStore.getState().aiLockedIds).toHaveLength(0);
+  });
+
   it("取消后元素保留，追加取消消息", async () => {
     const mine = makeElement("rect", 0, 0, 100, 60);
     useCanvasStore.getState().addElement(mine);
