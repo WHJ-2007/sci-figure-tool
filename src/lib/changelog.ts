@@ -46,6 +46,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       "AI 一键布局（applyGraph 工具 + dagre 分层布局引擎，Mermaid/React Flow 同款）：AI 只需声明节点（标题/正文/填充色）与连接关系，系统自动完成对齐、等距、连线，整张流程图/架构图一次调用生成，不再逐条手绘坐标",
       "布局引擎：新增 graphLayout 模块（dagre Sugiyama 分层布局，TB/LR 方向，节点不重叠、间距可控，整体超出画布时自动缩放回画布）",
       "科研审美规范注入 prompt：受控调色板（#eef4ff 蓝 / #f0fff0 绿 / #fff8e6 橙 / #f3efff 紫 / #ffeef0 红 / 白，同图 ≤3 种）、边框统一深色、配色像论文插图一样干净克制",
+      "WASD 平移更跟手：按下即动 + 按住期间 rAF 循环每 33ms 一步平滑移动（不再依赖系统按键重复，消除首次延迟约 500ms 的卡顿；支持 W+D 等斜向移动，窗口失焦自动停）",
     ],
   },
   {

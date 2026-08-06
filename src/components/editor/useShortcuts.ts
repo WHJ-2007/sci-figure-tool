@@ -6,6 +6,38 @@ import { newId } from "@/lib/canvas/elements";
 
 export function useShortcuts() {
   useEffect(() => {
+    // WASD 连续移动：按下即动一步 + rAF 循环每 33ms 一步（≈30fps，与原速率一致）。
+    // 不依赖 OS 按键自动重复——Windows 首次重复延迟约 500ms 导致"卡一下再动"，操作不跟手
+    const pressed = new Set<string>();
+    let rafId: number | null = null;
+    let lastMove = 0;
+
+    const stopLoop = () => {
+      if (rafId != null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+    };
+    const moveStep = () => {
+      const s = useCanvasStore.getState();
+      const dx = (pressed.has("a") ? 1 : 0) - (pressed.has("d") ? 1 : 0);
+      const dy = (pressed.has("w") ? 1 : 0) - (pressed.has("s") ? 1 : 0);
+      s.setView({ scale: s.view.scale, ox: s.view.ox + dx * 50, oy: s.view.oy + dy * 50 });
+    };
+    const loop = (t: number) => {
+      if (t - lastMove >= 33) {
+        moveStep();
+        lastMove = t;
+      }
+      rafId = requestAnimationFrame(loop);
+    };
+    const startLoop = () => {
+      if (rafId == null) {
+        lastMove = performance.now();
+        rafId = requestAnimationFrame(loop);
+      }
+    };
+
     const onKey = (e: KeyboardEvent) => {
       const s = useCanvasStore.getState();
       // 在输入框/文本框内不拦截快捷键（文字编辑时 Ctrl+Z 应恢复输入框自身的撤销）
@@ -18,16 +50,16 @@ export function useShortcuts() {
         else if (k === "d") { e.preventDefault(); duplicateSelection(); }
         return;
       }
-      // WASD 平移视口（每次 50px，按住自动重复）；仅移动视图，不影响元素与选区。
+      // WASD 平移视口（按下即动 50px，按住 rAF 循环每 33ms 一步）；仅移动视图，不影响元素与选区。
       // 相机语义：W=上（内容下移 oy+）、A=左、S=下、D=右；AI 生成中也可平移（边看 AI 绘制边导航）
       const k = e.key.toLowerCase();
       if (k === "w" || k === "a" || k === "s" || k === "d") {
         e.preventDefault();
-        s.setView({
-          scale: s.view.scale,
-          ox: s.view.ox + (k === "a" ? 50 : k === "d" ? -50 : 0),
-          oy: s.view.oy + (k === "w" ? 50 : k === "s" ? -50 : 0),
-        });
+        if (!pressed.has(k)) {
+          pressed.add(k);
+          moveStep(); // 按下即动：不等 rAF 帧，消除系统按键延迟的"卡顿感"
+          startLoop();
+        }
         return;
       }
       if (s.isGenerating) return;
@@ -39,8 +71,26 @@ export function useShortcuts() {
         }
       }
     };
+    const onKeyUp = (e: KeyboardEvent) => {
+      const k = e.key.toLowerCase();
+      if (k === "w" || k === "a" || k === "s" || k === "d") {
+        pressed.delete(k);
+        if (pressed.size === 0) stopLoop();
+      }
+    };
+    const onBlur = () => {
+      pressed.clear();
+      stopLoop();
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
+      stopLoop();
+    };
   }, []);
 }
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { makeElement } from "@/lib/canvas/elements";
@@ -74,18 +74,74 @@ describe("快捷键", () => {
     expect(useCanvasStore.getState().doc.elements).toHaveLength(1);
   });
 
-  it("WASD 平移视口：W 上 / A 左 / S 下 / D 右（相机语义，每次 50px）", () => {
+  it("WASD 按下即动：W 上 / A 左 / S 下 / D 右（相机语义，每次 50px）", () => {
     render(<EditorHost />);
     const v0 = useCanvasStore.getState().view;
     fireEvent.keyDown(window, { key: "w" });
     expect(useCanvasStore.getState().view.oy).toBe(v0.oy + 50); // 上：内容下移
+    fireEvent.keyUp(window, { key: "w" });
     fireEvent.keyDown(window, { key: "s" });
     expect(useCanvasStore.getState().view.oy).toBe(v0.oy); // 下：回到原位
+    fireEvent.keyUp(window, { key: "s" });
     fireEvent.keyDown(window, { key: "a" });
     expect(useCanvasStore.getState().view.ox).toBe(v0.ox + 50); // 左
+    fireEvent.keyUp(window, { key: "a" });
     fireEvent.keyDown(window, { key: "d" });
     expect(useCanvasStore.getState().view.ox).toBe(v0.ox); // 右：回到原位
+    fireEvent.keyUp(window, { key: "d" });
     expect(useCanvasStore.getState().view.scale).toBe(v0.scale); // 缩放不变
+  });
+
+  it("按住 W 持续移动（33ms 一步），松手停止", () => {
+    render(<EditorHost />);
+    // 渲染后再开假定时器：React 初始渲染用真实调度，keydown 后循环才用假 rAF
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date", "requestAnimationFrame", "cancelAnimationFrame", "performance"],
+    });
+    try {
+      const v0 = useCanvasStore.getState().view;
+      fireEvent.keyDown(window, { key: "w" });
+      expect(useCanvasStore.getState().view.oy).toBe(v0.oy + 50); // 按下即动
+      vi.advanceTimersByTime(100);
+      // 假 rAF 帧在 t≈16/32/48/64/80/96（16ms 对齐）：t-lastMove≥33 的帧（48/96）各 +50，共 +100
+      expect(useCanvasStore.getState().view.oy).toBe(v0.oy + 150);
+      fireEvent.keyUp(window, { key: "w" });
+      const after = useCanvasStore.getState().view.oy;
+      vi.advanceTimersByTime(200);
+      expect(useCanvasStore.getState().view.oy).toBe(after); // 松手后不再移动
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("同时按住 W+D 斜向移动", () => {
+    render(<EditorHost />);
+    const v0 = useCanvasStore.getState().view;
+    fireEvent.keyDown(window, { key: "w" });
+    fireEvent.keyDown(window, { key: "d" });
+    expect(useCanvasStore.getState().view.ox).toBe(v0.ox - 50);
+    // D 的"按下即动"步是完整对角步（W 仍按住，dy 含 w）→ oy 在 W 的 +50 之上再 +50
+    expect(useCanvasStore.getState().view.oy).toBe(v0.oy + 100);
+    fireEvent.keyUp(window, { key: "w" });
+    fireEvent.keyUp(window, { key: "d" });
+  });
+
+  it("窗口失焦清空按键：松手前失焦不再移动", () => {
+    render(<EditorHost />);
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date", "requestAnimationFrame", "cancelAnimationFrame", "performance"],
+    });
+    try {
+      const v0 = useCanvasStore.getState().view;
+      fireEvent.keyDown(window, { key: "a" });
+      expect(useCanvasStore.getState().view.ox).toBe(v0.ox + 50);
+      fireEvent.blur(window);
+      const after = useCanvasStore.getState().view.ox;
+      vi.advanceTimersByTime(200);
+      expect(useCanvasStore.getState().view.ox).toBe(after); // blur 后循环停止
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("WASD 平移不改变选中元素位置", () => {
@@ -95,6 +151,7 @@ describe("快捷键", () => {
     render(<EditorHost />);
     fireEvent.keyDown(window, { key: "d" });
     expect(useCanvasStore.getState().doc.elements[0].x).toBe(0);
+    fireEvent.keyUp(window, { key: "d" });
   });
 
   it("Ctrl+W 等修饰键组合不触发平移（保留浏览器/系统快捷键）", () => {
@@ -126,5 +183,6 @@ describe("快捷键", () => {
     // 生成中 Delete 等编辑快捷键仍被忽略
     fireEvent.keyDown(window, { key: "Delete" });
     expect(useCanvasStore.getState().doc.elements).toHaveLength(0);
+    fireEvent.keyUp(window, { key: "d" });
   });
 });
