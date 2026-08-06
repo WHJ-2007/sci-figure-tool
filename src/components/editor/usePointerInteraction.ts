@@ -7,7 +7,7 @@ import type { Anchor } from "@/lib/canvas/geometry";
 
 type Mode =
   | { kind: "idle" }
-  | { kind: "pan"; startClientX: number; startClientY: number; ox0: number; oy0: number }
+  | { kind: "pan"; startClientX: number; startClientY: number; ox0: number; oy0: number; shiftKey: boolean }
   | { kind: "move"; startX: number; startY: number; start: Map<string, { x: number; y: number }>; moved: boolean; lastDx: number; lastDy: number }
   | { kind: "rubber"; startX: number; startY: number; x: number; y: number; additive: boolean }
   | { kind: "resize"; id: string; handle: string; startX: number; startY: number; rect: { x: number; y: number; width: number; height: number } }
@@ -110,9 +110,10 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
       const s = useCanvasStore.getState();
       if (m.kind === "pan") {
         setPanning(false);
+        // 点击阈值用屏幕像素（pan 按屏幕位移判定），与 move 的 world 单位阈值不同是有意的
         // 左键空白点击（未拖动）清空选择——保留原选择工具的点击清空语义
-        if (Math.hypot(e.clientX - m.startClientX, e.clientY - m.startClientY) < 3 && !e.shiftKey) {
-          useCanvasStore.getState().setSelection([]);
+        if (Math.hypot(e.clientX - m.startClientX, e.clientY - m.startClientY) < 3 && !m.shiftKey) {
+          s.setSelection([]);
         }
       } else if (m.kind === "rubber") {
         const r = {
@@ -264,8 +265,9 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
           modeRef.current = { kind: "rubber", startX: wx, startY: wy, x: wx, y: wy, additive: e.shiftKey };
           startDrag();
         } else if (e.button === 0) {
-          // 左键空白拖动 = 平移画布（原小手功能）
-          modeRef.current = { kind: "pan", startClientX: e.clientX, startClientY: e.clientY, ox0: s.view.ox, oy0: s.view.oy };
+          // 左键空白拖动 = 平移画布（原小手功能）；shiftKey 记在按下时——点击判定按手势意图，
+          // 不依赖 pointerup 是否仍按着 shift（与 rubber 分支的 additive 同理）
+          modeRef.current = { kind: "pan", startClientX: e.clientX, startClientY: e.clientY, ox0: s.view.ox, oy0: s.view.oy, shiftKey: e.shiftKey };
           setPanning(true);
           startDrag();
         }

@@ -217,6 +217,17 @@ describe("Canvas 交互", () => {
     expect(useCanvasStore.getState().view.ox).toBe(0);
     expect(useCanvasStore.getState().view.oy).toBe(0);
   });
+
+  it("shift+左键空白点击不清空选区", () => {
+    const a = makeElement("rect", 10, 10, 100, 60);
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().setSelection([a.id]);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const svg = document.querySelector("svg")!;
+    fireEvent.pointerDown(svg, { clientX: 700, clientY: 500, button: 0, shiftKey: true });
+    fireEvent.pointerUp(svg, { clientX: 700, clientY: 500 });
+    expect(useCanvasStore.getState().selection).toEqual([a.id]);
+  });
 });
 
 describe("逻辑节点", () => {
