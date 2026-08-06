@@ -185,3 +185,54 @@ describe("ChatPanel", () => {
     expect(screen.getByText("图表制作")).toHaveAttribute("aria-pressed", "true");
   });
 });
+
+describe("ChatPanel 破坏性操作确认", () => {
+  it("confirm-request 后弹确认框，确认后应用删除并追加系统消息", async () => {
+    const mine = makeElement("rect", 0, 0, 100, 60);
+    useCanvasStore.getState().addElement(mine);
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        mockStream([
+          { type: "confirm-request", sessionId: "s1", pending: [{ id: mine.id, description: "删除「矩形」" }] },
+        ])
+      )
+      .mockResolvedValueOnce(
+        mockStream([
+          { type: "snapshot", canvas: { width: 1600, height: 1000, elements: [] }, touched: [mine.id] },
+          { type: "confirm-done", results: [{ id: mine.id, description: "删除「矩形」", approved: true }] },
+        ])
+      );
+    render(<ChatPanel />);
+    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "删掉矩形" } });
+    fireEvent.click(screen.getByText("一键生成"));
+    await waitFor(() => expect(screen.getByTestId("confirm-dialog")).toBeInTheDocument());
+    expect(screen.getByText(/删除「矩形」/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText("确认"));
+    await waitFor(() => expect(useCanvasStore.getState().doc.elements).toHaveLength(0));
+    await waitFor(() => expect(screen.getByText(/已确认：删除「矩形」/)).toBeInTheDocument());
+    expect(useCanvasStore.getState().aiLockedIds).toHaveLength(0);
+  });
+
+  it("取消后元素保留，追加取消消息", async () => {
+    const mine = makeElement("rect", 0, 0, 100, 60);
+    useCanvasStore.getState().addElement(mine);
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        mockStream([
+          { type: "confirm-request", sessionId: "s2", pending: [{ id: mine.id, description: "删除「矩形」" }] },
+        ])
+      )
+      .mockResolvedValueOnce(
+        mockStream([
+          { type: "confirm-done", results: [{ id: mine.id, description: "删除「矩形」", approved: false }] },
+        ])
+      );
+    render(<ChatPanel />);
+    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "删掉矩形" } });
+    fireEvent.click(screen.getByText("一键生成"));
+    await waitFor(() => expect(screen.getByTestId("confirm-dialog")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("取消"));
+    await waitFor(() => expect(useCanvasStore.getState().doc.elements).toHaveLength(1));
+    await waitFor(() => expect(screen.getByText(/已取消：删除「矩形」/)).toBeInTheDocument());
+  });
+});

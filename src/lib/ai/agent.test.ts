@@ -4,7 +4,7 @@ import { DraftCanvas } from "./draft";
 import { buildTools } from "./tools";
 import { runAgent } from "./agent";
 import { CANVAS_WIDTH } from "../canvas/geometry";
-import { estimateTextSize, logicBoxSize } from "../canvas/elements";
+import { estimateTextSize, logicBoxSize, makeElement } from "../canvas/elements";
 import type { LogicElement, TextElement } from "../canvas/types";
 
 // vi.mock 工厂被提升执行时引用外部变量会 TDZ 报错，必须用 vi.hoisted 创建 mock；
@@ -379,7 +379,47 @@ describe("DraftCanvas onChange", () => {
     d.deleteElement({ id: "missing" });
     expect(onChange).toHaveBeenCalledTimes(3);
     d.clear();
+    expect(onChange).toHaveBeenCalledTimes(3); // 清空挂起等待确认，不立即触发
+    d.pending[0].apply();
     expect(onChange).toHaveBeenCalledTimes(4);
+  });
+});
+
+describe("DraftCanvas 破坏性操作挂起", () => {
+  it("删除用户已有元素挂起等待确认，不直接删除", () => {
+    const d = new DraftCanvas([]);
+    const r = d.createElement({ type: "rect", x: 0, y: 0, width: 100, height: 60 });
+    const userEl = d.serialize().elements[0];
+    // 模拟"用户已有"元素：重建 DraftCanvas 把该元素作为初始内容
+    const d2 = new DraftCanvas([userEl]);
+    const res = d2.deleteElement({ id: userEl.id });
+    expect(res.ok).toBe(true);
+    expect(res.note).toMatch(/挂起/);
+    expect(d2.serialize().elements).toHaveLength(1); // 未删除
+    expect(d2.pending.length).toBe(1);
+    expect(d2.pending[0].description).toContain("矩形");
+    // 确认后执行
+    d2.pending[0].apply();
+    expect(d2.serialize().elements).toHaveLength(0);
+  });
+
+  it("AI 本轮创建的元素删除不挂起，直接删除", () => {
+    const d = new DraftCanvas([]);
+    const r = d.createElement({ type: "rect", x: 0, y: 0, width: 100, height: 60 });
+    const res = d.deleteElement({ id: r.id! });
+    expect(res.ok).toBe(true);
+    expect(d.pending.length).toBe(0);
+    expect(d.serialize().elements).toHaveLength(0);
+  });
+
+  it("clear 与 newCanvas 总是挂起", () => {
+    const d = new DraftCanvas([]);
+    d.createElement({ type: "rect", x: 0, y: 0, width: 100, height: 60 });
+    d.clear();
+    d.newCanvas();
+    expect(d.pending.map((p) => p.id)).toEqual(["clear", "new-canvas"]);
+    d.pending[0].apply();
+    expect(d.serialize().elements).toHaveLength(0);
   });
 });
 
@@ -407,7 +447,7 @@ describe("runAgent", () => {
     expect(events[events.length - 1].type).toBe("complete");
   });
 
-  it("newCanvas 工具清空草稿、发出 new-canvas 事件，新内容落在新画布", async () => {
+  it("newCanvas 工具挂起：主生成以 confirm-request 收尾，画布保持原样", async () => {
     mockGenerateText.mockImplementation(async ({ tools, onStepFinish }: any) => {
       await (tools as any).createElement.execute({ type: "rect", x: 0, y: 0, width: 50, height: 30 });
       await (tools as any).newCanvas.execute({});
@@ -424,11 +464,40 @@ describe("runAgent", () => {
       model: "deepseek-chat",
       onEvent: (ev) => events.push(ev),
     });
-    expect(events.some((e) => e.type === "new-canvas")).toBe(true);
-    const complete = events.find((e) => e.type === "complete");
-    // newCanvas 清空旧元素，final 只有新画布上的元素
-    expect(complete.canvas.elements).toHaveLength(1);
-    expect(complete.canvas.elements[0].type).toBe("ellipse");
+    // 挂起的 newCanvas 不再直接清空草稿：主生成以 confirm-request 收尾，无 complete/new-canvas 事件
+    const req = events.find((e) => e.type === "confirm-request");
+    expect(req).toBeTruthy();
+    expect(req.pending.map((p: any) => p.id)).toEqual(["new-canvas"]);
+    expect(events.some((e) => e.type === "complete")).toBe(false);
+    expect(events.some((e) => e.type === "new-canvas")).toBe(false);
+    // 挂起未执行：rect 与 ellipse 都留在原草稿
+    const snaps = events.filter((e) => e.type === "snapshot");
+    expect(snaps[snaps.length - 1].canvas.elements).toHaveLength(2);
+  });
+
+  it("删除用户已有元素挂起：confirm-request 携带挂起项，元素保留", async () => {
+    const userEl = makeElement("rect", 0, 0, 100, 60);
+    mockGenerateText.mockImplementation(async ({ tools, onStepFinish }: any) => {
+      await (tools as any).deleteElement.execute({ id: userEl.id });
+      onStepFinish?.({ toolResults: [] });
+      return { text: "已删除矩形" };
+    });
+    const events: any[] = [];
+    await runAgent({
+      messages: [{ role: "user", content: "删掉矩形" }],
+      canvas: { width: 1600, height: 1000, elements: [userEl] },
+      apiKey: "sk-test",
+      baseURL: "https://api.deepseek.com",
+      model: "deepseek-chat",
+      onEvent: (ev) => events.push(ev),
+    });
+    const req = events.find((e) => e.type === "confirm-request");
+    expect(req).toBeTruthy();
+    expect(req.pending).toHaveLength(1);
+    expect(req.pending[0].id).toBe(userEl.id);
+    expect(req.pending[0].description).toContain("矩形");
+    expect(events.some((e) => e.type === "complete")).toBe(false);
+    expect(events.some((e) => e.type === "snapshot")).toBe(false); // 挂起不触达画布
   });
 
   it("驱动模型调用工具并把结果应用到草稿、发出 complete 事件", async () => {

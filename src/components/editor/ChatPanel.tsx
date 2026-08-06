@@ -6,11 +6,18 @@ import { loadSettings } from "@/lib/settings";
 import type { CanvasDocument } from "@/lib/canvas/types";
 import type { AgentEvent } from "@/lib/ai/agent";
 import type { AIMode } from "@/lib/ai/prompt";
+import ConfirmDialog from "./ConfirmDialog";
 
 interface Msg {
   role: "user" | "assistant";
   content: string;
 }
+
+// 确认流事件：/api/chat/confirm 回发的二次流（AgentEvent 联合类型不含 confirm-done）
+type ConfirmEvent =
+  | { type: "new-canvas" }
+  | { type: "snapshot"; canvas: CanvasDocument; touched: string[] }
+  | { type: "confirm-done"; results: { id: string; description: string; approved: boolean }[] };
 
 type AIChatMode = "auto" | AIMode;
 const MODE_OPTIONS: { value: AIChatMode; label: string }[] = [
@@ -31,6 +38,8 @@ export default function ChatPanel() {
   const isGenerating = useCanvasStore((s) => s.isGenerating);
   const currentProjectId = useCanvasStore((s) => s.currentProjectId);
   const [mode, setMode] = useState<AIChatMode>("auto");
+  const [confirmReq, setConfirmReq] = useState<{ sessionId: string; pending: { id: string; description: string }[] } | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
 
   // 模式选择按画布持久化：切换画布/刷新恢复
   useEffect(() => {
@@ -86,6 +95,8 @@ export default function ChatPanel() {
       const decoder = new TextDecoder();
       let finalDoc: CanvasDocument | null = null;
       let summary = "";
+      // 最后一张快照：confirm-request 时作为"生成主体结果"入历史（一步 undo 回到生成前）
+      let lastSnapshot: CanvasDocument | null = null;
       // 行缓冲：网络分块可能把一行 JSON 拆成多段，必须先拼够 "\n" 再解析
       let buf = "";
       while (true) {
@@ -108,6 +119,7 @@ export default function ChatPanel() {
               baseline = structuredClone(useCanvasStore.getState().doc);
             } else if (ev.type === "snapshot") {
               useCanvasStore.getState().applyAISnapshot(ev.canvas);
+              lastSnapshot = ev.canvas;
               // 累积本轮 AI 触碰的元素 id：前端锁定（不可选中/拖动）+ 快照合并排除（AI 可删除自己的元素）
               const touched = ev.touched ?? [];
               if (touched.length) {
@@ -121,6 +133,10 @@ export default function ChatPanel() {
             } else if (ev.type === "complete") {
               finalDoc = ev.canvas;
               summary = ev.summary ?? "";
+            } else if (ev.type === "confirm-request") {
+              // 生成主体结束：把最后快照作为最终结果入历史（一步 undo 回到生成前），再弹确认框
+              if (lastSnapshot) useCanvasStore.getState().applyAIResult(lastSnapshot, baseline);
+              setConfirmReq({ sessionId: ev.sessionId, pending: ev.pending });
             } else if (ev.type === "error") setError(ev.message);
           }
           nl = buf.indexOf("\n");
@@ -137,6 +153,57 @@ export default function ChatPanel() {
       useCanvasStore.getState().setAiLocked([]);
       useCanvasStore.getState().setAiBaseline([]);
       setGenerating(false);
+    }
+  };
+
+  // 破坏性操作逐条确认：POST /api/chat/confirm 二次流应用已确认的操作，快照回发合并进画布
+  const confirmAction = async (id: string, approved: boolean) => {
+    if (!confirmReq || confirmBusy) return;
+    setConfirmBusy(true);
+    try {
+      const res = await fetch("/api/chat/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: confirmReq.sessionId, approvals: [{ id, approved }] }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error ?? `确认失败 (${res.status})`);
+        return;
+      }
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      const desc = confirmReq.pending.find((p) => p.id === id)?.description ?? "该操作";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let nl = buf.indexOf("\n");
+        while (nl >= 0) {
+          const line = buf.slice(0, nl);
+          buf = buf.slice(nl + 1);
+          if (line) {
+            const ev = JSON.parse(line) as ConfirmEvent;
+            if (ev.type === "new-canvas") useCanvasStore.getState().createProject();
+            else if (ev.type === "snapshot") {
+              // 先锁再合并：主生成结束已清空基线与锁定，被删除元素（touched）若不先锁定，
+              // mergePreserved 会把它当作"用户本地新增"保留下来，删除将不生效
+              const touched = ev.touched ?? [];
+              if (touched.length) useCanvasStore.setState((st) => ({ aiLockedIds: [...new Set([...st.aiLockedIds, ...touched])] }));
+              useCanvasStore.getState().applyAISnapshot(ev.canvas);
+            }
+          }
+          nl = buf.indexOf("\n");
+        }
+      }
+      setMessages((m) => [...m, { role: "assistant", content: approved ? `已确认：${desc}` : `已取消：${desc}` }]);
+      useCanvasStore.getState().setAiLocked([]);
+      setConfirmReq((c) => (c ? { ...c, pending: c.pending.filter((p) => p.id !== id) } : c));
+    } catch (err) {
+      setError("确认失败：" + String(err));
+    } finally {
+      setConfirmBusy(false);
     }
   };
 
@@ -196,6 +263,9 @@ export default function ChatPanel() {
           </button>
         </div>
       </div>
+      {confirmReq && confirmReq.pending.length > 0 && (
+        <ConfirmDialog pending={confirmReq.pending} busy={confirmBusy} onAction={confirmAction} onClose={() => setConfirmReq(null)} />
+      )}
     </div>
   );
 }

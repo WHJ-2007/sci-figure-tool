@@ -10,6 +10,12 @@ import type { CanvasDocument, CanvasElement, ElementType } from "@/lib/canvas/ty
 // updateElement 只接受白名单内的属性键，防止绕过工具层 schema 直接注入任意属性
 const PATCH_KEYS = ["x", "y", "width", "height", "fill", "stroke", "strokeWidth", "rotation", "text", "body", "fontSize", "opacity", "bold", "italic", "align", "fontFamily", "curvature", "radius", "startAngle", "endAngle"] as const;
 
+export interface PendingConfirm {
+  id: string;
+  description: string;
+  apply: () => void;
+}
+
 export interface CreateArgs {
   type: string;
   x: number;
@@ -33,6 +39,7 @@ export class DraftCanvas {
   elements: CanvasElement[] = [];
   private activity: string[] = [];
   private onChange: (() => void) | undefined;
+  private pendingConfirms: PendingConfirm[] = [];
   private newCanvasFlag = false;
   private initialIds: Set<string>;
   private touchedIds = new Set<string>();
@@ -56,6 +63,15 @@ export class DraftCanvas {
 
   private changed() {
     this.onChange?.();
+  }
+
+  setOnChange(cb: (() => void) | undefined) {
+    this.onChange = cb;
+  }
+
+  // 破坏性操作挂起列表：主生成结束后由 runAgent 上报，用户确认后经 /api/chat/confirm 逐个 apply
+  get pending(): PendingConfirm[] {
+    return this.pendingConfirms;
   }
 
   // 文字元素统一置顶：AI 生成的文字标注应始终显示在模块框之上，不被不透明填充遮挡
@@ -145,15 +161,33 @@ export class DraftCanvas {
     return { ok: true };
   }
 
-  deleteElement(args: { id: string }): { ok: boolean; error?: string } {
+  deleteElement(args: { id: string }): { ok: boolean; error?: string; note?: string } {
     const idx = this.elements.findIndex((e) => e.id === args.id);
     if (idx < 0) return { ok: false, error: `元素不存在: ${args.id}` };
-    this.elements.splice(idx, 1);
-    this.touch(args.id);
-    this.ensureTextOnTop();
-    this.activity.push(`删除元素 ${args.id.slice(0, 6)}`);
-    this.changed();
+    // 破坏性操作确认：删除用户已有元素（生成前就存在）时挂起，等待前端确认；AI 本轮创建的直接删
+    if (this.initialIds.has(args.id)) {
+      const el = this.elements[idx];
+      this.pendingConfirms.push({
+        id: args.id,
+        description: `删除${titleOf(el)}`,
+        apply: () => this.applyDelete(args.id),
+      });
+      return { ok: true, note: "该删除已挂起，等待用户确认后执行" };
+    }
+    this.applyDelete(args.id);
     return { ok: true };
+  }
+
+  private applyDelete(id: string) {
+    const idx = this.elements.findIndex((e) => e.id === id);
+    if (idx >= 0) {
+      const el = this.elements[idx];
+      this.elements.splice(idx, 1);
+      this.touch(el.id);
+      this.activity.push(`删除${titleOf(el)}`);
+    }
+    this.ensureTextOnTop();
+    this.changed();
   }
 
   listElements() {
@@ -305,19 +339,38 @@ export class DraftCanvas {
     return { ok: true };
   }
 
-  clear() {
-    this.elements = [];
-    this.activity.push("清空画布");
-    this.changed();
-    return { ok: true };
+  clear(): { ok: boolean; note?: string } {
+    const count = this.elements.length;
+    this.pendingConfirms.push({
+      id: "clear",
+      description: `清空画布（${count} 个元素）`,
+      apply: () => this.applyClear(),
+    });
+    return { ok: true, note: "清空画布已挂起，等待用户确认" };
   }
 
-  newCanvas() {
+  private applyClear() {
     this.elements = [];
+    this.ensureTextOnTop();
+    this.activity.push("清空画布");
+    this.changed();
+  }
+
+  newCanvas(): { ok: boolean; note?: string } {
+    this.pendingConfirms.push({
+      id: "new-canvas",
+      description: "新建空白画布并切换到它",
+      apply: () => this.applyNewCanvas(),
+    });
+    return { ok: true, note: "新建画布已挂起，等待用户确认" };
+  }
+
+  private applyNewCanvas() {
+    this.elements = [];
+    this.ensureTextOnTop();
     this.activity.push("新建画布");
     this.newCanvasFlag = true;
     this.changed();
-    return { ok: true };
   }
 
   takeNewCanvasFlag(): boolean {
@@ -325,6 +378,10 @@ export class DraftCanvas {
     this.newCanvasFlag = false;
     return f;
   }
+}
+
+function titleOf(el: CanvasElement): string {
+  return "text" in el && el.text ? `「${el.text}」` : typeName(el.type);
 }
 
 function typeName(t: string): string {

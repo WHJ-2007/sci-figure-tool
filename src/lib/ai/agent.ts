@@ -4,6 +4,7 @@ import type { CanvasDocument } from "@/lib/canvas/types";
 import { DraftCanvas } from "./draft";
 import { buildTools } from "./tools";
 import { buildSystemPrompt, type AIMode } from "./prompt";
+import { setConfirmSession } from "./confirmStore";
 
 export interface ChatMessage {
   role: "user" | "assistant";
@@ -15,6 +16,7 @@ export type AgentEvent =
   | { type: "snapshot"; canvas: CanvasDocument; touched: string[] }
   | { type: "new-canvas" }
   | { type: "complete"; canvas: CanvasDocument; summary: string; touched: string[] }
+  | { type: "confirm-request"; sessionId: string; pending: { id: string; description: string }[] }
   | { type: "error"; message: string };
 
 export async function runAgent(opts: {
@@ -45,6 +47,19 @@ export async function runAgent(opts: {
       if (activity.length) opts.onEvent({ type: "progress", activity });
     },
   });
-  opts.onEvent({ type: "complete", canvas: draft.serialize(), summary: result.text, touched: draft.takeTouched() });
+  const pending = draft.pending;
+  if (pending.length > 0) {
+    // 挂起阶段结束主生成：解除 onChange（旧流已关闭，确认阶段由 /api/chat/confirm 独立回发）
+    draft.setOnChange(undefined);
+    const sessionId = crypto.randomUUID();
+    setConfirmSession(sessionId, draft);
+    opts.onEvent({
+      type: "confirm-request",
+      sessionId,
+      pending: pending.map((p) => ({ id: p.id, description: p.description })),
+    });
+  } else {
+    opts.onEvent({ type: "complete", canvas: draft.serialize(), summary: result.text, touched: draft.takeTouched() });
+  }
   return result.text;
 }
