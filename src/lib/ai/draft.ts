@@ -270,13 +270,17 @@ export class DraftCanvas {
   }
 
   // 声明式图表：AI 只声明类型与数据，图表引擎自动计算坐标轴/刻度/图形/标签/图例
-  applyChart(args: { type: "bar" | "line" | "pie" | "scatter"; title?: string; xLabel?: string; yLabel?: string; data: { label: string; value: number; series?: string }[] }): { ok: boolean; error?: string } {
+  applyChart(args: ChartSpec): { ok: boolean; error?: string } {
     const types = ["bar", "line", "pie", "scatter"];
     if (!types.includes(args.type)) return { ok: false, error: `不支持的图表类型: ${args.type}` };
     if (!args.data || args.data.length === 0) return { ok: false, error: "数据不能为空" };
     if (args.data.length > 12) return { ok: false, error: "数据项过多（最多 12 项）" };
     if (args.data.some((d) => !Number.isFinite(d.value) || d.value < 0)) return { ok: false, error: "数值必须是非负数字" };
-    const els = layoutChart({ type: args.type, title: args.title, xLabel: args.xLabel, yLabel: args.yLabel, data: args.data });
+    // 空标签会在画布上产生空白刻度/图例（z.string() 接受 ""），与 applyMindMap 空关键词兜底精神一致
+    if (args.data.some((d) => !d.label.trim())) return { ok: false, error: "分类标签不能为空" };
+    // 全零数据（如饼图）静默空成功：引擎按 total<=0 返回空图形，必须显式拒绝
+    if (args.data.reduce((s, d) => s + d.value, 0) <= 0) return { ok: false, error: "数据总和必须大于 0" };
+    const els = layoutChart(args);
     for (const el of els) this.pushElement(el);
     this.activity.push(`图表已生成：${chartTypeName(args.type)}（${args.data.length} 项数据）`);
     return { ok: true };

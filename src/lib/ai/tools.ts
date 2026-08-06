@@ -82,7 +82,8 @@ export function buildTools(draft: DraftCanvas) {
       description:
         "声明式一键绘制数据图表（柱状图/折线图/饼图/散点图）：只需声明类型/标题/坐标轴名/数据，系统自动计算坐标轴、刻度（自动取整）、柱形/折线/扇形、数据标签与图例。" +
         "数据必须是用户给出的原值，或常识范围内的合理数值（如“中国 GDP 2023 约 126 万亿元”），3~12 项，禁止编造离谱数据。" +
-        "饼图数据项不宜超过 8 项；多系列（series 字段）用于柱状分组/折线多线对比。",
+        "饼图数据项不宜超过 8 项；多系列（series 字段）用于柱状分组/折线多线对比。" +
+        "数据图表（含通用图示以外的数据可视化需求）一律优先用本工具。",
       inputSchema: z.object({
         type: z.enum(["bar", "line", "pie", "scatter"]).describe("图表类型：bar 柱状 / line 折线 / pie 饼图 / scatter 散点"),
         title: z.string().optional().describe("图表标题（应尽量提供）"),
