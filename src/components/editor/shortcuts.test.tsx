@@ -26,6 +26,18 @@ describe("快捷键", () => {
     expect(useCanvasStore.getState().doc.elements).toHaveLength(1);
   });
 
+  it("生成中 Ctrl+Z 被拦截（画布不变），生成结束后正常撤销", () => {
+    const a = makeElement("rect", 0, 0, 50, 50);
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().setGenerating(true);
+    render(<EditorHost />);
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(1); // 拦截：快照不入栈，undo 会破坏流式状态
+    useCanvasStore.getState().setGenerating(false);
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(0); // 生成结束：undo 恢复
+  });
+
   it("Ctrl+D 复制选中", () => {
     const a = makeElement("rect", 0, 0, 50, 50);
     useCanvasStore.getState().addElement(a);

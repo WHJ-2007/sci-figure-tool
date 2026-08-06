@@ -439,6 +439,21 @@ describe("空白平移（选择与小手合并：select 下左键空白拖动 = 
 });
 
 describe("AI 非阻塞：锁定元素", () => {
+  it("生成中框选自动剔除锁定元素（锁定元素不进框选结果）", () => {
+    const s = useCanvasStore.getState();
+    const locked = makeElement("rect", 100, 100, 100, 60);
+    const normal = makeElement("ellipse", 10, 10, 40, 30);
+    s.addElement(locked);
+    s.addElement(normal);
+    s.setGenerating(true);
+    s.setAiLocked([locked.id]);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    // 右键框选（0,0)-(300,300) 同时覆盖锁定元素 (100,100,100,60) 与普通元素 (10,10,40,30)
+    const svg = document.querySelector("svg")!;
+    drag(svg, { x: 0, y: 0 }, { x: 300, y: 300 }, 2);
+    expect(useCanvasStore.getState().selection).toEqual([normal.id]);
+  });
+
   it("生成中可画新元素；AI 锁定的元素不可选中/拖动", async () => {
     const s = useCanvasStore.getState();
     const locked = makeElement("rect", 100, 100, 100, 60);

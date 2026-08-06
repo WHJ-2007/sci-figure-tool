@@ -174,8 +174,8 @@ export default function Toolbar() {
         )}
       </div>
       <span className="mx-1 h-6 w-px bg-gray-200" />
-      <button title="撤销" onClick={undo} disabled={isGenerating} className="lift flex h-8 w-8 items-center justify-center rounded hover:bg-gray-100 disabled:opacity-40">{UNDO_ICON}</button>
-      <button title="重做" onClick={redo} disabled={isGenerating} className="lift flex h-8 w-8 items-center justify-center rounded hover:bg-gray-100 disabled:opacity-40">{REDO_ICON}</button>
+      <button title="撤销" onClick={undo} disabled={isGenerating} className="lift flex h-8 w-8 items-center justify-center rounded hover:bg-gray-100 disabled:opacity-40 disabled:hover:bg-transparent">{UNDO_ICON}</button>
+      <button title="重做" onClick={redo} disabled={isGenerating} className="lift flex h-8 w-8 items-center justify-center rounded hover:bg-gray-100 disabled:opacity-40 disabled:hover:bg-transparent">{REDO_ICON}</button>
       <span className="mx-1 h-6 w-px bg-gray-200" />
       <button title="导出 SVG" onClick={() => exportSvgFile(doc)} className="lift rounded px-2 py-1 text-sm hover:bg-gray-100">SVG</button>
       <button title="导出 PNG" onClick={() => exportPng(doc).catch(console.error)} className="lift rounded px-2 py-1 text-sm hover:bg-gray-100">PNG</button>

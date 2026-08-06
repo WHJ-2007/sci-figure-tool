@@ -110,7 +110,14 @@ export default function ChatPanel() {
               useCanvasStore.getState().applyAISnapshot(ev.canvas);
               // 累积本轮 AI 触碰的元素 id：前端锁定（不可选中/拖动）+ 快照合并排除（AI 可删除自己的元素）
               const touched = ev.touched ?? [];
-              if (touched.length) useCanvasStore.setState((st) => ({ aiLockedIds: [...new Set([...st.aiLockedIds, ...touched])] }));
+              if (touched.length) {
+                const touchedSet = new Set(touched);
+                useCanvasStore.setState((st) => ({
+                  aiLockedIds: [...new Set([...st.aiLockedIds, ...touched])],
+                  // 锁定的元素同步剔出选区：残留锁定元素会被多选拖动/Delete/属性面板误伤
+                  selection: st.selection.filter((id) => !touchedSet.has(id)),
+                }));
+              }
             } else if (ev.type === "complete") {
               finalDoc = ev.canvas;
               summary = ev.summary ?? "";

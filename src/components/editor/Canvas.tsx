@@ -112,6 +112,10 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
             const e = doc.elements.find((x) => x.id === id);
             if (!e) return null;
             const b = boundsOf(e);
+            // 与 SelectionOverlay 一致：boundsOf 是未旋转 bbox，旋转中心取 bbox 中心（旋转后虚线框仍贴合元素）
+            const cx = b.x + b.width / 2;
+            const cy = b.y + b.height / 2;
+            const rot = e.rotation ? `rotate(${e.rotation} ${cx} ${cy})` : undefined;
             return (
               <rect
                 key={id}
@@ -120,6 +124,7 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
                 y={b.y}
                 width={b.width}
                 height={b.height}
+                transform={rot}
                 pointerEvents="none"
               />
             );
