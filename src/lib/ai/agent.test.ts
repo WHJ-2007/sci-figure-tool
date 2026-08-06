@@ -421,6 +421,25 @@ describe("DraftCanvas 破坏性操作挂起", () => {
     d.pending[0].apply();
     expect(d.serialize().elements).toHaveLength(0);
   });
+
+  it("确认后 applyClear/applyNewCanvas touch 全部被移除元素（确认快照 touched 据此加锁）", () => {
+    // 关键场景是构造期已存在的用户元素（从未被 touch）：createElement 产生的 id 已自带 touch，
+    // 用构造器元素才能模拟「清空确认后 touched 为空、mergePreserved 全部保留」的原 bug
+    const a = makeElement("rect", 0, 0, 100, 60);
+    const b = makeElement("ellipse", 50, 50, 40, 40);
+    const d = new DraftCanvas([a, b]);
+    d.clear();
+    d.pending[0].apply();
+    expect(d.serialize().elements).toHaveLength(0);
+    expect(d.takeTouched().sort()).toEqual([a.id, b.id].sort());
+    // newCanvas 确认后同样 touch 旧元素：旧 id 加锁不落新画布，不会误锁新画布上的元素
+    const c = makeElement("rect", 10, 10, 60, 40);
+    const d2 = new DraftCanvas([c]);
+    d2.newCanvas();
+    d2.pending[0].apply();
+    expect(d2.serialize().elements).toHaveLength(0);
+    expect(d2.takeTouched().sort()).toEqual([c.id]);
+  });
 });
 
 describe("runAgent", () => {
