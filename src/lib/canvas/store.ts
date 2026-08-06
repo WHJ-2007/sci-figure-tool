@@ -21,7 +21,8 @@ function mergePreserved(current: CanvasDocument, locked: string[], baseline: str
   return [...preserved, ...snapshot];
 }
 
-// 顶层 doc/history 语义 = 当前项目；所有画布内容变更经此写回 projects（供持久化）
+// 顶层 doc/history 语义 = 当前项目；所有画布内容变更经此写回 projects（供持久化）。
+// restoredProjects 在任意内容变更时清空：新操作打断「重新删除已恢复画布」的重做链
 function syncProject(
   s: Pick<CanvasStore, "projects" | "currentProjectId" | "doc" | "history">,
   doc: CanvasDocument,
@@ -31,7 +32,16 @@ function syncProject(
     doc,
     history,
     projects: s.projects.map((p) => (p.id === s.currentProjectId ? { ...p, doc, history } : p)),
+    restoredProjects: [] as DeletedProject[],
   };
+}
+
+// 删除的画布（撤销恢复用）：wasCurrent 记录删除时是否处于当前画布，
+// 恢复时若删除的是当前画布则切回（用户删除后被迫切走，undo 应把视野带回来）
+interface DeletedProject {
+  project: CanvasProject;
+  idx: number;
+  wasCurrent: boolean;
 }
 
 const EMPTY_VIEW = { scale: 1, ox: 0, oy: 0 };
@@ -49,6 +59,8 @@ export interface CanvasStore {
   activity: string[];
   aiLockedIds: string[];
   aiBaselineIds: string[];
+  deletedProjects: DeletedProject[];
+  restoredProjects: DeletedProject[];
   addElement: (e: CanvasElement) => void;
   addElements: (list: CanvasElement[]) => void;
   updateElement: (id: string, patch: Partial<CanvasElement>) => void;
@@ -92,6 +104,8 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => {
     activity: [],
     aiLockedIds: [],
     aiBaselineIds: [],
+    deletedProjects: [],
+    restoredProjects: [],
 
     addElement: (e) =>
       set((s) => {
@@ -213,13 +227,58 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => {
       }),
     undo: () =>
       set((s) => {
+        // 画布级撤销优先：恢复最近删除的画布到原位（删除的是当前画布则切回），入恢复栈供 redo
+        const d = s.deletedProjects;
+        if (d.length > 0) {
+          const entry = d[d.length - 1];
+          const projects = [...s.projects];
+          projects.splice(Math.min(entry.idx, projects.length), 0, entry.project);
+          const base: Partial<CanvasStore> = {
+            projects,
+            deletedProjects: d.slice(0, -1),
+            restoredProjects: [...s.restoredProjects, entry],
+          };
+          if (!entry.wasCurrent) return base;
+          return {
+            ...base,
+            currentProjectId: entry.project.id,
+            doc: structuredClone(entry.project.doc),
+            history: entry.project.history,
+            selection: [],
+            editingText: null,
+          };
+        }
         const r = undoHistory(s.history, s.doc);
         return r ? { ...syncProject(s, r.doc, r.history) } : {};
       }),
     redo: () =>
       set((s) => {
-        const r = redoHistory(s.history, s.doc);
-        return r ? { ...syncProject(s, r.doc, r.history) } : {};
+        // 画布级重做优先：重新删除最近恢复的画布，回到删除状态（删除的是当前画布则再切走）
+        const r = s.restoredProjects;
+        if (r.length > 0) {
+          const entry = r[r.length - 1];
+          const idx = s.projects.findIndex((p) => p.id === entry.project.id);
+          if (idx < 0) return {};
+          const projects = s.projects.filter((p) => p.id !== entry.project.id);
+          const base: Partial<CanvasStore> = {
+            projects,
+            restoredProjects: r.slice(0, -1),
+            deletedProjects: [...s.deletedProjects, { ...entry, idx }],
+          };
+          // 是否切换按当前状态判断：undo 后用户可能已切到其他画布，redo 不该把他拽走
+          if (entry.project.id !== s.currentProjectId) return base;
+          const next = projects[Math.min(idx, projects.length - 1)];
+          return {
+            ...base,
+            currentProjectId: next.id,
+            doc: structuredClone(next.doc),
+            history: next.history,
+            selection: [],
+            editingText: null,
+          };
+        }
+        const rr = redoHistory(s.history, s.doc);
+        return rr ? { ...syncProject(s, rr.doc, rr.history) } : {};
       }),
 
     createProject: () => {
@@ -233,21 +292,30 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => {
         selection: [],
         editingText: null,
         view: { ...EMPTY_VIEW },
+        restoredProjects: [],
       }));
       return id;
     },
     renameProject: (id, name) =>
-      set((s) => ({ projects: s.projects.map((p) => (p.id === id ? { ...p, name } : p)) })),
+      set((s) => ({ projects: s.projects.map((p) => (p.id === id ? { ...p, name } : p)), restoredProjects: [] })),
     deleteProject: (id) =>
       set((s) => {
         if (s.projects.length <= 1) return {};
         const idx = s.projects.findIndex((p) => p.id === id);
         if (idx < 0) return {};
+        const target = s.projects[idx];
+        const wasCurrent = id === s.currentProjectId;
         const projects = s.projects.filter((p) => p.id !== id);
-        if (id !== s.currentProjectId) return { projects };
+        // 删除入恢复栈（undo 可恢复）；新的删除打断已恢复画布的重做链
+        const base: Partial<CanvasStore> = {
+          projects,
+          deletedProjects: [...s.deletedProjects, { project: target, idx, wasCurrent }],
+          restoredProjects: [],
+        };
+        if (!wasCurrent) return base;
         const next = projects[Math.min(idx, projects.length - 1)];
         return {
-          projects,
+          ...base,
           currentProjectId: next.id,
           doc: structuredClone(next.doc),
           history: next.history,

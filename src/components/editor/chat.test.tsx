@@ -221,11 +221,11 @@ describe("ChatPanel", () => {
     expect(screen.getByText("自动").closest("button")!).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("模式按钮带图标（SVG）", () => {
+  it("模式按钮为纯文字无图标（SVG）", () => {
     render(<ChatPanel />);
     for (const label of ["自动", "科研绘图", "思维导图", "图表制作"]) {
       const btn = screen.getByText(label).closest("button")!;
-      expect(btn.querySelector("svg")).not.toBeNull();
+      expect(btn.querySelector("svg")).toBeNull();
     }
   });
 

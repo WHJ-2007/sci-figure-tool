@@ -62,6 +62,15 @@ const SHAPE_ICON = (
   </svg>
 );
 
+// 导出图标：下载箭头（描边风格，与设置齿轮一致）
+const EXPORT_ICON = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+    <path d="M7 10l5 5 5-5" />
+    <path d="M12 15V3" />
+  </svg>
+);
+
 interface ToolItem {
   title: string;
   tool: ToolType;
@@ -111,8 +120,12 @@ export default function Toolbar() {
   const renameProject = useCanvasStore((s) => s.renameProject);
   const deleteProject = useCanvasStore((s) => s.deleteProject);
   const [open, setOpen] = useState<"shape" | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [tabMenu, setTabMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [chartOpen, setChartOpen] = useState(false);
   const toolRef = useRef<HTMLDivElement>(null);
+  const exportRef = useRef<HTMLDivElement>(null);
+  const tabMenuRef = useRef<HTMLDivElement>(null);
 
   // 非阻塞气泡：点击主按钮开/关、点击气泡外任意处关闭（pointerdown 优先于 click，先收气泡再落画布）
   useEffect(() => {
@@ -126,11 +139,18 @@ export default function Toolbar() {
     return () => window.removeEventListener("pointerdown", onDown);
   }, [open]);
 
-  const onRename = () => {
-    const p = projects.find((x) => x.id === currentProjectId);
-    const name = window.prompt("画布名称", p?.name ?? "");
-    if (name && name.trim()) renameProject(currentProjectId, name.trim());
-  };
+  // 导出菜单 / 标签右键菜单：点击自身保留，点击外部任意处关闭
+  useEffect(() => {
+    if (!exportOpen && !tabMenu) return;
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (exportRef.current?.contains(t) || tabMenuRef.current?.contains(t)) return;
+      setExportOpen(false);
+      setTabMenu(null);
+    };
+    window.addEventListener("pointerdown", onDown);
+    return () => window.removeEventListener("pointerdown", onDown);
+  }, [exportOpen, tabMenu]);
 
   const shapeActive = SHAPE_TOOL_SET.has(tool);
 
@@ -146,6 +166,11 @@ export default function Toolbar() {
                 key={p.id}
                 data-testid="project-tab"
                 data-active={active ? "true" : undefined}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setExportOpen(false);
+                  setTabMenu({ id: p.id, x: e.clientX, y: e.clientY });
+                }}
                 className={`flex h-8 shrink-0 items-center gap-1 rounded-lg border px-2 text-sm ${
                   active ? "border-blue-400 bg-blue-600 text-white" : "border-white/60 bg-white/40 text-gray-600 hover:bg-white/70"
                 }`}
@@ -175,11 +200,35 @@ export default function Toolbar() {
             +
           </button>
         </div>
-        <button title="重命名画布" onClick={onRename} className="lift h-8 w-8 shrink-0 rounded hover:bg-gray-100">✎</button>
-        <span className="mx-1 h-6 w-px bg-gray-200" />
-        <button title="导出 SVG" onClick={() => exportSvgFile(doc)} className="lift rounded px-2 py-1 text-sm hover:bg-gray-100">SVG</button>
-        <button title="导出 PNG" onClick={() => exportPng(doc).catch(console.error)} className="lift rounded px-2 py-1 text-sm hover:bg-gray-100">PNG</button>
-        <span className="flex-1" />
+        {/* 导出：下载图标按钮弹出格式菜单（SVG/PNG），替代原文本按钮 */}
+        <div className="relative" ref={exportRef}>
+          <button
+            title="导出"
+            onClick={() => setExportOpen(!exportOpen)}
+            aria-expanded={exportOpen}
+            className={`lift flex h-8 w-8 items-center justify-center rounded ${exportOpen ? "bg-gray-100" : "hover:bg-gray-100"}`}
+          >
+            {EXPORT_ICON}
+          </button>
+          {exportOpen && (
+            <div className="absolute right-0 top-full z-50 mt-1 w-28 overflow-hidden rounded-xl border border-white/50 bg-white/80 shadow-xl backdrop-blur-md">
+              <button
+                title="导出 SVG"
+                onClick={() => { setExportOpen(false); exportSvgFile(doc); }}
+                className="lift w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100"
+              >
+                SVG
+              </button>
+              <button
+                title="导出 PNG"
+                onClick={() => { setExportOpen(false); exportPng(doc).catch(console.error); }}
+                className="lift w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100"
+              >
+                PNG
+              </button>
+            </div>
+          )}
+        </div>
         <Link href="/settings" className="lift flex h-8 w-8 items-center justify-center rounded hover:bg-gray-100" title="设置">{SETTINGS_ICON}</Link>
       </div>
       {/* 左侧悬浮玻璃坞：撤销/重做最上，下面依次选择/图形/逻辑/图表 */}
@@ -231,6 +280,28 @@ export default function Toolbar() {
         <button title="图表" onClick={() => setChartOpen(true)} className="lift flex h-9 w-9 items-center justify-center rounded hover:bg-gray-100">{CHART_ICON}</button>
       </div>
       <ChartDialog open={chartOpen} onClose={() => setChartOpen(false)} />
+      {/* 标签右键菜单：重命名画布（顶部 ✎ 按钮已移除，右键标签呼出） */}
+      {tabMenu && (
+        <div
+          ref={tabMenuRef}
+          data-testid="tab-menu"
+          className="fixed z-50 w-28 overflow-hidden rounded-xl border border-white/50 bg-white/80 shadow-xl backdrop-blur-md"
+          style={{ left: tabMenu.x, top: tabMenu.y }}
+        >
+          <button
+            title="重命名"
+            onClick={() => {
+              const p = projects.find((x) => x.id === tabMenu.id);
+              const name = window.prompt("画布名称", p?.name ?? "");
+              if (name && name.trim()) renameProject(tabMenu.id, name.trim());
+              setTabMenu(null);
+            }}
+            className="lift w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100"
+          >
+            重命名
+          </button>
+        </div>
+      )}
     </>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { loadSettings } from "@/lib/settings";
 import type { CanvasDocument } from "@/lib/canvas/types";
@@ -24,35 +24,6 @@ const MODE_OPTIONS: { value: AIMode; label: string }[] = [
   { value: "mindmap", label: "思维导图" },
   { value: "chart", label: "图表制作" },
 ];
-
-const MODE_ICONS: Record<"auto" | AIMode, ReactNode> = {
-  auto: (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z" />
-    </svg>
-  ),
-  sci: (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M10 3v6L4.5 18a2 2 0 0 0 1.8 3h11.4a2 2 0 0 0 1.8-3L14 9V3" />
-      <path d="M8 3h8" />
-    </svg>
-  ),
-  mindmap: (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="2" fill="currentColor" stroke="none" />
-      <circle cx="5" cy="5" r="1.6" fill="currentColor" stroke="none" />
-      <circle cx="19" cy="5" r="1.6" fill="currentColor" stroke="none" />
-      <circle cx="5" cy="19" r="1.6" fill="currentColor" stroke="none" />
-      <path d="M10.2 10.2L6.6 6.6M13.8 10.2l3.6-3.6M10.2 13.8l-3.6 3.6" />
-    </svg>
-  ),
-  chart: (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-      <path d="M4 20V4M4 20h16" />
-      <path d="M8 16v-4M13 16V8M18 16v-7" />
-    </svg>
-  ),
-};
 
 export default function ChatPanel() {
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -270,7 +241,7 @@ export default function ChatPanel() {
         <span className="text-sm font-semibold text-gray-700">AI 助手</span>
         <button onClick={() => setOpen(!open)} className="lift rounded-lg px-2 py-0.5 text-xs text-gray-500 hover:bg-white/60">{open ? "收起" : "展开"}</button>
       </div>
-      {/* 模式条（玻璃层次第一层）：图标胶囊多选 */}
+      {/* 模式条（玻璃层次第一层）：纯文字胶囊多选 */}
       <div className="border-b border-white/50 px-3 py-2">
         <div className="flex rounded-full border border-white/60 bg-white/50 p-0.5 shadow-sm backdrop-blur-md">
           <button
@@ -280,7 +251,7 @@ export default function ChatPanel() {
               auto ? "bg-blue-600 text-white shadow-sm" : "text-gray-500 hover:bg-white/70"
             }`}
           >
-            {MODE_ICONS.auto}<span className="ml-1">自动</span>
+            自动
           </button>
           {MODE_OPTIONS.map((m) => (
             <button
@@ -291,7 +262,7 @@ export default function ChatPanel() {
                 modes.includes(m.value) ? "bg-blue-600 text-white shadow-sm" : "text-gray-500 hover:bg-white/70"
               }`}
             >
-              {MODE_ICONS[m.value]}<span className="ml-1">{m.label}</span>
+              {m.label}
             </button>
           ))}
         </div>

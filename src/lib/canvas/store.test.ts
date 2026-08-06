@@ -270,6 +270,86 @@ describe("多画布", () => {
   });
 });
 
+describe("删除画布的撤销/重做", () => {
+  it("删除当前画布后 undo 恢复并切回，redo 再次删除并切走", () => {
+    const s = useCanvasStore.getState();
+    const first = s.currentProjectId;
+    const second = s.createProject();
+    s.deleteProject(second);
+    expect(useCanvasStore.getState().projects).toHaveLength(1);
+    expect(useCanvasStore.getState().currentProjectId).toBe(first);
+    // undo：恢复画布 2 并切回
+    useCanvasStore.getState().undo();
+    const st = useCanvasStore.getState();
+    expect(st.projects).toHaveLength(2);
+    expect(st.currentProjectId).toBe(second);
+    // redo：再次删除画布 2
+    useCanvasStore.getState().redo();
+    const st2 = useCanvasStore.getState();
+    expect(st2.projects).toHaveLength(1);
+    expect(st2.currentProjectId).toBe(first);
+  });
+
+  it("删除非当前画布后 undo 恢复但不切换，redo 再次删除", () => {
+    const s = useCanvasStore.getState();
+    const first = s.currentProjectId;
+    const second = s.createProject();
+    s.setCurrentProject(first);
+    s.deleteProject(second);
+    expect(useCanvasStore.getState().projects).toHaveLength(1);
+    expect(useCanvasStore.getState().currentProjectId).toBe(first);
+    useCanvasStore.getState().undo();
+    const st = useCanvasStore.getState();
+    expect(st.projects).toHaveLength(2);
+    expect(st.currentProjectId).toBe(first);
+    expect(st.projects.map((p) => p.id)).toContain(second);
+    useCanvasStore.getState().redo();
+    expect(useCanvasStore.getState().projects).toHaveLength(1);
+    expect(useCanvasStore.getState().currentProjectId).toBe(first);
+  });
+
+  it("删除的画布恢复后内容与撤销栈完好", () => {
+    const s = useCanvasStore.getState();
+    const first = s.currentProjectId;
+    const a = makeElement("rect", 0, 0, 100, 60);
+    s.addElement(a);
+    const second = s.createProject();
+    s.deleteProject(second);
+    useCanvasStore.getState().undo();
+    const st = useCanvasStore.getState();
+    expect(st.projects).toHaveLength(2);
+    expect(st.doc.elements).toHaveLength(0); // 恢复的画布 2 是新建的空画布
+    // 切回画布 1：内容仍在，undo/redo 未受影响
+    useCanvasStore.getState().setCurrentProject(first);
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(1);
+    useCanvasStore.getState().undo();
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(0);
+    useCanvasStore.getState().redo();
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(1);
+  });
+
+  it("恢复后做编辑打断重做链：redo 不再重复删除画布", () => {
+    const s = useCanvasStore.getState();
+    const second = s.createProject();
+    s.deleteProject(second);
+    useCanvasStore.getState().undo();
+    useCanvasStore.getState().addElement(makeElement("rect", 0, 0, 50, 30));
+    useCanvasStore.getState().redo();
+    expect(useCanvasStore.getState().projects).toHaveLength(2);
+  });
+
+  it("删除中间画布后恢复回到原位置", () => {
+    const s = useCanvasStore.getState();
+    const first = s.currentProjectId;
+    const second = s.createProject();
+    const third = s.createProject();
+    s.setCurrentProject(first);
+    s.deleteProject(second);
+    useCanvasStore.getState().undo();
+    expect(useCanvasStore.getState().projects.map((p) => p.id)).toEqual([first, second, third]);
+  });
+});
+
 describe("applyChartEdit", () => {
   it("生成图表：元素带 chartId 并登记 charts，一步撤销移除", () => {
     const s = useCanvasStore.getState();

@@ -2,8 +2,18 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import Toolbar from "./Toolbar";
 import { useCanvasStore } from "@/lib/canvas/store";
+import { exportSvgFile, exportPng } from "@/lib/canvas/exporter";
 
-beforeEach(() => useCanvasStore.setState(useCanvasStore.getInitialState()));
+// 导出在 jsdom 依赖 URL.createObjectURL（未实现），mock 掉文件导出
+vi.mock("@/lib/canvas/exporter", () => ({
+  exportSvgFile: vi.fn(),
+  exportPng: vi.fn(() => Promise.resolve()),
+}));
+
+beforeEach(() => {
+  useCanvasStore.setState(useCanvasStore.getInitialState());
+  vi.clearAllMocks();
+});
 afterEach(() => vi.unstubAllGlobals());
 
 describe("Toolbar 画布管理", () => {
@@ -30,16 +40,26 @@ describe("Toolbar 画布管理", () => {
     expect(activeTab.textContent).toContain("画布 2");
   });
 
-  it("重命名弹窗确认后生效，取消不变", () => {
+  it("右键标签弹重命名菜单，确认后生效，取消不变", () => {
     vi.stubGlobal("prompt", vi.fn(() => "实验图"));
     render(<Toolbar />);
-    fireEvent.click(screen.getByTitle("重命名画布"));
+    fireEvent.contextMenu(screen.getAllByTestId("project-tab")[0]);
+    fireEvent.click(screen.getByTitle("重命名"));
     expect(useCanvasStore.getState().projects[0].name).toBe("实验图");
     expect(screen.getByText("实验图")).toBeInTheDocument();
 
     vi.stubGlobal("prompt", vi.fn(() => null));
-    fireEvent.click(screen.getByTitle("重命名画布"));
+    fireEvent.contextMenu(screen.getAllByTestId("project-tab")[0]);
+    fireEvent.click(screen.getByTitle("重命名"));
     expect(useCanvasStore.getState().projects[0].name).toBe("实验图");
+  });
+
+  it("右键菜单点击外部关闭", () => {
+    render(<Toolbar />);
+    fireEvent.contextMenu(screen.getAllByTestId("project-tab")[0]);
+    expect(screen.getByTitle("重命名")).toBeInTheDocument();
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByTitle("重命名")).toBeNull();
   });
 
   it("删除画布无需确认：点当前标签 × 直接删除并切到相邻画布", () => {
@@ -79,13 +99,37 @@ describe("Toolbar 悬浮坞", () => {
   it("顶栏只有画布标签/导出/设置；坞内撤销/重做最上，依次选择/图形/逻辑/图表", () => {
     render(<Toolbar />);
     expect(screen.getAllByTestId("project-tab").length).toBeGreaterThan(0);
-    expect(screen.getByTitle("导出 SVG")).toBeInTheDocument();
+    expect(screen.getByTitle("导出")).toBeInTheDocument();
     expect(screen.getByTitle("设置")).toBeInTheDocument();
+    // 顶栏重命名按钮已移除（改右键标签菜单）
+    expect(screen.queryByTitle("重命名画布")).toBeNull();
     const dock = screen.getByTitle("撤销").closest(".fixed")!;
     const titles = [...dock.querySelectorAll("button")].map((b) => b.getAttribute("title"));
     expect(titles).toEqual(["撤销", "重做", "选择", "图形", "逻辑", "图表"]);
     // 子工具默认收在气泡里
     expect(screen.queryByTitle("矩形")).toBeNull();
+  });
+
+  it("导出菜单：点导出图标弹 SVG/PNG 选项，选择后调用对应导出并关闭菜单", () => {
+    render(<Toolbar />);
+    fireEvent.click(screen.getByTitle("导出"));
+    expect(screen.getByTitle("导出 SVG")).toBeInTheDocument();
+    expect(screen.getByTitle("导出 PNG")).toBeInTheDocument();
+    fireEvent.click(screen.getByTitle("导出 SVG"));
+    expect(exportSvgFile).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTitle("导出 SVG")).toBeNull();
+    // PNG：重新打开菜单选择
+    fireEvent.click(screen.getByTitle("导出"));
+    fireEvent.click(screen.getByTitle("导出 PNG"));
+    expect(exportPng).toHaveBeenCalledTimes(1);
+  });
+
+  it("导出菜单点击外部关闭", () => {
+    render(<Toolbar />);
+    fireEvent.click(screen.getByTitle("导出"));
+    expect(screen.getByTitle("导出 PNG")).toBeInTheDocument();
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByTitle("导出 PNG")).toBeNull();
   });
 
   it("点击图形按钮展开图案气泡（无逻辑分区），再点关闭（toggle）", () => {
