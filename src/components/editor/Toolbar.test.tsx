@@ -122,6 +122,19 @@ describe("Toolbar 悬浮坞", () => {
     expect(btn.classList.contains("bg-blue-100")).toBe(true);
   });
 
+  it("select 工具时主按钮不高亮且显示光标图标", () => {
+    useCanvasStore.getState().setTool("select");
+    render(<Toolbar />);
+    const btn = screen.getByTitle("工具");
+    expect(btn.classList.contains("bg-blue-100")).toBe(false);
+  });
+
+  it("逻辑节点工具时主按钮高亮", () => {
+    useCanvasStore.getState().setTool("logic");
+    render(<Toolbar />);
+    expect(screen.getByTitle("工具").classList.contains("bg-blue-100")).toBe(true);
+  });
+
   it("逻辑节点按钮为 SVG 图标（圆角框 + 4 锚点圆点）", () => {
     render(<Toolbar />);
     fireEvent.click(screen.getByTitle("工具"));

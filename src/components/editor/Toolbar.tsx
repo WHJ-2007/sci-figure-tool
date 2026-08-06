@@ -39,6 +39,13 @@ const REDO_ICON = (
   </svg>
 );
 
+// 光标图标：选择指针（描边风格，select 默认工具的辨识图标）
+const CURSOR_ICON = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M4 3l7 17 2.5-6.5L20 11z" />
+  </svg>
+);
+
 interface ToolItem {
   title: string;
   tool: ToolType;
@@ -118,7 +125,9 @@ export default function Toolbar() {
     ? SHAPE_TOOLS.find((t) => t.tool === tool)?.label ?? SHAPE_TOOLS[0].label
     : tool === "logic"
       ? LOGIC_ICON
-      : SHAPE_TOOLS[0].label;
+      : tool === "select"
+        ? CURSOR_ICON
+        : SHAPE_TOOLS[0].label;
 
   return (
     <>
@@ -146,11 +155,13 @@ export default function Toolbar() {
         <Link href="/settings" className="lift flex h-8 w-8 items-center justify-center rounded hover:bg-gray-100" title="设置">{SETTINGS_ICON}</Link>
       </div>
       {/* 左侧悬浮玻璃坞：工具（图案+逻辑两区气泡）+ 编辑（撤销/重做） */}
-      <div className="fixed left-4 top-16 z-40 flex flex-col items-center gap-1 rounded-2xl border border-white/50 bg-white/70 p-1.5 shadow-xl backdrop-blur-md">
+      {/* top-[4.5rem]（72px）= 顶栏 40px + FirstRunHint 提示条 32px，坞正好落在提示条下方不遮挡 */}
+      <div className="fixed left-4 top-[4.5rem] z-40 flex flex-col items-center gap-1 rounded-2xl border border-white/50 bg-white/70 p-1.5 shadow-xl backdrop-blur-md">
         <div className="relative" ref={toolRef}>
           <button
             title="工具"
             onClick={() => setOpen(open === "tool" ? null : "tool")}
+            aria-expanded={open === "tool"}
             className={`lift flex h-9 w-9 items-center justify-center rounded text-base leading-none ${
               shapeActive || tool === "logic" || open === "tool" ? "bg-blue-100 text-blue-700 ring-1 ring-blue-400" : "hover:bg-gray-100"
             }`}
@@ -174,8 +185,8 @@ export default function Toolbar() {
             </div>
           )}
         </div>
-        <button title="撤销" onClick={undo} disabled={isGenerating} className="lift flex h-9 w-9 items-center justify-center rounded hover:bg-gray-100 disabled:opacity-40">{UNDO_ICON}</button>
-        <button title="重做" onClick={redo} disabled={isGenerating} className="lift flex h-9 w-9 items-center justify-center rounded hover:bg-gray-100 disabled:opacity-40">{REDO_ICON}</button>
+        <button title="撤销" onClick={undo} disabled={isGenerating} className="lift flex h-9 w-9 items-center justify-center rounded hover:bg-gray-100 disabled:bg-transparent disabled:opacity-40">{UNDO_ICON}</button>
+        <button title="重做" onClick={redo} disabled={isGenerating} className="lift flex h-9 w-9 items-center justify-center rounded hover:bg-gray-100 disabled:bg-transparent disabled:opacity-40">{REDO_ICON}</button>
       </div>
     </>
   );
