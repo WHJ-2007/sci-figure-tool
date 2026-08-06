@@ -13,8 +13,8 @@ describe("Toolbar", () => {
     render(<Toolbar />);
     // 选择已并入默认交互（无按钮）：初始工具即 select
     expect(useCanvasStore.getState().tool).toBe("select");
-    // 图案气泡：先开主按钮再点子工具
-    fireEvent.click(screen.getByTitle("图案"));
+    // 工具气泡：先开主按钮再点子工具
+    fireEvent.click(screen.getByTitle("工具"));
     fireEvent.click(screen.getByTitle("矩形"));
     expect(useCanvasStore.getState().tool).toBe("rect");
   });

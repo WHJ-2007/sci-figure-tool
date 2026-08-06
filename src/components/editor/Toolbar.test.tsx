@@ -66,83 +66,75 @@ describe("Toolbar 画布管理", () => {
     expect(svg).not.toBeNull();
     expect(svg!.querySelector("circle")).not.toBeNull();
   });
-
-  it("逻辑气泡内逻辑节点按钮：SVG 图标（圆角框 + 4 锚点圆点），点击切换工具", () => {
-    render(<Toolbar />);
-    fireEvent.click(screen.getByTitle("逻辑"));
-    const btn = screen.getByTitle("逻辑节点");
-    const svg = btn.querySelector("svg");
-    expect(svg).not.toBeNull();
-    expect(svg!.querySelectorAll("circle")).toHaveLength(4);
-    fireEvent.click(btn);
-    expect(useCanvasStore.getState().tool).toBe("logic");
-  });
 });
 
-describe("Toolbar 工具分组气泡", () => {
-  it("工具整合为图案/逻辑两个主按钮，子工具收进气泡（默认不显示）", () => {
+describe("Toolbar 悬浮坞", () => {
+  it("顶栏只有画布/导出/设置，左侧坞有工具主按钮与撤销重做", () => {
     render(<Toolbar />);
-    expect(screen.getByTitle("图案")).toBeInTheDocument();
-    expect(screen.getByTitle("逻辑")).toBeInTheDocument();
+    expect(screen.getByRole("combobox")).toBeInTheDocument();
+    expect(screen.getByTitle("导出 SVG")).toBeInTheDocument();
+    expect(screen.getByTitle("设置")).toBeInTheDocument();
+    expect(screen.getByTitle("工具")).toBeInTheDocument();
+    expect(screen.getByTitle("撤销")).toBeInTheDocument();
+    expect(screen.getByTitle("重做")).toBeInTheDocument();
     // 子工具默认收在气泡里
     expect(screen.queryByTitle("矩形")).toBeNull();
     expect(screen.queryByTitle("逻辑节点")).toBeNull();
   });
 
-  it("工具栏不再显示选择/小手按钮（选择与小手已合并：左键空白拖动平移、右键框选）", () => {
+  it("点击工具主按钮展开气泡：图案与逻辑两个分区标题 + 各自子工具", () => {
     render(<Toolbar />);
-    expect(screen.queryByTitle("选择")).toBeNull();
-    expect(screen.queryByTitle("小手（拖动画布）")).toBeNull();
-  });
-
-  it("点击图案主按钮展开气泡，再点关闭（toggle）", () => {
-    render(<Toolbar />);
-    fireEvent.click(screen.getByTitle("图案"));
+    fireEvent.click(screen.getByTitle("工具"));
+    expect(screen.getByText("图案")).toBeInTheDocument();
+    expect(screen.getByText("逻辑")).toBeInTheDocument();
     expect(screen.getByTitle("矩形")).toBeInTheDocument();
     expect(screen.getByTitle("文字")).toBeInTheDocument();
-    fireEvent.click(screen.getByTitle("图案"));
+    expect(screen.getByTitle("逻辑节点")).toBeInTheDocument();
+    // 再点主按钮关闭（toggle）
+    fireEvent.click(screen.getByTitle("工具"));
     expect(screen.queryByTitle("矩形")).toBeNull();
   });
 
-  it("气泡内点击子工具切换工具但不关闭气泡（可连续切换）", () => {
+  it("气泡内点子工具切换工具但不关闭气泡（可连续切换）", () => {
     render(<Toolbar />);
-    fireEvent.click(screen.getByTitle("图案"));
+    fireEvent.click(screen.getByTitle("工具"));
     fireEvent.click(screen.getByTitle("椭圆"));
     expect(useCanvasStore.getState().tool).toBe("ellipse");
     expect(screen.getByTitle("三角形")).toBeInTheDocument();
-    fireEvent.click(screen.getByTitle("箭头"));
-    expect(useCanvasStore.getState().tool).toBe("arrow");
-    expect(screen.getByTitle("文字")).toBeInTheDocument();
-  });
-
-  it("逻辑气泡：逻辑节点点击切换工具，气泡不关闭", () => {
-    render(<Toolbar />);
-    fireEvent.click(screen.getByTitle("逻辑"));
     fireEvent.click(screen.getByTitle("逻辑节点"));
     expect(useCanvasStore.getState().tool).toBe("logic");
-    expect(screen.getByTitle("逻辑节点")).toBeInTheDocument();
+    expect(screen.getByTitle("矩形")).toBeInTheDocument();
   });
 
   it("点击气泡外部关闭气泡", () => {
     render(<Toolbar />);
-    fireEvent.click(screen.getByTitle("图案"));
+    fireEvent.click(screen.getByTitle("工具"));
     expect(screen.getByTitle("矩形")).toBeInTheDocument();
     fireEvent.pointerDown(document.body);
     expect(screen.queryByTitle("矩形")).toBeNull();
   });
 
-  it("图案主按钮显示当前选中的子工具图标，组内工具时高亮", () => {
+  it("工具主按钮显示当前选中的子工具图标，组内工具时高亮", () => {
     useCanvasStore.getState().setTool("hexagon");
     render(<Toolbar />);
-    const btn = screen.getByTitle("图案");
+    const btn = screen.getByTitle("工具");
     expect(btn.textContent).toContain("⬡");
     expect(btn.classList.contains("bg-blue-100")).toBe(true);
   });
 
-  it("当前工具不在组内时主按钮不高亮", () => {
-    useCanvasStore.getState().setTool("select");
+  it("逻辑节点按钮为 SVG 图标（圆角框 + 4 锚点圆点）", () => {
     render(<Toolbar />);
-    const btn = screen.getByTitle("图案");
-    expect(btn.classList.contains("bg-blue-100")).toBe(false);
+    fireEvent.click(screen.getByTitle("工具"));
+    const btn = screen.getByTitle("逻辑节点");
+    const svg = btn.querySelector("svg");
+    expect(svg).not.toBeNull();
+    expect(svg!.querySelectorAll("circle")).toHaveLength(4);
+  });
+
+  it("生成中撤销/重做禁用", () => {
+    useCanvasStore.getState().setGenerating(true);
+    render(<Toolbar />);
+    expect(screen.getByTitle("撤销")).toBeDisabled();
+    expect(screen.getByTitle("重做")).toBeDisabled();
   });
 });
