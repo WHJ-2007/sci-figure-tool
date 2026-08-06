@@ -2,7 +2,15 @@ import type { ChartSpec } from "./chartLayout";
 
 export type ShapeType = "rect" | "ellipse" | "triangle" | "diamond" | "hexagon";
 export type ElementType = ShapeType | "arrow" | "polyline" | "text" | "logic" | "curve" | "sector" | "image";
-export type ToolType = "select" | "rounded" | ElementType;
+export type ToolType = "select" | "rounded" | ElementType | "line";
+
+export interface ElementShadow {
+  color: string;
+  blur: number;
+  dx: number;
+  dy: number;
+  opacity: number;
+}
 
 export interface BaseElement {
   id: string;
@@ -21,6 +29,11 @@ export interface BaseElement {
   chartId?: string; // 属于哪个图表（图表数据编辑/整图重排用）
   flipH?: boolean; // 水平镜像（绕元素中心翻转）
   flipV?: boolean; // 垂直镜像
+  // 边框/内部/整体三套独立外观：填充透明度与边框透明度分别控制，
+  // 各自再与整体 opacity 相乘；shadow 整体投影（与 fill/stroke 独立）
+  fillOpacity?: number; // 内部填充透明度（0~1，与整体 opacity 相乘）
+  strokeOpacity?: number; // 边框透明度（0~1，与整体 opacity 相乘）
+  shadow?: ElementShadow; // 整体投影（颜色/模糊半径/偏移/不透明度）
 }
 
 export interface RectElement extends BaseElement {

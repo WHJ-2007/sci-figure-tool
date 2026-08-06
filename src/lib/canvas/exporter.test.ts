@@ -218,4 +218,55 @@ describe("exporter", () => {
     expect(svg).toContain('x="10"');
     expect(svg).toContain('fill="#ff0000"');
   });
+
+  it("三独立透明度：fill-opacity/stroke-opacity 与整体 opacity 相乘输出；旧元素不输出保持兼容", () => {
+    const r = makeElement("rect", 0, 0, 100, 60, { opacity: 0.8, fillOpacity: 0.5, strokeOpacity: 0.25 });
+    const out = elementToSvg(r);
+    expect(out).toContain('opacity="0.8"');
+    expect(out).toContain('fill-opacity="0.4"'); // 0.8 × 0.5
+    expect(out).toContain('stroke-opacity="0.2"'); // 0.8 × 0.25
+    // 旧元素（无独立透明度字段）不输出 fill/stroke-opacity，导出文件兼容
+    const legacy = elementToSvg(makeElement("rect", 0, 0, 100, 60, { opacity: 0.8 }));
+    expect(legacy).not.toContain("fill-opacity");
+    expect(legacy).not.toContain("stroke-opacity");
+  });
+
+  it("箭头透明度：线条 stroke-opacity 与箭头头 fill-opacity 都跟随边框透明度", () => {
+    const a = makeElement("arrow", 0, 0, 100, 0, { opacity: 0.8, strokeOpacity: 0.5 });
+    const out = elementToSvg(a);
+    expect(out).toContain('stroke-opacity="0.4"');
+    expect(out).toContain('fill-opacity="0.4"');
+    expect(out).toContain("<polygon");
+  });
+
+  it("文字与逻辑节点导出填充透明度（逻辑正文保持 0.75 下限）", () => {
+    const t = makeElement("text", 0, 0, 50, 20, { text: "hi", opacity: 0.8, fillOpacity: 0.5 });
+    expect(elementToSvg(t)).toContain('fill-opacity="0.4"');
+    const l = makeElement("logic", 0, 0, 120, 60, { text: "A", body: "行一", opacity: 0.8, fillOpacity: 0.5 });
+    const out = elementToSvg(l);
+    // 标题 = 0.8×0.5；正文 = max(0.75, 0.8×0.5) 下限 0.75
+    expect(out).toContain('fill-opacity="0.4"');
+    expect(out).toContain('opacity="0.75"');
+  });
+
+  it("阴影元素：serializeSVG 输出 filter defs（sh-{id}）且元素引用 filter；无阴影省略 defs", () => {
+    const r = makeElement("rect", 0, 0, 100, 60, {
+      id: "r1",
+      shadow: { color: "#000000", blur: 8, dx: 2, dy: 3, opacity: 0.3 },
+    });
+    const svg = serializeSVG({ width: 1600, height: 1000, elements: [r] });
+    expect(svg).toContain('<filter id="sh-r1"');
+    expect(svg).toContain('dx="2" dy="3" stdDeviation="8"');
+    expect(svg).toContain('flood-color="#000000" flood-opacity="0.3"');
+    expect(svg).toContain('filter="url(#sh-r1)"');
+    const plain = serializeSVG({ width: 1600, height: 1000, elements: [makeElement("rect", 0, 0, 10, 10)] });
+    expect(plain).not.toContain("<defs>");
+    expect(plain).not.toContain("feDropShadow");
+  });
+
+  it("文字/逻辑/图片元素带阴影时引用 filter defs", () => {
+    const t = makeElement("text", 0, 0, 50, 20, { text: "hi", shadow: { color: "#111111", blur: 4, dx: 0, dy: 0, opacity: 0.5 } });
+    const out = elementToSvg(t);
+    expect(out).toContain('filter="url(#sh-');
+  });
 });

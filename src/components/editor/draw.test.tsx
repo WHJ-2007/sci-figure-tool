@@ -35,14 +35,18 @@ describe("绘制工具", () => {
     expect(e.height).toBe(80);
   });
 
-  it("文字工具点击创建文字并进入编辑", () => {
+  it("文字工具拖拽创建文本框并进入编辑", () => {
     useCanvasStore.getState().setTool("text");
     render(<Canvas viewportWidth={800} viewportHeight={600} />);
     const svg = document.querySelector("svg")!;
-    fireEvent.pointerDown(svg, { clientX: 100, clientY: 100, button: 0 });
-    fireEvent.pointerUp(svg, { clientX: 100, clientY: 100 });
+    drag(svg, { x: 100, y: 100 }, { x: 250, y: 180 });
     const e = useCanvasStore.getState().doc.elements[0];
     expect(e.type).toBe("text");
+    // 文本框 = 拖出框的尺寸（不再是最小默认尺寸）
+    expect(e.x).toBe(100);
+    expect(e.y).toBe(100);
+    expect(e.width).toBe(150);
+    expect(e.height).toBe(80);
     expect(document.querySelector('[data-testid="text-editor"]')).toBeTruthy();
   });
 
@@ -97,7 +101,8 @@ describe("绘制工具", () => {
     fireEvent.pointerUp(svg, { clientX: 100, clientY: 100 });
     // 起点已定：移动指针出现预览线（半透明）
     fireEvent.pointerMove(svg, { clientX: 250, clientY: 180 });
-    expect(document.querySelector('line[opacity="0.6"]')).toBeTruthy();
+    // 预览线以边框透明度 0.6 渲染（与元素渲染一致，无 opacity 属性）
+    expect(document.querySelector('line[stroke-opacity="0.6"]')).toBeTruthy();
     fireEvent.pointerDown(svg, { clientX: 250, clientY: 180, button: 0 });
     fireEvent.pointerUp(svg, { clientX: 250, clientY: 180 });
     const e = useCanvasStore.getState().doc.elements[0];
@@ -118,7 +123,7 @@ describe("绘制工具", () => {
     fireEvent.pointerDown(svg, { clientX: 100, clientY: 100, button: 0 });
     fireEvent.pointerUp(svg, { clientX: 100, clientY: 100 });
     expect(useCanvasStore.getState().doc.elements).toEqual([]);
-    expect(document.querySelector('line[opacity="0.6"]')).toBeNull();
+    expect(document.querySelector('line[stroke-opacity="0.6"]')).toBeNull();
   });
 
   it("箭头两点制：右键取消待定起点，预览消失", () => {
@@ -128,10 +133,10 @@ describe("绘制工具", () => {
     fireEvent.pointerDown(svg, { clientX: 100, clientY: 100, button: 0 });
     fireEvent.pointerUp(svg, { clientX: 100, clientY: 100 });
     fireEvent.pointerMove(svg, { clientX: 200, clientY: 150 });
-    expect(document.querySelector('line[opacity="0.6"]')).toBeTruthy();
+    expect(document.querySelector('line[stroke-opacity="0.6"]')).toBeTruthy();
     fireEvent.pointerDown(svg, { clientX: 200, clientY: 150, button: 2 });
     fireEvent.pointerUp(svg, { clientX: 200, clientY: 150, button: 2 });
-    expect(document.querySelector('line[opacity="0.6"]')).toBeNull();
+    expect(document.querySelector('line[stroke-opacity="0.6"]')).toBeNull();
     expect(useCanvasStore.getState().doc.elements).toEqual([]);
   });
 
@@ -142,9 +147,9 @@ describe("绘制工具", () => {
     fireEvent.pointerDown(svg, { clientX: 100, clientY: 100, button: 0 });
     fireEvent.pointerUp(svg, { clientX: 100, clientY: 100 });
     fireEvent.pointerMove(svg, { clientX: 200, clientY: 150 });
-    expect(document.querySelector('line[opacity="0.6"]')).toBeTruthy();
+    expect(document.querySelector('line[stroke-opacity="0.6"]')).toBeTruthy();
     act(() => useCanvasStore.getState().setTool("select"));
-    expect(document.querySelector('line[opacity="0.6"]')).toBeNull();
+    expect(document.querySelector('line[stroke-opacity="0.6"]')).toBeNull();
   });
 
   it("Escape 取消不写回", () => {
@@ -165,15 +170,16 @@ describe("绘制工具", () => {
     expect(useCanvasStore.getState().editingText).toBeNull();
   });
 
-  it("文字工具双击只创建一个", () => {
+  it("文字工具双击不重复创建：拖动创建后双击进入编辑", () => {
     useCanvasStore.getState().setTool("text");
     render(<Canvas viewportWidth={800} viewportHeight={600} />);
     const svg = document.querySelector("svg")!;
-    fireEvent.pointerDown(svg, { clientX: 100, clientY: 100, button: 0 });
-    fireEvent.pointerUp(svg, { clientX: 100, clientY: 100 });
-    fireEvent.pointerDown(svg, { clientX: 100, clientY: 100, button: 0 });
-    fireEvent.pointerUp(svg, { clientX: 100, clientY: 100 });
+    drag(svg, { x: 100, y: 100 }, { x: 200, y: 150 });
     expect(useCanvasStore.getState().doc.elements.length).toBe(1);
+    // 双击已创建的文字：进入编辑而非新建
+    fireEvent.doubleClick(svg, { clientX: 150, clientY: 125 });
+    expect(useCanvasStore.getState().doc.elements.length).toBe(1);
+    expect(document.querySelector('[data-testid="text-editor"]')).toBeTruthy();
   });
 
   it("arrow 负向拖拽选中框正常", () => {
@@ -187,6 +193,40 @@ describe("绘制工具", () => {
     expect(e.height).toBe(-100);
     const rect = document.querySelector('svg rect[stroke="#2563eb"]')!;
     expect(rect.getAttribute("width")).toBe("100");
+  });
+});
+
+describe("三独立外观渲染（#87）", () => {
+  it("元素渲染 fill-opacity/stroke-opacity 独立属性，阴影挂顶层 defs filter", () => {
+    const r = makeElement("rect", 0, 0, 100, 60, {
+      id: "r1",
+      fillOpacity: 0.5,
+      strokeOpacity: 0.25,
+      shadow: { color: "#000000", blur: 8, dx: 2, dy: 2, opacity: 0.3 },
+    });
+    useCanvasStore.getState().addElement(r);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const rect = document.querySelector('g[data-element-id="r1"] rect')!;
+    expect(rect.getAttribute("fill-opacity")).toBe("0.5");
+    expect(rect.getAttribute("stroke-opacity")).toBe("0.25");
+    // 投影 filter 定义在顶层 defs，元素组引用（与导出 id 一致）
+    const g = document.querySelector('g[data-element-id="r1"]')!;
+    expect(g.getAttribute("filter")).toBe("url(#sh-r1)");
+    const defs = document.querySelector("defs")!;
+    expect(defs.innerHTML).toContain('id="sh-r1"');
+    expect(defs.innerHTML).toContain("feDropShadow");
+    // 旧元素（无独立透明度）不输出 fill/stroke-opacity
+    const legacy = makeElement("rect", 0, 0, 100, 60, { id: "r2" });
+    act(() => useCanvasStore.getState().addElement(legacy));
+    const lr = document.querySelector('g[data-element-id="r2"] rect')!;
+    expect(lr.getAttribute("fill-opacity")).toBeNull();
+    expect(lr.getAttribute("stroke-opacity")).toBeNull();
+  });
+
+  it("无阴影元素不渲染 defs", () => {
+    useCanvasStore.getState().addElement(makeElement("rect", 0, 0, 100, 60));
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    expect(document.querySelector("defs")).toBeNull();
   });
 });
 
@@ -312,7 +352,7 @@ describe("箭头中间折点", () => {
     expect(back.midPoints).toBeUndefined();
   });
 
-  it("整体移动带折点的箭头：折点相对坐标不变，世界位置自动跟随", () => {
+  it("整体移动带折点的箭头：折点相对坐标不变，世界位置自动跟随", async () => {
     useCanvasStore.getState().addElement(
       makeElement("arrow", 100, 100, 200, 0, { id: "a1", midPoints: [{ x: 200, y: 60 }] })
     );
@@ -325,9 +365,13 @@ describe("箭头中间折点", () => {
     fireEvent.pointerMove(window, { clientX: 170, clientY: 120, buttons: 1 });
     fireEvent.pointerMove(window, { clientX: 190, clientY: 140, buttons: 1 });
     fireEvent.pointerUp(window, { clientX: 190, clientY: 140 });
+    // 松手后元素经补间动画到达目标（ghost 方案：拖动中元素不动）——等待动画完成
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 220));
+    });
     const e = useCanvasStore.getState().doc.elements[0] as ArrowElement;
-    expect(e.x).toBe(140); // 100 + 40
-    expect(e.y).toBe(140); // 100 + 40
+    expect(e.x).toBeCloseTo(140, 5); // 100 + 40
+    expect(e.y).toBeCloseTo(140, 5); // 100 + 40
     // 相对坐标原样保留：折点世界位置 = 新起点 (140,140) + (200,60) = (340,200)
     expect(e.midPoints).toEqual([{ x: 200, y: 60 }]);
   });

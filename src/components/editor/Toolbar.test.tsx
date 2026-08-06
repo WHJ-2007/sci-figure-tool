@@ -105,7 +105,7 @@ describe("Toolbar 悬浮坞", () => {
     expect(screen.queryByTitle("重命名画布")).toBeNull();
     const dock = screen.getByTitle("撤销").closest(".fixed")!;
     const titles = [...dock.querySelectorAll("button")].map((b) => b.getAttribute("title"));
-    expect(titles).toEqual(["撤销", "重做", "选择", "图形", "文本框", "逻辑", "图表", "导入"]);
+    expect(titles).toEqual(["撤销", "重做", "选择", "图形", "箭头", "文本框", "逻辑", "图表", "导入"]);
     // 子工具默认收在气泡里
     expect(screen.queryByTitle("矩形")).toBeNull();
   });
@@ -145,7 +145,7 @@ describe("Toolbar 悬浮坞", () => {
 
   it("箭头工具为简单直箭头 SVG 图标（直线 + 箭头尖，无弯折、无字符箭头）", () => {
     render(<Toolbar />);
-    fireEvent.click(screen.getByTitle("图形"));
+    // 箭头是与图形平级的独立常驻坞按钮，无需展开气泡
     const btn = screen.getByTitle("箭头");
     const svg = btn.querySelector("svg");
     expect(svg).not.toBeNull();
@@ -163,7 +163,7 @@ describe("Toolbar 悬浮坞", () => {
     fireEvent.click(screen.getByTitle("图形"));
     expect(screen.getByText("图案")).toBeInTheDocument();
     expect(screen.getByTitle("矩形")).toBeInTheDocument();
-    expect(screen.getByTitle("折线")).toBeInTheDocument();
+    expect(screen.getByTitle("线条")).toBeInTheDocument();
     // 文字已从图案气泡移出：与图形并列的独立分类（常驻坞按钮）
     expect(screen.queryByTitle("文字")).toBeNull();
     expect(screen.queryByText("逻辑")).toBeNull();

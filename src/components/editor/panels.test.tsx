@@ -50,23 +50,23 @@ describe("悬浮动效", () => {
 });
 
 describe("PropertyPanel", () => {
-  it("选中箭头显示箭头专属卡片：粗细/样式/透明度/旋转/颜色按序，无背景图案卡片", () => {
+  it("选中箭头显示边框/整体卡片：边框色/粗细/边框透明度/样式与整体透明度/旋转/阴影，无内部卡片", () => {
     const a = makeElement("arrow", 100, 100, 200, 0, { id: "a1" });
     useCanvasStore.getState().addElement(a);
     useCanvasStore.getState().setSelection([a.id]);
     render(<PropertyPanel />);
-    // 箭头卡片替代背景图案卡片（填充色对箭头无意义）
-    expect(screen.queryByText("背景图案")).toBeNull();
-    const card = [...document.querySelectorAll("section")].find((s) => s.querySelector("h3")?.textContent === "箭头")!;
-    // 色板按钮不计入编辑顺序（色板固定在卡片尾部）
+    // 箭头无填充渲染：不显示"内部"卡片（填充色对箭头无意义）
+    expect(screen.queryByText("内部")).toBeNull();
+    const card = [...document.querySelectorAll("section")].find((s) => s.querySelector("h3")?.textContent === "边框")!;
+    // 色板按钮不计入编辑顺序（色板固定在卡片首部）
     const seq = [...card.querySelectorAll("[aria-label],button")]
       .map((el) => el.getAttribute("aria-label") ?? el.textContent!.trim())
       .filter((l) => !l.startsWith("预设色"));
-    // 编辑顺序：粗细 → 箭头样式（无/单/双）→ 透明度 → 旋转 → 箭头颜色
-    expect(seq).toEqual(["粗细", "粗细 数值", "无箭头", "单箭头", "双箭头", "透明度", "透明度 数值", "旋转", "旋转 数值", "箭头颜色"]);
+    // 编辑顺序：边框色 → 线宽 → 边框透明度 → 箭头样式（无/单/双）
+    expect(seq).toEqual(["边框色", "线宽", "线宽 数值", "边框透明度", "边框透明度 数值", "无箭头", "单箭头", "双箭头"]);
   });
 
-  it("箭头卡片交互：样式切换 head，粗细/透明度/旋转/颜色写入元素", () => {
+  it("箭头卡片交互：样式切换 head，粗细/边框透明度/旋转/颜色写入元素", () => {
     const a = makeElement("arrow", 100, 100, 200, 0, { id: "a1" });
     useCanvasStore.getState().addElement(a);
     useCanvasStore.getState().setSelection([a.id]);
@@ -76,12 +76,12 @@ describe("PropertyPanel", () => {
     fireEvent.click(screen.getByText("无箭头"));
     expect((useCanvasStore.getState().doc.elements[0] as ArrowElement).head).toBe("none");
     fireEvent.change(screen.getByLabelText("粗细"), { target: { value: "6" } });
-    fireEvent.change(screen.getByLabelText("透明度"), { target: { value: "0.5" } });
+    fireEvent.change(screen.getByLabelText("边框透明度"), { target: { value: "0.5" } });
     fireEvent.change(screen.getByLabelText("旋转"), { target: { value: "45" } });
-    fireEvent.change(screen.getByLabelText("箭头颜色"), { target: { value: "#ff0000" } });
+    fireEvent.change(screen.getByLabelText("边框色"), { target: { value: "#ff0000" } });
     const e = useCanvasStore.getState().doc.elements[0] as ArrowElement;
     expect(e.strokeWidth).toBe(6);
-    expect(e.opacity).toBe(0.5);
+    expect(e.strokeOpacity).toBe(0.5);
     expect(e.rotation).toBe(45);
     expect(e.stroke).toBe("#ff0000");
   });
@@ -107,7 +107,8 @@ describe("PropertyPanel", () => {
     const r = makeElement("rect", 0, 0, 100, 60, { id: "r1" });
     act(() => useCanvasStore.getState().addElement(r));
     act(() => useCanvasStore.getState().setSelection([r.id]));
-    fireEvent.click(screen.getByLabelText("预设色 #f0fff0"));
+    // rect 有内部+边框两个色板：取第一个（内部卡）设置填充色
+    fireEvent.click(screen.getAllByLabelText("预设色 #f0fff0")[0]);
     expect(useCanvasStore.getState().doc.elements.find((e) => e.id === "r1")!.fill).toBe("#f0fff0");
     // 自定义 hex 输入：非法值不写入，失焦回退显示当前色
     const fill = screen.getByLabelText("填充色") as HTMLInputElement;
@@ -126,12 +127,15 @@ describe("PropertyPanel", () => {
     expect(box.value).toBe("你好");
   });
 
-  it("面板三分：逻辑节点显示背景图案/标题/正文三个块", () => {
+  it("面板多卡：逻辑节点显示内部/边框/整体 + 标题/正文块", () => {
     const l = makeElement("logic", 0, 0, 150, 60, { text: "特征提取", body: "卷积\n池化" });
     useCanvasStore.getState().addElement(l);
     useCanvasStore.getState().setSelection([l.id]);
     render(<PropertyPanel />);
-    expect(screen.getByText("背景图案")).toBeInTheDocument();
+    const titles = [...document.querySelectorAll("section h3")].map((h) => h.textContent);
+    expect(titles).toContain("内部");
+    expect(titles).toContain("边框");
+    expect(titles).toContain("整体");
     expect(screen.getAllByText("标题").length).toBeGreaterThan(0); // section 标题 + 字段标签
     expect(screen.getByText("正文")).toBeInTheDocument();
     const title = screen.getByLabelText("标题") as HTMLInputElement;
@@ -148,12 +152,15 @@ describe("PropertyPanel", () => {
     }
   });
 
-  it("形状类元素只有背景图案块，无标题/正文", () => {
+  it("形状类元素显示内部/边框/整体卡，无标题/正文", () => {
     const a = makeElement("rect", 0, 0, 100, 60);
     useCanvasStore.getState().addElement(a);
     useCanvasStore.getState().setSelection([a.id]);
     render(<PropertyPanel />);
-    expect(screen.getByText("背景图案")).toBeInTheDocument();
+    const titles = [...document.querySelectorAll("section h3")].map((h) => h.textContent);
+    expect(titles).toContain("内部");
+    expect(titles).toContain("边框");
+    expect(titles).toContain("整体");
     expect(screen.queryByText("正文")).toBeNull();
   });
 
@@ -205,7 +212,8 @@ describe("PropertyPanel", () => {
     useCanvasStore.getState().addElement(a);
     useCanvasStore.getState().setSelection([a.id]);
     render(<PropertyPanel />);
-    fireEvent.click(screen.getByLabelText("预设色 #f0fff0"));
+    // rect 有内部+边框两个色板：取第一个（内部卡）设置填充色
+    fireEvent.click(screen.getAllByLabelText("预设色 #f0fff0")[0]);
     expect(useCanvasStore.getState().doc.elements[0].fill).toBe("#f0fff0");
   });
 
@@ -296,6 +304,25 @@ describe("PropertyPanel", () => {
     const back = new Map(useCanvasStore.getState().doc.elements.map((e) => [e.id, e.zIndex]));
     expect(back.get(a.id)).toBe(1);
     expect(back.get(b.id)).toBe(2);
+  });
+
+  it("整体卡阴影：点添加按钮生成默认阴影，滑块调整模糊/偏移/浓淡，移除恢复", () => {
+    const a = makeElement("rect", 0, 0, 100, 60);
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().setSelection([a.id]);
+    render(<PropertyPanel />);
+    expect(screen.queryByText("移除阴影")).toBeNull();
+    fireEvent.click(screen.getByText("＋ 添加阴影"));
+    expect(useCanvasStore.getState().doc.elements[0].shadow).toEqual({ color: "#000000", blur: 8, dx: 2, dy: 2, opacity: 0.25 });
+    fireEvent.change(screen.getByLabelText("阴影模糊"), { target: { value: "12" } });
+    fireEvent.change(screen.getByLabelText("阴影水平偏移"), { target: { value: "5" } });
+    fireEvent.change(screen.getByLabelText("阴影浓度"), { target: { value: "0.5" } });
+    const sh = useCanvasStore.getState().doc.elements[0].shadow!;
+    expect(sh.blur).toBe(12);
+    expect(sh.dx).toBe(5);
+    expect(sh.opacity).toBe(0.5);
+    fireEvent.click(screen.getByText("移除阴影"));
+    expect(useCanvasStore.getState().doc.elements[0].shadow).toBeUndefined();
   });
 
   it("操作卡删除按钮删除选中元素", () => {

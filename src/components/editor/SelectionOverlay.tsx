@@ -1,6 +1,6 @@
 import { Fragment } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
-import { logicAnchors, curveControl, type Anchor } from "@/lib/canvas/geometry";
+import { logicAnchors, elementBounds, type Anchor } from "@/lib/canvas/geometry";
 import type { CanvasElement } from "@/lib/canvas/types";
 
 const HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const;
@@ -14,33 +14,6 @@ const HANDLE_POS: Record<(typeof HANDLES)[number], { x: number; y: number }> = {
   sw: { x: 0, y: 1 },
   w: { x: 0, y: 0.5 },
 };
-
-// 真实包围盒：arrow 负向拖拽时 width/height 为负，polyline 创建时宽高为 0，需归一化
-export function boundsOf(e: CanvasElement): { x: number; y: number; width: number; height: number } {
-  if (e.type === "arrow") {
-    // 带折点的箭头包围盒覆盖全部折点（折点为相对坐标，偏移到世界坐标）；无折点时与原归一化语义一致
-    const xs = [e.x, e.x + e.width, ...(e.midPoints ?? []).map((p) => e.x + p.x)];
-    const ys = [e.y, e.y + e.height, ...(e.midPoints ?? []).map((p) => e.y + p.y)];
-    const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
-    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
-  }
-  if (e.type === "polyline") {
-    const xs = e.points.map((p) => p.x), ys = e.points.map((p) => p.y);
-    const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
-    return { x: minX, y: minY, width: Math.max(maxX - minX, 1), height: Math.max(maxY - minY, 1) };
-  }
-  if (e.type === "curve") {
-    const c = curveControl(e);
-    const xs = [e.x, c.x, e.x + e.width];
-    const ys = [e.y, c.y, e.y + e.height];
-    const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
-    return { x: minX, y: minY, width: Math.max(maxX - minX, 1), height: Math.max(maxY - minY, 1) };
-  }
-  if (e.type === "sector") {
-    return { x: e.x - e.radius, y: e.y - e.radius, width: e.radius * 2, height: e.radius * 2 };
-  }
-  return { x: e.x, y: e.y, width: e.width, height: e.height };
-}
 
 // 指针 client 坐标 → 画布世界坐标（与手势模块同一换算）
 function worldOf(svg: Element, c: number, axis: "x" | "y"): number {
@@ -76,7 +49,7 @@ export default function SelectionOverlay({
   return (
     <>
       {sel.map((e) => {
-        const b = boundsOf(e);
+        const b = elementBounds(e);
         const cx = b.x + b.width / 2;
         const cy = b.y + b.height / 2;
         // 选中框必须随元素旋转（与 ElementShape 的 rotate 一致），否则旋转后虚线框与元素脱离
@@ -335,7 +308,7 @@ function rotateDown(ev: React.PointerEvent, e: CanvasElement) {
   if (s.aiLockedIds.includes(e.id)) return;
   s.commitHistory(); // 旋转前提交快照（手势前状态），一次旋转 = 一步撤销
   // 与选中框一致用真实包围盒中心，避免负宽高元素旋转中心错位
-  const b = boundsOf(e);
+  const b = elementBounds(e);
   const cx = b.x + b.width / 2;
   const cy = b.y + b.height / 2;
   const svg = (ev.target as Element).closest("svg")!;

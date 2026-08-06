@@ -103,7 +103,14 @@ interface ToolItem {
   label: ReactNode;
 }
 
-// 工具分组：图案 = 所有图形/标注（含箭头连线；文本框是独立分类，见左侧坞"文本框"按钮）
+// 线条图标：无头的线段（两点连线，与箭头同逻辑但不画箭头尖）
+const LINE_ICON = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+    <path d="M3 12h18" />
+  </svg>
+);
+
+// 工具分组：图案 = 纯图形（箭头/线条是与图案平级的独立坞按钮；文本框是独立分类）
 const SHAPE_TOOLS: ToolItem[] = [
   { title: "矩形", tool: "rect", label: "▢" },
   { title: "圆角矩形", tool: "rounded", label: "▭" },
@@ -111,8 +118,7 @@ const SHAPE_TOOLS: ToolItem[] = [
   { title: "三角形", tool: "triangle", label: "△" },
   { title: "菱形", tool: "diamond", label: "◇" },
   { title: "六边形", tool: "hexagon", label: "⬡" },
-  { title: "箭头", tool: "arrow", label: ARROW_ICON },
-  { title: "折线", tool: "polyline", label: "↯" },
+  { title: "线条", tool: "line", label: LINE_ICON },
 ];
 const SHAPE_TOOL_SET = new Set(SHAPE_TOOLS.map((t) => t.tool));
 
@@ -304,6 +310,16 @@ export default function Toolbar() {
             </div>
           )}
         </div>
+        {/* 箭头：与图案平级的独立坞按钮（连线最常用，不藏在图案气泡里） */}
+        <button
+          title="箭头"
+          onClick={() => setTool("arrow")}
+          className={`lift flex h-9 w-9 items-center justify-center rounded ${
+            tool === "arrow" ? "bg-blue-100 text-blue-700 ring-1 ring-blue-400" : "hover:bg-gray-100"
+          }`}
+        >
+          {ARROW_ICON}
+        </button>
         <button
           title="文本框"
           onClick={() => setTool("text")}

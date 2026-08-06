@@ -3,11 +3,11 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { makeElement } from "@/lib/canvas/elements";
-import { hitTestElement, logicAnchors, arrowPoints, distToSegment, projectOnSegment } from "@/lib/canvas/geometry";
+import { hitTestElement, logicAnchors, arrowPoints, distToSegment, projectOnSegment, elementBounds } from "@/lib/canvas/geometry";
 import { loadImageElement } from "@/lib/canvas/imageImport";
 import type { CanvasElement } from "@/lib/canvas/types";
 import ElementShape from "./ElementShape";
-import SelectionOverlay, { boundsOf } from "./SelectionOverlay";
+import SelectionOverlay from "./SelectionOverlay";
 import TextEditor from "./TextEditor";
 import CanvasStyleMenu from "./CanvasStyleMenu";
 import ArrowContextMenu, { type ArrowMenuState } from "./ArrowContextMenu";
@@ -33,9 +33,21 @@ function previewElement(p: DrawPreview): CanvasElement {
   if ("points" in p) {
     const first = p.points[0];
     const last = p.points[p.points.length - 1];
-    return p.type === "arrow"
-      ? makeElement("arrow", first.x, first.y, last.x - first.x, last.y - first.y, { opacity: 0.6 })
-      : makeElement("polyline", first.x, first.y, 0, 0, { points: p.points, opacity: 0.6 });
+    if (p.type === "arrow") {
+      return makeElement("arrow", first.x, first.y, last.x - first.x, last.y - first.y, { strokeOpacity: 0.6 });
+    }
+    // 线条 = 无头箭头：与成图一致的 arrow + head:"none"
+    if (p.type === "line") {
+      return makeElement("arrow", first.x, first.y, last.x - first.x, last.y - first.y, { head: "none", strokeOpacity: 0.6 });
+    }
+    return makeElement("polyline", first.x, first.y, 0, 0, { points: p.points, strokeOpacity: 0.6 });
+  }
+  if (p.type === "text") {
+    // 文字拖动预览：保留拖出框的宽高（makeElement 会按空文字重算成最小尺寸）
+    const el = makeElement("text", p.x, p.y, p.width, p.height, { text: "", opacity: 0.6 });
+    el.width = p.width;
+    el.height = p.height;
+    return el;
   }
   return makeElement(p.type, p.x, p.y, p.width, p.height, { opacity: 0.6 });
 }
@@ -62,7 +74,7 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
     return (clientY - (rect?.top ?? 0) - v.oy) / v.scale;
   }, []);
 
-  const { rubber, preview, panning, anchorHint, onPointerDown, onPointerMove, onPointerUp, modeRef, startTouchArrow, lastRightClickRef } = usePointerInteraction(worldX, worldY);
+  const { rubber, preview, panning, anchorHint, movingIds, movePreview, onPointerDown, onPointerMove, onPointerUp, modeRef, startTouchArrow, lastRightClickRef } = usePointerInteraction(worldX, worldY);
 
   // 右键菜单（画布样式 + 箭头折点）：点击菜单外/Escape 关闭
   const [styleMenu, setStyleMenu] = useState<{ x: number; y: number } | null>(null);
@@ -245,25 +257,51 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
         onDoubleClick={onDoubleClick}
         onContextMenu={onContextMenu}
       >
-        {grad && (
+        {(grad || doc.elements.some((e) => e.shadow)) && (
           <defs>
-            <linearGradient id="canvas-bg-grad" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0" stopColor={grad[0]} />
-              <stop offset="1" stopColor={grad[1]} />
-            </linearGradient>
+            {grad && (
+              <linearGradient id="canvas-bg-grad" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stopColor={grad[0]} />
+                <stop offset="1" stopColor={grad[1]} />
+              </linearGradient>
+            )}
+            {/* 元素整体投影：filter id 用元素 id 保证唯一；区域扩到 ±50% 防模糊裁剪 */}
+            {doc.elements.map((e) =>
+              e.shadow ? (
+                <filter key={e.id} id={`sh-${e.id}`} x="-50%" y="-50%" width="200%" height="200%">
+                  <feDropShadow dx={e.shadow.dx} dy={e.shadow.dy} stdDeviation={e.shadow.blur} floodColor={e.shadow.color} floodOpacity={e.shadow.opacity} />
+                </filter>
+              ) : null
+            )}
           </defs>
         )}
         <rect data-testid="canvas-bg" width={viewportWidth} height={viewportHeight} rx={10} fill={backgroundFill(doc.background)} pointerEvents="none" />
         <g transform={`translate(${view.ox} ${view.oy}) scale(${view.scale})`}>
           {sorted.map((e) => (
-            <ElementShape key={e.id} e={e} locked={aiLockedIds.includes(e.id)} />
+            <ElementShape key={e.id} e={e} locked={aiLockedIds.includes(e.id)} ghost={movingIds.includes(e.id)} />
           ))}
           {preview && <ElementShape e={previewElement(preview)} />}
+          {/* 拖动预览：虚线框显示"在这里松手元素会落在哪"（含吸附偏移） */}
+          {movePreview && (
+            <rect
+              data-testid="move-preview"
+              x={movePreview.x}
+              y={movePreview.y}
+              width={movePreview.width}
+              height={movePreview.height}
+              fill="#2563eb"
+              fillOpacity={0.1}
+              stroke="#2563eb"
+              strokeWidth={1.5 / view.scale}
+              strokeDasharray={6 / view.scale}
+              pointerEvents="none"
+            />
+          )}
           {/* AI 非阻塞：本轮生成中 AI 正在编辑的元素——蓝色虚线呼吸框，不可交互 */}
           {aiLockedIds.map((id) => {
             const e = doc.elements.find((x) => x.id === id);
             if (!e) return null;
-            const b = boundsOf(e);
+            const b = elementBounds(e);
             // 与 SelectionOverlay 一致：boundsOf 是未旋转 bbox，旋转中心取 bbox 中心（旋转后虚线框仍贴合元素）
             const cx = b.x + b.width / 2;
             const cy = b.y + b.height / 2;
@@ -289,8 +327,8 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
             <rect x={rubber.x} y={rubber.y} width={rubber.width} height={rubber.height} fill="#2563eb22" stroke="#2563eb" strokeWidth={1} />
           </g>
         )}
-        {/* 锚点候选层：箭头工具悬停/绘制中，或逻辑触点拉箭头拖动中（preview.type === "arrow"） */}
-        {(tool === "arrow" || preview?.type === "arrow") && (
+        {/* 锚点候选层：箭头/线条工具悬停/绘制中，或逻辑触点拉箭头拖动中（preview.type === "arrow"） */}
+        {(tool === "arrow" || tool === "line" || preview?.type === "arrow" || preview?.type === "line") && (
           <g transform={`translate(${view.ox} ${view.oy}) scale(${view.scale})`} pointerEvents="none">
             {doc.elements.flatMap((e) => logicAnchors(e)).map((a) => {
               const active = anchorHint?.id === a.id;

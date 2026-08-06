@@ -12,6 +12,13 @@ function drag(el: Element, from: { x: number; y: number }, to: { x: number; y: n
   fireEvent.pointerUp(el, { clientX: to.x, clientY: to.y });
 }
 
+// 松手后元素经补间动画到达目标（ghost 方案：拖动中元素不动），等待动画完成后再断言位置
+async function waitMoveAnim() {
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 220));
+  });
+}
+
 describe("Canvas 交互", () => {
   it("点击元素选中", () => {
     const a = makeElement("rect", 10, 10, 100, 60);
@@ -24,7 +31,7 @@ describe("Canvas 交互", () => {
     expect(useCanvasStore.getState().selection).toEqual([a.id]);
   });
 
-  it("缩放视口后拖动元素屏幕跟手（scale=0.25：鼠标屏幕动 40px，元素屏幕动 40px）", () => {
+  it("缩放视口后拖动元素屏幕跟手（scale=0.25：鼠标屏幕动 40px，元素屏幕动 40px）", async () => {
     useCanvasStore.getState().setView({ scale: 0.25, ox: 100, oy: 50 });
     const a = makeElement("rect", 10, 10, 100, 60);
     useCanvasStore.getState().addElement(a);
@@ -34,11 +41,12 @@ describe("Canvas 交互", () => {
     // 世界位移 = 屏幕 40px / 0.25 = 160 → 元素屏幕位移 = 160 × 0.25 = 40px，与鼠标一致
     fireEvent.pointerMove(el, { clientX: 90, clientY: 30, buttons: 1 });
     fireEvent.pointerUp(el, { clientX: 90, clientY: 30 });
+    await waitMoveAnim();
     expect(useCanvasStore.getState().doc.elements[0].x).toBe(170);
     expect(useCanvasStore.getState().doc.elements[0].y).toBe(10);
   });
 
-  it("拖动中指针移出画布（后续事件派发到 window）仍持续跟随：图形位置与鼠标增量严格一致", () => {
+  it("拖动中指针移出画布（后续事件派发到 window）仍持续跟随：图形位置与鼠标增量严格一致", async () => {
     const a = makeElement("rect", 10, 10, 100, 60);
     useCanvasStore.getState().addElement(a);
     render(<Canvas viewportWidth={800} viewportHeight={600} />);
@@ -48,10 +56,11 @@ describe("Canvas 交互", () => {
     fireEvent.pointerMove(window, { clientX: 120, clientY: 80, buttons: 1 });
     fireEvent.pointerMove(window, { clientX: 140, clientY: 100, buttons: 1 });
     fireEvent.pointerUp(window, { clientX: 140, clientY: 100 });
+    await waitMoveAnim();
     const e = useCanvasStore.getState().doc.elements[0];
     // 指针位移 90,70 → 元素跟随 90,70（按下位置 (10,10) 不变，绝对增量跟踪）
-    expect(e.x).toBe(100);
-    expect(e.y).toBe(80);
+    expect(e.x).toBeCloseTo(100, 5);
+    expect(e.y).toBeCloseTo(80, 5);
   });
 
   it("拖动中滚轮缩放被锁定（避免视口变化导致换算基准错乱、元素不跟手）", () => {
@@ -68,15 +77,16 @@ describe("Canvas 交互", () => {
     expect(useCanvasStore.getState().view.scale).toBeCloseTo(1.1, 5);
   });
 
-  it("拖动元素移动", () => {
+  it("拖动元素移动", async () => {
     const a = makeElement("rect", 10, 10, 100, 60);
     useCanvasStore.getState().addElement(a);
     render(<Canvas viewportWidth={800} viewportHeight={600} />);
     const el = document.querySelector("[data-element-id]")!;
     drag(el, { x: 50, y: 30 }, { x: 80, y: 90 });
+    await waitMoveAnim();
     const e = useCanvasStore.getState().doc.elements[0];
-    expect(e.x).toBe(40);
-    expect(e.y).toBe(70);
+    expect(e.x).toBeCloseTo(40, 5);
+    expect(e.y).toBeCloseTo(70, 5);
   });
 
   it("空白处右键框选（右键拖动 = 多选框选；左键空白拖动现在平移画布）", () => {
@@ -128,7 +138,7 @@ describe("Canvas 交互", () => {
     expect(e.rotation).toBeCloseTo(90, 0);
   });
 
-  it("群组拖动吸附到其他元素边缘", () => {
+  it("群组拖动吸附到其他元素边缘", async () => {
     const a = makeElement("rect", 0, 100, 40, 40);
     const b = makeElement("rect", 50, 100, 40, 40);
     const anchor = makeElement("rect", 100, 0, 40, 40);
@@ -141,9 +151,10 @@ describe("Canvas 交互", () => {
     const el = document.querySelector("[data-element-id]")!;
     // 拖 95px：组 bbox minX=95，距 anchor 左边 100 差 5px（<6 阈值）→ 吸附 dx=5 → 实际位移 100
     drag(el, { x: 20, y: 120 }, { x: 115, y: 120 });
+    await waitMoveAnim();
     const doc = useCanvasStore.getState().doc.elements;
-    expect(doc.find((e) => e.id === a.id)!.x).toBe(100); // 0 + 95 + 5(snap)
-    expect(doc.find((e) => e.id === b.id)!.x).toBe(150); // 50 + 95 + 5
+    expect(doc.find((e) => e.id === a.id)!.x).toBeCloseTo(100, 5); // 0 + 95 + 5(snap)
+    expect(doc.find((e) => e.id === b.id)!.x).toBeCloseTo(150, 5); // 50 + 95 + 5
   });
 
   it("Shift+点击追加多选；再次 shift+点击已选元素保持选区（不移除，避免拖动乱动）", () => {
@@ -167,7 +178,7 @@ describe("Canvas 交互", () => {
     expect(useCanvasStore.getState().selection).toEqual([a.id, b.id]);
   });
 
-  it("Shift+点击追加多选后不松手继续拖动被点击元素：整组跟手移动（回归修复：点 B 拖 B 却只有 A 动）", () => {
+  it("Shift+点击追加多选后不松手继续拖动被点击元素：整组跟手移动（回归修复：点 B 拖 B 却只有 A 动）", async () => {
     const a = makeElement("rect", 10, 10, 100, 60);
     const b = makeElement("ellipse", 200, 200, 40, 30);
     useCanvasStore.getState().addElement(a);
@@ -183,9 +194,10 @@ describe("Canvas 交互", () => {
     fireEvent.pointerDown(els[1], { clientX: 220, clientY: 220, button: 0, shiftKey: true });
     fireEvent.pointerMove(els[1], { clientX: 250, clientY: 220, buttons: 1 });
     fireEvent.pointerUp(els[1], { clientX: 250, clientY: 220 });
+    await waitMoveAnim();
     const doc = useCanvasStore.getState().doc.elements;
-    expect(doc.find((e) => e.id === b.id)!.x).toBe(230);
-    expect(doc.find((e) => e.id === a.id)!.x).toBe(40);
+    expect(doc.find((e) => e.id === b.id)!.x).toBeCloseTo(230, 5);
+    expect(doc.find((e) => e.id === a.id)!.x).toBeCloseTo(40, 5);
     expect(useCanvasStore.getState().selection).toEqual([a.id, b.id]);
   });
 
@@ -361,7 +373,7 @@ describe("逻辑节点", () => {
     expect(document.querySelectorAll("[data-anchor-layer]")).toHaveLength(0);
   });
 
-  it("触点之外的逻辑节点本体拖动不受影响（边界正常拖拉）", () => {
+  it("触点之外的逻辑节点本体拖动不受影响（边界正常拖拉）", async () => {
     const l = makeElement("logic", 100, 100, 120, 60, { text: "处理" });
     useCanvasStore.getState().addElement(l);
     useCanvasStore.getState().setSelection([l.id]);
@@ -369,9 +381,10 @@ describe("逻辑节点", () => {
     // 节点中心 (160,130) 不是触点 → 正常 move
     const el = document.querySelector("[data-element-id]")!;
     drag(el, { x: 160, y: 130 }, { x: 200, y: 170 });
+    await waitMoveAnim();
     const e = useCanvasStore.getState().doc.elements[0];
-    expect(e.x).toBe(140);
-    expect(e.y).toBe(140);
+    expect(e.x).toBeCloseTo(140, 5);
+    expect(e.y).toBeCloseTo(140, 5);
   });
 
   it("箭头工具悬停时最近锚点高亮（data-anchor-layer 命中标记）", () => {

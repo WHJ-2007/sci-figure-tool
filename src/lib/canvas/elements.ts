@@ -116,6 +116,11 @@ export function makeElement(
     opacity: extra.opacity ?? 1,
     zIndex: extra.zIndex ?? 0,
     parentId: extra.parentId,
+    // 三独立外观（内部填充/边框/整体投影）：仅当显式传入时才写键，
+    // 旧元素保持无键，渲染与导出按 undefined 兼容
+    ...(extra.fillOpacity !== undefined ? { fillOpacity: extra.fillOpacity } : {}),
+    ...(extra.strokeOpacity !== undefined ? { strokeOpacity: extra.strokeOpacity } : {}),
+    ...(extra.shadow !== undefined ? { shadow: extra.shadow } : {}),
   };
   switch (type) {
     case "rect":

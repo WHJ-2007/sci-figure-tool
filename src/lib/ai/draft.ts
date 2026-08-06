@@ -8,7 +8,7 @@ import type { ChartSpec } from "@/lib/canvas/chartLayout";
 import type { CanvasDocument, CanvasElement, ElementType } from "@/lib/canvas/types";
 
 // updateElement 只接受白名单内的属性键，防止绕过工具层 schema 直接注入任意属性
-const PATCH_KEYS = ["x", "y", "width", "height", "fill", "stroke", "strokeWidth", "rotation", "text", "body", "fontSize", "opacity", "bold", "italic", "align", "fontFamily", "curvature", "radius", "startAngle", "endAngle", "head", "zIndex"] as const;
+const PATCH_KEYS = ["x", "y", "width", "height", "fill", "stroke", "strokeWidth", "rotation", "text", "body", "fontSize", "opacity", "bold", "italic", "align", "fontFamily", "curvature", "radius", "startAngle", "endAngle", "head", "zIndex", "fillOpacity", "strokeOpacity", "shadow"] as const;
 
 // 属性键 → 人话名：活动文案不再暴露裸键（如 "fill"），直接说改了什么
 const PATCH_NAMES: Record<string, string> = {
@@ -19,12 +19,18 @@ const PATCH_NAMES: Record<string, string> = {
   fontFamily: "字体", curvature: "弯曲度", radius: "半径",
   startAngle: "起始角度", endAngle: "结束角度",
   head: "箭头样式", zIndex: "层级",
+  fillOpacity: "填充透明度", strokeOpacity: "边框透明度", shadow: "阴影",
 };
 
 export interface PendingConfirm {
   id: string;
   description: string;
   apply: () => void;
+}
+
+// AI 输出里反斜杠+n 字面（模型把换行转义成 "\\n"）→ 真换行；只替换转义串，不动已存在的真换行
+function unescapeNewlines(s: string): string {
+  return s.replace(/\\n/g, "\n");
 }
 
 export interface CreateArgs {
@@ -116,8 +122,8 @@ export class DraftCanvas {
     let el: CanvasElement;
     if (args.type === "text" || args.type === "logic") {
       el = makeElement(args.type as "text" | "logic", r.x, r.y, r.width, r.height, {
-        text: args.text ?? (args.type === "logic" ? "逻辑" : "文字"),
-        body: args.body,
+        text: args.text === undefined ? (args.type === "logic" ? "逻辑" : "文字") : unescapeNewlines(args.text),
+        body: args.body === undefined ? undefined : unescapeNewlines(args.body),
         fill: args.fill ?? "#2f2f2f",
         fontSize: args.fontSize,
         bold: args.bold,
@@ -154,6 +160,9 @@ export class DraftCanvas {
     if (idx < 0) return { ok: false, error: `元素不存在: ${args.id}` };
     const e = this.elements[idx];
     const patch = Object.fromEntries(PATCH_KEYS.filter((k) => k in args.patch).map((k) => [k, args.patch[k]]));
+    // 换行转义修复：AI 的 patch 里 text/body 若带 "\\n" 字面，先转回真换行再应用
+    if (typeof patch.text === "string") patch.text = unescapeNewlines(patch.text);
+    if (typeof patch.body === "string") patch.body = unescapeNewlines(patch.body);
     const next = { ...e, ...patch } as CanvasElement;
     // 文字/逻辑节点内容变化自动重算尺寸：文字按内容重算宽高，逻辑节点标题变长时框宽随标题扩展（与客户端行为一致）
     if (next.type === "text" && ("text" in patch || "fontSize" in patch || "bold" in patch)) {

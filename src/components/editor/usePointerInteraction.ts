@@ -1,9 +1,12 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { makeElement } from "@/lib/canvas/elements";
-import { snapRect, nearestAnchor, hitTestElement } from "@/lib/canvas/geometry";
+import { snapRect, nearestAnchor, hitTestElement, elementBounds } from "@/lib/canvas/geometry";
 import type { ShapeType } from "@/lib/canvas/types";
 import type { Anchor } from "@/lib/canvas/geometry";
+
+// 拖动松手后的补间动画时长（ease-out）：预览框消失、元素从原位平滑滑到目标落点
+const MOVE_ANIMATION_MS = 150;
 
 type Mode =
   | { kind: "idle" }
@@ -12,14 +15,14 @@ type Mode =
   | { kind: "rubber"; startX: number; startY: number; x: number; y: number; additive: boolean }
   | { kind: "resize"; id: string; handle: string; startX: number; startY: number; rect: { x: number; y: number; width: number; height: number } }
   | { kind: "rotate"; id: string; cx: number; cy: number }
-  | { kind: "draw-shape"; tool: ShapeType | "rounded" | "logic"; startX: number; startY: number; x: number; y: number }
-  | { kind: "draw-line"; tool: "arrow" | "polyline"; startX: number; startY: number; points: { x: number; y: number }[]; sourceId?: string }
-  // 箭头两点制：起点已定（原地点击），等待第二次点击作为终点；预览跟随指针
-  | { kind: "arrow-wait"; startX: number; startY: number; sourceId?: string; startAnchorId?: string };
+  | { kind: "draw-shape"; tool: ShapeType | "rounded" | "logic" | "text"; startX: number; startY: number; x: number; y: number }
+  | { kind: "draw-line"; tool: "arrow" | "polyline" | "line"; startX: number; startY: number; points: { x: number; y: number }[]; sourceId?: string }
+  // 箭头/线条两点制：起点已定（原地点击），等待第二次点击作为终点；预览跟随指针
+  | { kind: "arrow-wait"; tool: "arrow" | "line"; startX: number; startY: number; sourceId?: string; startAnchorId?: string };
 
 export type DrawPreview =
-  | { type: ShapeType | "rounded" | "logic"; x: number; y: number; width: number; height: number }
-  | { type: "arrow" | "polyline"; points: { x: number; y: number }[] };
+  | { type: ShapeType | "rounded" | "logic" | "text"; x: number; y: number; width: number; height: number }
+  | { type: "arrow" | "polyline" | "line"; points: { x: number; y: number }[] };
 
 export function usePointerInteraction(worldX: (c: number) => number, worldY: (c: number) => number) {
   const modeRef = useRef<Mode>({ kind: "idle" });
@@ -29,13 +32,16 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
   const tool = useCanvasStore((s) => s.tool);
   // 箭头工具下高亮的最近锚点（悬停或绘制吸附时）
   const [anchorHint, setAnchorHint] = useState<Anchor | null>(null);
+  // 拖动预览：被拖动元素半透明留在原位（ghost），虚线预览框显示含吸附的目标落点；松手后补间动画到位
+  const [movingIds, setMovingIds] = useState<string[]>([]);
+  const [movePreview, setMovePreview] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   // 右键手势跟踪：右键空白按下即记（rubber 起点），拖拽过则标记 dragged——
   // Canvas 的 contextmenu 据此区分「右键点击弹画布样式菜单」与「右键拖拽多选后不弹」
   const lastRightClickRef = useRef<{ x: number; y: number; dragged: boolean } | null>(null);
 
-  // 切走箭头工具时取消待定起点（否则残留预览会跟着别的工具）
+  // 切走箭头/线条工具时取消待定起点（否则残留预览会跟着别的工具）
   useEffect(() => {
-    if (tool !== "arrow" && modeRef.current.kind === "arrow-wait") {
+    if (tool !== "arrow" && tool !== "line" && modeRef.current.kind === "arrow-wait") {
       modeRef.current = { kind: "idle" };
       setPreview(null);
       setAnchorHint(null);
@@ -64,18 +70,22 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
         const s = useCanvasStore.getState();
         // 群组吸附：用选中集整体 bbox 的最小边对齐
         const moving = s.doc.elements.filter((el) => m.start.has(el.id));
-        const boxes = moving.map((el) => ({ x: el.x + dx, y: el.y + dy, width: el.width, height: el.height }));
-        const minX = Math.min(...boxes.map((b) => b.x));
-        const minY = Math.min(...boxes.map((b) => b.y));
+        const xs = moving.map((el) => el.x);
+        const ys = moving.map((el) => el.y);
+        const minX = Math.min(...xs);
+        const minY = Math.min(...ys);
+        const maxX = Math.max(...moving.map((el) => el.x + el.width));
+        const maxY = Math.max(...moving.map((el) => el.y + el.height));
         const others = s.doc.elements.filter((el) => !m.start.has(el.id));
-        const snap = snapRect({ x: minX, y: minY, width: 0, height: 0 }, others);
-        // 绝对目标 = 按下位置 + 指针位移 + 吸附偏移；moveElements 是相对移动，
-        // 每次只移动与上次的差值，否则连续 move 事件会累计放大（图形甩出鼠标位置）
+        const snap = snapRect({ x: minX + dx, y: minY + dy, width: 0, height: 0 }, others);
+        // 绝对目标 = 按下位置 + 指针位移 + 吸附偏移
         const tx = dx + snap.dx;
         const ty = dy + snap.dy;
-        s.moveElements([...m.start.keys()], tx - m.lastDx, ty - m.lastDy);
         m.lastDx = tx;
         m.lastDy = ty;
+        // 拖动预览：元素本体半透明留在原位（ghost），虚线预览框显示含吸附的目标落点
+        setMovingIds([...m.start.keys()]);
+        setMovePreview({ x: minX + tx, y: minY + ty, width: maxX - minX, height: maxY - minY });
       } else if (m.kind === "rubber") {
         m.x = wx;
         m.y = wy;
@@ -97,12 +107,12 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
         });
       } else if (m.kind === "draw-line") {
         // 保持 [起点, 当前指针] 两个点：首帧补上当前点，后续替换末点，polyline 最终恰好 2 点；
-        // 箭头终点吸附到最近锚点（12px 内），吸附时高亮该锚点
+        // 箭头/线条终点吸附到最近锚点（12px 内），吸附时高亮该锚点
         const s = useCanvasStore.getState();
         let ex = wx;
         let ey = wy;
         let hint: Anchor | null = null;
-        if (m.tool === "arrow") {
+        if (m.tool === "arrow" || m.tool === "line") {
           // 触点拉箭头（sourceId 存在）时排除源节点自身锚点：箭头拖回源附近不会吸回起点
           hint = nearestAnchor(s.doc.elements, { x: wx, y: wy }, undefined, m.sourceId);
           if (hint) {
@@ -127,6 +137,28 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
         // 平移只会在无选区时启动（空白按下时已有选区 = 取消选择，不起 pan）；
         // 清空选择的动作在 pointerdown 完成，这里只需要收尾
         setPanning(false);
+      } else if (m.kind === "move") {
+        // 松手：元素本体（ghost 原位）→ rAF 补间动画平滑滑到目标落点（预览框位置），ease-out 约 150ms
+        setMovingIds([]);
+        setMovePreview(null);
+        if (m.moved) {
+          const st = useCanvasStore.getState();
+          const ids = [...m.start.keys()];
+          const dx = m.lastDx;
+          const dy = m.lastDy;
+          const t0 = performance.now();
+          let prev = 0;
+          // 用 performance.now() 而非 rAF 回调的时间戳：jsdom 的 rAF 时间戳与 performance.now 零点
+          // 不一致（恒负 → 永不到 1 的循环），浏览器里两者等价
+          const step = () => {
+            const t = Math.min(1, (performance.now() - t0) / MOVE_ANIMATION_MS);
+            const eased = 1 - Math.pow(1 - t, 3);
+            useCanvasStore.getState().moveElements(ids, (eased - prev) * dx, (eased - prev) * dy);
+            prev = eased;
+            if (t < 1) requestAnimationFrame(step);
+          };
+          requestAnimationFrame(step);
+        }
       } else if (m.kind === "rubber") {
         const r = {
           x: Math.min(m.startX, m.x),
@@ -158,23 +190,34 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
         const h = Math.abs(m.y - m.startY);
         if (w >= 4 && h >= 4) {
           const st = useCanvasStore.getState();
-          const el = makeElement(m.tool, Math.min(m.startX, m.x), Math.min(m.startY, m.y), w, h);
-          st.addElement(el);
-          st.setSelection([el.id]);
+          if (m.tool === "text") {
+            // 文字工具拖动出文本框：保留拖动框尺寸，创建后立即进入编辑（文字宽度在提交时自适应）
+            const el = makeElement("text", Math.min(m.startX, m.x), Math.min(m.startY, m.y), w, h, { text: "" });
+            el.width = w;
+            el.height = h;
+            st.addElement(el);
+            st.setSelection([el.id]);
+            st.setEditingText(el.id);
+          } else {
+            const el = makeElement(m.tool, Math.min(m.startX, m.x), Math.min(m.startY, m.y), w, h);
+            st.addElement(el);
+            st.setSelection([el.id]);
+          }
         }
         setPreview(null);
       } else if (m.kind === "draw-line") {
         const st = useCanvasStore.getState();
         const p0 = m.points[0];
         const last = m.points[m.points.length - 1];
-        if (m.tool === "arrow") {
+        if (m.tool === "arrow" || m.tool === "line") {
           // 两点制：拖拽（移动足够距离）直接成图；原地点击转为等待第二次点击
-          // arrow 用 x/y/width/height 表示线（width/height 为终点相对偏移）。
+          // arrow 用 x/y/width/height 表示线（width/height 为终点相对偏移）；line = arrow + head:"none"。
           // 端点已吸附到锚点（起点按下时、终点移动时），落点即锚点位置 → 反查记录 startId/endId
           if (m.points.length >= 2 && Math.hypot(last.x - p0.x, last.y - p0.y) >= 4) {
             const el = makeElement("arrow", p0.x, p0.y, last.x - p0.x, last.y - p0.y, {
               startId: nearestAnchor(st.doc.elements, p0)?.elementId,
               endId: nearestAnchor(st.doc.elements, last, undefined, m.sourceId)?.elementId,
+              head: m.tool === "line" ? "none" : undefined,
             });
             st.addElement(el);
             st.setSelection([el.id]);
@@ -182,12 +225,13 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
           } else {
             modeRef.current = {
               kind: "arrow-wait",
+              tool: m.tool,
               startX: p0.x,
               startY: p0.y,
               sourceId: m.sourceId,
               startAnchorId: nearestAnchor(st.doc.elements, p0)?.elementId,
             };
-            setPreview({ type: "arrow", points: [p0, { x: last.x, y: last.y }] });
+            setPreview({ type: m.tool, points: [p0, { x: last.x, y: last.y }] });
             setAnchorHint(null);
           }
         } else if (m.points.length >= 2) {
@@ -250,17 +294,8 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
       const wx = worldX(e.clientX);
       const wy = worldY(e.clientY);
       if (s.tool !== "select") {
-        if (s.tool === "text") {
-          // 编辑中再点击不放新字（否则双击会堆叠创建两个空文字）
-          if (s.editingText) return;
-          const el = makeElement("text", wx, wy - 8, 60, 22, { text: "" });
-          s.addElement(el);
-          modeRef.current = { kind: "idle" };
-          s.setEditingText(el.id);
-          return;
-        }
-        if (s.tool === "arrow" || s.tool === "polyline") {
-          if (s.tool === "arrow" && modeRef.current.kind === "arrow-wait") {
+        if (s.tool === "arrow" || s.tool === "polyline" || s.tool === "line") {
+          if ((s.tool === "arrow" || s.tool === "line") && modeRef.current.kind === "arrow-wait") {
             // 两点制第二击：起点已定，点击处为终点（吸附逻辑节点锚点）；右键取消待定起点
             if (e.button === 2) {
               modeRef.current = { kind: "idle" };
@@ -276,6 +311,7 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
               const el = makeElement("arrow", wait.startX, wait.startY, ex - wait.startX, ey - wait.startY, {
                 startId: wait.startAnchorId,
                 endId: endAnchor?.elementId,
+                head: wait.tool === "line" ? "none" : undefined,
               });
               s.addElement(el);
               s.setSelection([el.id]);
@@ -285,17 +321,19 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
             setAnchorHint(null);
             return;
           }
-          if (e.button === 2) return; // 箭头/折线工具右键不绘制
-          // 箭头起点吸附到逻辑节点锚点：起点落在锚点附近 12px 内则精确对齐（记录锚点 id 供 arrow 的 startId）
-          const startAnchor = s.tool === "arrow" ? nearestAnchor(s.doc.elements, { x: wx, y: wy }) : null;
+          if (e.button === 2) return; // 箭头/线条工具右键不绘制
+          // 箭头/线条起点吸附到逻辑节点锚点：起点落在锚点附近 12px 内则精确对齐（记录锚点 id 供 arrow 的 startId）
+          const startAnchor = s.tool === "arrow" || s.tool === "line" ? nearestAnchor(s.doc.elements, { x: wx, y: wy }) : null;
           const sx = startAnchor ? startAnchor.x : wx;
           const sy = startAnchor ? startAnchor.y : wy;
-          modeRef.current = { kind: "draw-line", tool: s.tool, startX: sx, startY: sy, points: [{ x: sx, y: sy }] };
+          modeRef.current = { kind: "draw-line", tool: s.tool as "arrow" | "polyline" | "line", startX: sx, startY: sy, points: [{ x: sx, y: sy }] };
           setAnchorHint(startAnchor);
           startDrag();
           return;
         }
-        modeRef.current = { kind: "draw-shape", tool: s.tool as ShapeType | "rounded" | "logic", startX: wx, startY: wy, x: wx, y: wy };
+        // 文字工具：拖动出文本框（拖出足够大的框才创建并进入编辑），不再点击即建
+        if (s.tool === "text" && s.editingText) return; // 编辑中再点击不放新字（否则双击会堆叠创建两个空文字）
+        modeRef.current = { kind: "draw-shape", tool: s.tool as ShapeType | "rounded" | "logic" | "text", startX: wx, startY: wy, x: wx, y: wy };
         startDrag();
         return;
       }
@@ -339,8 +377,20 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
           lastRightClickRef.current = { x: wx, y: wy, dragged: false };
           startDrag();
         } else if (e.button === 0) {
-          // 左键空白：有选中时按下即取消选择（拖动语义只属于元素本身，空白不再平移画布；
-          // shift 保留选区），只有没有选中时空白拖动才是平移画布
+          // 选中单个箭头时：蓝色虚线框（bbox）内的左键任意处按下 = 整体移动箭头（线外的空白才取消选择）；
+          // 再泛化到有选区的普通空白：按下即取消选择（拖动语义只属于元素本身，空白不再平移画布；shift 保留）
+          if (s.selection.length === 1) {
+            const only = s.doc.elements.find((x) => x.id === s.selection[0]);
+            if (only && only.type === "arrow" && !s.aiLockedIds.includes(only.id)) {
+              const b = elementBounds(only);
+              if (wx >= b.x && wx <= b.x + b.width && wy >= b.y && wy <= b.y + b.height) {
+                const start = new Map<string, { x: number; y: number }>([[only.id, { x: only.x, y: only.y }]]);
+                modeRef.current = { kind: "move", startX: wx, startY: wy, start, moved: false, lastDx: 0, lastDy: 0 };
+                startDrag();
+                return;
+              }
+            }
+          }
           if (s.selection.length > 0) {
             if (!e.shiftKey) s.setSelection([]);
             return;
@@ -369,17 +419,17 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
           ey = hint.y;
         }
         setAnchorHint(hint);
-        setPreview({ type: "arrow", points: [{ x: m.startX, y: m.startY }, { x: ex, y: ey }] });
+        setPreview({ type: m.tool, points: [{ x: m.startX, y: m.startY }, { x: ex, y: ey }] });
         return;
       }
       if (m.kind !== "idle") return;
       const s = useCanvasStore.getState();
-      setAnchorHint(s.tool === "arrow" ? nearestAnchor(s.doc.elements, { x: worldX(e.clientX), y: worldY(e.clientY) }) : null);
+      setAnchorHint(s.tool === "arrow" || s.tool === "line" ? nearestAnchor(s.doc.elements, { x: worldX(e.clientX), y: worldY(e.clientY) }) : null);
     },
     [worldX, worldY]
   );
 
   const onPointerUp = useCallback(() => {}, []);
 
-  return { rubber, preview, panning, anchorHint, onPointerDown, onPointerMove, onPointerUp, modeRef, startTouchArrow, lastRightClickRef };
+  return { rubber, preview, panning, anchorHint, movingIds, movePreview, onPointerDown, onPointerMove, onPointerUp, modeRef, startTouchArrow, lastRightClickRef };
 }

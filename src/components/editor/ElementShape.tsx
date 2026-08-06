@@ -2,40 +2,37 @@ import type { CanvasElement } from "@/lib/canvas/types";
 import { shapePoints, arrowHeadPoints, arrowHeadSize, curveControl, arrowPathD, arrowPoints } from "@/lib/canvas/geometry";
 import { contrastTextColor, elementTransform } from "@/lib/canvas/elements";
 
-export default function ElementShape({ e, locked = false }: { e: CanvasElement; locked?: boolean }) {
+export default function ElementShape({ e, locked = false, ghost = false }: { e: CanvasElement; locked?: boolean; ghost?: boolean }) {
   const t = elementTransform(e);
-  const common = {
-    fill: e.fill,
-    stroke: e.stroke,
-    strokeWidth: e.strokeWidth,
-    opacity: e.opacity,
-  };
   // 悬浮动效包在变换组外层（CSS transform 会覆盖 transform 属性，不能共用同一 g）：
-  // 锁定元素（AI 编辑中）不参与悬浮动效
+  // 锁定元素（AI 编辑中）不参与悬浮动效；投影挂在最外层（filter 引用 Canvas 顶层 defs）
   return (
-    <g data-element-id={e.id}>
+    <g data-element-id={e.id} style={ghost ? { opacity: 0.4 } : undefined} filter={e.shadow ? `url(#sh-${e.id})` : undefined}>
       <g className={locked ? undefined : "el-hover"}>
-        <g transform={t}>{renderBody(e, common)}</g>
+        <g transform={t}>{renderBody(e)}</g>
       </g>
     </g>
   );
 }
 
-function renderBody(
-  e: CanvasElement,
-  common: { fill: string; stroke: string; strokeWidth: number; opacity: number }
-): React.ReactNode {
+function renderBody(e: CanvasElement): React.ReactNode {
+  // 边框/内部/整体三套独立透明度：填充、边框各自与整体 opacity 相乘；
+  // 旧元素（无独立透明度字段）不输出 fill/stroke-opacity（与导出一致，保持兼容）
+  const fillO = e.opacity * (e.fillOpacity ?? 1);
+  const strokeO = e.opacity * (e.strokeOpacity ?? 1);
+  const fillOpacityAttr = e.fillOpacity !== undefined ? fillO : undefined;
+  const strokeOpacityAttr = e.strokeOpacity !== undefined ? strokeO : undefined;
   switch (e.type) {
     case "rect":
-      return <rect x={e.x} y={e.y} width={e.width} height={e.height} rx={e.rx} {...common} />;
+      return <rect x={e.x} y={e.y} width={e.width} height={e.height} rx={e.rx} fill={e.fill} fillOpacity={fillOpacityAttr} stroke={e.stroke} strokeOpacity={strokeOpacityAttr} strokeWidth={e.strokeWidth} />;
     case "ellipse":
       return (
-        <ellipse cx={e.x + e.width / 2} cy={e.y + e.height / 2} rx={e.width / 2} ry={e.height / 2} {...common} />
+        <ellipse cx={e.x + e.width / 2} cy={e.y + e.height / 2} rx={e.width / 2} ry={e.height / 2} fill={e.fill} fillOpacity={fillOpacityAttr} stroke={e.stroke} strokeOpacity={strokeOpacityAttr} strokeWidth={e.strokeWidth} />
       );
     case "triangle":
     case "diamond":
     case "hexagon":
-      return <polygon points={pointsToString(shapePoints(e.type, e))} {...common} />;
+      return <polygon points={pointsToString(shapePoints(e.type, e))} fill={e.fill} fillOpacity={fillOpacityAttr} stroke={e.stroke} strokeOpacity={strokeOpacityAttr} strokeWidth={e.strokeWidth} />;
     case "arrow": {
       const x2 = e.x + e.width;
       const y2 = e.y + e.height;
@@ -50,8 +47,8 @@ function renderBody(
         if (hasSmooth) {
           return (
             <g>
-              <path d={d} fill="none" stroke={e.stroke} strokeWidth={e.strokeWidth} opacity={e.opacity} strokeLinejoin="round" />
-              {heads.map((h, i) => <polygon key={i} points={h} fill={e.stroke} opacity={e.opacity} />)}
+              <path d={d} fill="none" stroke={e.stroke} strokeWidth={e.strokeWidth} strokeOpacity={strokeOpacityAttr} strokeLinejoin="round" />
+              {heads.map((h, i) => <polygon key={i} points={h} fill={e.stroke} fillOpacity={strokeOpacityAttr} />)}
               {/* 透明加宽命中层：细线难点，12px 宽透明描边扩大点击范围 */}
               <path d={d} fill="none" stroke="transparent" strokeWidth={12} strokeLinecap="round" strokeLinejoin="round" pointerEvents="all" />
             </g>
@@ -59,8 +56,8 @@ function renderBody(
         }
         return (
           <g>
-            <polyline points={ptsStr} fill="none" stroke={e.stroke} strokeWidth={e.strokeWidth} opacity={e.opacity} strokeLinejoin="round" />
-            {heads.map((h, i) => <polygon key={i} points={h} fill={e.stroke} opacity={e.opacity} />)}
+            <polyline points={ptsStr} fill="none" stroke={e.stroke} strokeWidth={e.strokeWidth} strokeOpacity={strokeOpacityAttr} strokeLinejoin="round" />
+            {heads.map((h, i) => <polygon key={i} points={h} fill={e.stroke} fillOpacity={strokeOpacityAttr} />)}
             {/* 透明加宽命中层：细线难点，12px 宽透明描边扩大点击范围 */}
             <polyline points={ptsStr} fill="none" stroke="transparent" strokeWidth={12} strokeLinecap="round" strokeLinejoin="round" pointerEvents="all" />
           </g>
@@ -72,8 +69,8 @@ function renderBody(
       ]);
       return (
         <g>
-          <line x1={e.x} y1={e.y} x2={x2} y2={y2} stroke={e.stroke} strokeWidth={e.strokeWidth} opacity={e.opacity} />
-          {heads.map((h, i) => <polygon key={i} points={h} fill={e.stroke} opacity={e.opacity} />)}
+          <line x1={e.x} y1={e.y} x2={x2} y2={y2} stroke={e.stroke} strokeWidth={e.strokeWidth} strokeOpacity={strokeOpacityAttr} />
+          {heads.map((h, i) => <polygon key={i} points={h} fill={e.stroke} fillOpacity={strokeOpacityAttr} />)}
           <line x1={e.x} y1={e.y} x2={x2} y2={y2} stroke="transparent" strokeWidth={12} strokeLinecap="round" pointerEvents="all" />
         </g>
       );
@@ -83,9 +80,9 @@ function renderBody(
       const prev = e.points[e.points.length - 2] ?? e.points[0];
       return (
         <g>
-          <polyline points={pointsToString(e.points)} fill="none" stroke={e.stroke} strokeWidth={e.strokeWidth} opacity={e.opacity} />
+          <polyline points={pointsToString(e.points)} fill="none" stroke={e.stroke} strokeWidth={e.strokeWidth} strokeOpacity={strokeOpacityAttr} />
           {e.arrow !== false && (
-            <polygon points={pointsToString(arrowHeadPoints(prev.x, prev.y, last.x, last.y, arrowHeadSize(e.strokeWidth)))} fill={e.stroke} opacity={e.opacity} />
+            <polygon points={pointsToString(arrowHeadPoints(prev.x, prev.y, last.x, last.y, arrowHeadSize(e.strokeWidth)))} fill={e.stroke} fillOpacity={strokeOpacityAttr} />
           )}
         </g>
       );
@@ -98,7 +95,7 @@ function renderBody(
           fill="none"
           stroke={e.stroke}
           strokeWidth={e.strokeWidth}
-          opacity={e.opacity}
+          strokeOpacity={strokeOpacityAttr}
         />
       );
     }
@@ -113,7 +110,7 @@ function renderBody(
       // 大弧条件是 d > π（正扫）或 d ∈ (-π, 0)（回绕且缺口小于 π），与 angleInSector 语义一致
       const largeArc = d > Math.PI || (d < 0 && d > -Math.PI) ? 1 : 0;
       return (
-        <path d={`M ${e.x} ${e.y} L ${sx} ${sy} A ${r} ${r} 0 ${largeArc} 1 ${ex} ${ey} Z`} {...common} />
+        <path d={`M ${e.x} ${e.y} L ${sx} ${sy} A ${r} ${r} 0 ${largeArc} 1 ${ex} ${ey} Z`} fill={e.fill} fillOpacity={fillOpacityAttr} stroke={e.stroke} strokeOpacity={strokeOpacityAttr} strokeWidth={e.strokeWidth} />
       );
     }
     case "text": {
@@ -130,7 +127,7 @@ function renderBody(
           fontWeight={e.bold ? "bold" : undefined}
           fontStyle={e.italic ? "italic" : undefined}
           fill={e.fill}
-          opacity={e.opacity}
+          fillOpacity={fillOpacityAttr}
         >
           {e.text}
         </text>
@@ -141,7 +138,7 @@ function renderBody(
       return (
         <g>
           <image href={e.src} x={e.x} y={e.y} width={e.width} height={e.height} preserveAspectRatio="none" opacity={e.opacity} />
-          <rect x={e.x} y={e.y} width={e.width} height={e.height} fill="none" stroke={e.stroke} strokeWidth={e.strokeWidth} opacity={e.opacity} />
+          <rect x={e.x} y={e.y} width={e.width} height={e.height} fill="none" stroke={e.stroke} strokeWidth={e.strokeWidth} strokeOpacity={strokeOpacityAttr} />
         </g>
       );
     case "logic": {
@@ -151,7 +148,7 @@ function renderBody(
       const bodyLines = (e.body ?? "").split("\n");
       return (
         <g>
-          <rect x={e.x} y={e.y} width={e.width} height={e.height} rx={e.rx} {...common} />
+          <rect x={e.x} y={e.y} width={e.width} height={e.height} rx={e.rx} fill={e.fill} fillOpacity={fillOpacityAttr} stroke={e.stroke} strokeOpacity={strokeOpacityAttr} strokeWidth={e.strokeWidth} />
           <text
             x={e.x + e.width / 2}
             y={e.y + 5 + (e.fontSize * 1.4) / 2}
@@ -161,7 +158,7 @@ function renderBody(
             fontFamily={e.fontFamily}
             fontWeight={e.bold ? "bold" : undefined}
             fill={contrastTextColor(e.fill)}
-            opacity={e.opacity}
+            fillOpacity={fillOpacityAttr}
           >
             {e.text}
           </text>
@@ -176,7 +173,7 @@ function renderBody(
                 fontSize={bodyFontSize}
                 fontFamily={e.fontFamily}
                 fill={contrastTextColor(e.fill)}
-                opacity={Math.max(0.75, e.opacity)}
+                fillOpacity={e.fillOpacity !== undefined ? Math.max(0.75, fillO) : undefined}
               >
                 {line}
               </text>

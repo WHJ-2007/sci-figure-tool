@@ -419,6 +419,47 @@ describe("DraftCanvas", () => {
     expect(d.applyChart({ type: "weird" as never, data: [{ label: "a", value: 1 }] }).ok).toBe(false);
     expect(d.serialize().elements).toHaveLength(0);
   });
+
+  it("createElement 把字面 \\n 转成真换行（模型转义修复）", () => {
+    const d = new DraftCanvas([]);
+    d.createElement({ type: "logic", x: 0, y: 0, width: 100, height: 60, text: "标题\\n第二行", body: "正文一\\n正文二" });
+    const l = d.serialize().elements[0];
+    if (l.type === "logic") {
+      expect(l.text).toBe("标题\n第二行");
+      expect(l.body).toBe("正文一\n正文二");
+    }
+  });
+
+  it("updateElement 把 patch 里字面 \\n 转成真换行", () => {
+    const d = new DraftCanvas([]);
+    const t = d.createElement({ type: "text", x: 0, y: 0, width: 100, height: 20, text: "旧" });
+    d.updateElement({ id: t.id!, patch: { text: "第一行\\n第二行" } });
+    const el = d.serialize().elements[0];
+    if (el.type === "text") expect(el.text).toBe("第一行\n第二行");
+    // 已有真换行不受影响（不重复转义）
+    const l = d.createElement({ type: "logic", x: 0, y: 0, width: 100, height: 60, text: "A", body: "行1\n行2" });
+    d.updateElement({ id: l.id!, patch: { body: "行1\n行2\\n行3" } });
+    const le = d.serialize().elements.find((e) => e.id === l.id);
+    if (le && le.type === "logic") expect(le.body).toBe("行1\n行2\n行3");
+  });
+
+  it("updateElement 支持填充/边框透明度与阴影（白名单扩展），文案为中文", () => {
+    const d = new DraftCanvas([]);
+    const r = d.createElement({ type: "rect", x: 0, y: 0, width: 100, height: 60 });
+    const res = d.updateElement({
+      id: r.id!,
+      patch: { fillOpacity: 0.5, strokeOpacity: 0.8, shadow: { color: "#000000", blur: 8, dx: 2, dy: 2, opacity: 0.3 } },
+    });
+    expect(res.ok).toBe(true);
+    const el = d.serialize().elements[0];
+    expect(el.fillOpacity).toBe(0.5);
+    expect(el.strokeOpacity).toBe(0.8);
+    expect(el.shadow).toEqual({ color: "#000000", blur: 8, dx: 2, dy: 2, opacity: 0.3 });
+    const act = d.flushActivity().join("");
+    expect(act).toContain("填充透明度");
+    expect(act).toContain("边框透明度");
+    expect(act).toContain("阴影");
+  });
 });
 
 describe("tools", () => {

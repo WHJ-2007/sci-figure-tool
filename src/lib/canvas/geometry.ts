@@ -248,7 +248,9 @@ export function arrowPathD(pts: { x: number; y: number; smooth?: boolean }[]): s
   return d;
 }
 
-function lineBounds(e: CanvasElement): Rect {
+// 元素真实包围盒（arrow 负向拖拽/折点、polyline、curve、sector 归一化）：
+// 层级重叠过滤、吸附、对齐/分布、命中测试共用
+export function lineBounds(e: CanvasElement): Rect {
   if (e.type === "polyline") {
     const xs = e.points.map((p) => p.x);
     const ys = e.points.map((p) => p.y);
@@ -263,6 +265,33 @@ function lineBounds(e: CanvasElement): Rect {
   if (e.type === "curve") {
     const c = curveControl(e);
     return quadBezierBounds({ x: e.x, y: e.y }, c, { x: e.x + e.width, y: e.y + e.height });
+  }
+  if (e.type === "sector") {
+    return { x: e.x - e.radius, y: e.y - e.radius, width: e.radius * 2, height: e.radius * 2 };
+  }
+  return { x: e.x, y: e.y, width: e.width, height: e.height };
+}
+
+// 归一化真实包围盒（负宽高箭头/polyline/curve/sector 全部转正）：
+// 选中虚线框、AI 锁定框、箭头整框拖动命中区、拖动预览框共用——与渲染框严格一致
+export function elementBounds(e: CanvasElement): Rect {
+  if (e.type === "arrow") {
+    const xs = [e.x, e.x + e.width, ...(e.midPoints ?? []).map((p) => e.x + p.x)];
+    const ys = [e.y, e.y + e.height, ...(e.midPoints ?? []).map((p) => e.y + p.y)];
+    const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+  }
+  if (e.type === "polyline") {
+    const xs = e.points.map((p) => p.x), ys = e.points.map((p) => p.y);
+    const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+    return { x: minX, y: minY, width: Math.max(maxX - minX, 1), height: Math.max(maxY - minY, 1) };
+  }
+  if (e.type === "curve") {
+    const c = curveControl(e);
+    const xs = [e.x, c.x, e.x + e.width];
+    const ys = [e.y, c.y, e.y + e.height];
+    const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+    return { x: minX, y: minY, width: Math.max(maxX - minX, 1), height: Math.max(maxY - minY, 1) };
   }
   if (e.type === "sector") {
     return { x: e.x - e.radius, y: e.y - e.radius, width: e.radius * 2, height: e.radius * 2 };

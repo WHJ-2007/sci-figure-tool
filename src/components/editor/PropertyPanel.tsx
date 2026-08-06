@@ -2,17 +2,17 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
-import { alignOffsets, distributeOffsets } from "@/lib/canvas/geometry";
-import type { CanvasElement, ElementType } from "@/lib/canvas/types";
+import { alignOffsets, distributeOffsets, lineBounds } from "@/lib/canvas/geometry";
+import type { CanvasElement, ElementType, ElementShadow } from "@/lib/canvas/types";
 import ChartDialog from "./ChartDialog";
 
-// 通用色板（科研调色板 + 全谱系常用色）：行 1 强饱和主色、行 2 中饱和、行 3 深色、
-// 行 4 科研浅色底 + 中性；点击即选、当前色蓝环高亮，自定义 hex 精确输入
+// 通用色板（常用色置前 + 科研调色板 + 全谱系常用色）：行 1 常用黑白灰 + 强饱和主色、
+// 行 2 中饱和、行 3 深色、行 4 科研浅色底 + 中性；点击即选、当前色蓝环高亮，自定义 hex 精确输入
 const SWATCHES = [
-  "#ef4444", "#f97316", "#f59e0b", "#22c55e", "#14b8a6", "#3b82f6", "#8b5cf6",
+  "#ffffff", "#111827", "#2f2f2f", "#ef4444", "#3b82f6", "#22c55e", "#f59e0b",
   "#f87171", "#fb923c", "#fbbf24", "#4ade80", "#2dd4bf", "#60a5fa", "#a78bfa",
-  "#111827", "#b91c1c", "#c2410c", "#15803d", "#0f766e", "#1d4ed8", "#6d28d9",
-  "#eef4ff", "#f0fff0", "#fff8e6", "#f3efff", "#ffeef0", "#f8fafc", "#ffffff",
+  "#b91c1c", "#c2410c", "#15803d", "#0f766e", "#1d4ed8", "#6d28d9", "#8b5cf6",
+  "#eef4ff", "#f0fff0", "#fff8e6", "#f3efff", "#ffeef0", "#f8fafc", "#f97316",
 ];
 
 function ColorPicker({ value, onChange, ariaLabel }: { value: string; onChange: (c: string) => void; ariaLabel: string }) {
@@ -65,6 +65,40 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
       <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-400">{title}</h3>
       <div className="space-y-2">{children}</div>
     </section>
+  );
+}
+
+// 整体阴影：未设置时显示"添加阴影"按钮（默认柔和黑色投影），设置后显示模糊/偏移/浓淡/颜色/移除
+function ShadowControls({ e, patch }: { e: CanvasElement; patch: (p: Partial<CanvasElement>) => void }) {
+  const sh = e.shadow;
+  if (!sh) {
+    return (
+      <button
+        onClick={() => patch({ shadow: { color: "#000000", blur: 8, dx: 2, dy: 2, opacity: 0.25 } })}
+        className="lift w-full rounded-lg border border-white/60 bg-white/70 px-2 py-1 text-xs text-gray-600 shadow-sm hover:bg-white/90"
+      >
+        ＋ 添加阴影
+      </button>
+    );
+  }
+  const set = (p: Partial<ElementShadow>) => patch({ shadow: { ...sh, ...p } });
+  return (
+    <div className="space-y-2">
+      <SliderRow label="模糊" ariaLabel="阴影模糊" value={sh.blur} min={0} max={30} step={1} onChange={(v) => set({ blur: v })} />
+      <SliderRow label="水平" ariaLabel="阴影水平偏移" value={sh.dx} min={-30} max={30} step={1} onChange={(v) => set({ dx: v })} />
+      <SliderRow label="垂直" ariaLabel="阴影垂直偏移" value={sh.dy} min={-30} max={30} step={1} onChange={(v) => set({ dy: v })} />
+      <SliderRow label="浓淡" ariaLabel="阴影浓度" value={sh.opacity} min={0} max={1} step={0.05} onChange={(v) => set({ opacity: v })} />
+      <div className="flex items-start gap-1.5">
+        <span className="w-8 shrink-0 pt-1 text-xs text-gray-500">颜色</span>
+        <ColorPicker value={sh.color} onChange={(c) => set({ color: c })} ariaLabel="阴影颜色" />
+      </div>
+      <button
+        onClick={() => patch({ shadow: undefined })}
+        className="lift w-full rounded-lg border border-red-200/70 bg-red-50/70 px-2 py-1 text-xs text-red-500 shadow-sm hover:bg-red-100/80"
+      >
+        移除阴影
+      </button>
+    </div>
   );
 }
 
@@ -138,43 +172,14 @@ export default function PropertyPanel() {
         {"text" in one && one.text && <span className="truncate text-xs text-gray-500">{one.text}</span>}
       </header>
 
-      {/* 箭头专属卡片：粗细 → 箭头样式 → 透明度 → 旋转 → 箭头颜色（填充色对箭头无意义） */}
-      {one.type === "arrow" ? (
-        <Section title="箭头">
-          <SliderRow label="粗细" ariaLabel="粗细" value={one.strokeWidth} min={0} max={20} step={1} onChange={(v) => patch({ strokeWidth: v })} />
-          <div className="flex items-center gap-1.5">
-            <span className="w-8 shrink-0 text-xs text-gray-500">样式</span>
-            {([["none", "无箭头"], ["single", "单箭头"], ["double", "双箭头"]] as const).map(([h, label]) => (
-              <button
-                key={h}
-                title={label}
-                onClick={() => patch({ head: h } as Partial<CanvasElement>)}
-                className={`lift rounded-lg border px-2 py-0.5 text-xs ${(one.head ?? "single") === h ? "border-blue-300 bg-blue-100 text-blue-700" : "border-white/60 bg-white/70 text-gray-600 shadow-sm hover:bg-white/90"}`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <SliderRow label="透明度" ariaLabel="透明度" value={one.opacity} min={0} max={1} step={0.05} onChange={(v) => patch({ opacity: v })} />
-          <SliderRow label="旋转" ariaLabel="旋转" value={one.rotation} min={-360} max={360} step={1} onChange={(v) => patch({ rotation: v })} />
-          <div className="flex items-start gap-1.5">
-            <span className="w-8 shrink-0 pt-1 text-xs text-gray-500">颜色</span>
-            <ColorPicker value={one.stroke} onChange={(c) => patch({ stroke: c })} ariaLabel="箭头颜色" />
-          </div>
-        </Section>
-      ) : (
-        <Section title="背景图案">
+      {/* #87 三独立外观：内部（填充色/填充透明度/圆角）、边框（边框色/线宽/边框透明度/箭头样式）、
+          整体（透明度/旋转/阴影）；无填充渲染的线条/位图省略内部卡，文字省略边框卡 */}
+      {one.type !== "arrow" && one.type !== "polyline" && one.type !== "curve" && one.type !== "image" && (
+        <Section title="内部">
           <ColorPicker value={one.fill} onChange={(c) => patch({ fill: c })} ariaLabel="填充色" />
-          <SliderRow label="线宽" ariaLabel="线宽" value={one.strokeWidth} min={0} max={20} step={1} onChange={(v) => patch({ strokeWidth: v })} />
-          <SliderRow label="透明度" ariaLabel="透明度" value={one.opacity} min={0} max={1} step={0.05} onChange={(v) => patch({ opacity: v })} />
+          <SliderRow label="填充" ariaLabel="填充透明度" value={one.fillOpacity ?? 1} min={0} max={1} step={0.05} onChange={(v) => patch({ fillOpacity: v })} />
           {(one.type === "rect" || one.type === "logic") && (
             <SliderRow label="圆角" ariaLabel="圆角" value={one.rx} min={0} max={50} step={1} onChange={(v) => patch({ rx: v })} />
-          )}
-          {one.type !== "curve" && one.type !== "sector" && (
-            <SliderRow label="旋转" ariaLabel="旋转" value={one.rotation} min={-360} max={360} step={1} onChange={(v) => patch({ rotation: v })} />
-          )}
-          {one.type === "curve" && (
-            <SliderRow label="弯曲" ariaLabel="弯曲度" value={one.curvature} min={-2} max={2} step={0.1} onChange={(v) => patch({ curvature: v } as Partial<CanvasElement>)} />
           )}
           {one.type === "sector" && (
             <div className="space-y-1 text-xs text-gray-500/90">
@@ -184,6 +189,40 @@ export default function PropertyPanel() {
           )}
         </Section>
       )}
+
+      {one.type !== "text" && (
+        <Section title="边框">
+          <ColorPicker value={one.stroke} onChange={(c) => patch({ stroke: c })} ariaLabel="边框色" />
+          <SliderRow label="粗细" ariaLabel="线宽" value={one.strokeWidth} min={0} max={20} step={1} onChange={(v) => patch({ strokeWidth: v })} />
+          <SliderRow label="边框" ariaLabel="边框透明度" value={one.strokeOpacity ?? 1} min={0} max={1} step={0.05} onChange={(v) => patch({ strokeOpacity: v })} />
+          {one.type === "arrow" && (
+            <div className="flex items-center gap-1.5">
+              <span className="w-8 shrink-0 text-xs text-gray-500">样式</span>
+              {([["none", "无箭头"], ["single", "单箭头"], ["double", "双箭头"]] as const).map(([h, label]) => (
+                <button
+                  key={h}
+                  title={label}
+                  onClick={() => patch({ head: h } as Partial<CanvasElement>)}
+                  className={`lift rounded-lg border px-2 py-0.5 text-xs ${(one.head ?? "single") === h ? "border-blue-300 bg-blue-100 text-blue-700" : "border-white/60 bg-white/70 text-gray-600 shadow-sm hover:bg-white/90"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+          {one.type === "curve" && (
+            <SliderRow label="弯曲" ariaLabel="弯曲度" value={one.curvature} min={-2} max={2} step={0.1} onChange={(v) => patch({ curvature: v } as Partial<CanvasElement>)} />
+          )}
+        </Section>
+      )}
+
+      <Section title="整体">
+        <SliderRow label="透明" ariaLabel="透明度" value={one.opacity} min={0} max={1} step={0.05} onChange={(v) => patch({ opacity: v })} />
+        {one.type !== "curve" && one.type !== "sector" && (
+          <SliderRow label="旋转" ariaLabel="旋转" value={one.rotation} min={-360} max={360} step={1} onChange={(v) => patch({ rotation: v })} />
+        )}
+        <ShadowControls e={one} patch={patch} />
+      </Section>
 
       {/* 标题：逻辑节点标题或文字内容 + 字号样式 */}
       {isTextLike && (
@@ -250,11 +289,21 @@ export default function PropertyPanel() {
         </Section>
       )}
 
-      {/* 层级：优先级排序——列表顶部 = 最顶层、底部 = 最底层，拖拽条目调整遮挡顺序（drop 时一步撤销） */}
+      {/* 层级：优先级排序——列表顶部 = 最顶层、底部 = 最底层，拖拽条目调整遮挡顺序（drop 时一步撤销）。
+          只列出与选中元素包围盒重叠的元素（互相遮挡的才有排序意义），避免长列表淹没 */}
       <Section title="层级">
-        <p className="text-[10px] leading-relaxed text-gray-400">顶部 = 最顶层、底部 = 最底层；拖动条目调整遮挡顺序</p>
+        <p className="text-[10px] leading-relaxed text-gray-400">仅显示与选中元素重叠的条目；顶部 = 最顶层、底部 = 最底层，拖动调整遮挡顺序</p>
         <ul className="space-y-1">
-          {[...doc.elements].sort((x, y) => y.zIndex - x.zIndex).map((el, i) => {
+          {[...doc.elements]
+            .filter((el) => {
+              const b = lineBounds(el);
+              // 与任一选中元素 bbox 相交（含选中元素自身）
+              return selected.some((s) => {
+                const sb = lineBounds(s);
+                return b.x < sb.x + sb.width && b.x + b.width > sb.x && b.y < sb.y + sb.height && b.y + b.height > sb.y;
+              });
+            })
+            .sort((x, y) => y.zIndex - x.zIndex).map((el, i, list) => {
             const locked = aiLockedIds.includes(el.id);
             return (
               <li
@@ -297,7 +346,7 @@ export default function PropertyPanel() {
                 <span className="shrink-0 rounded bg-gray-100/90 px-1 py-0.5 text-[10px] text-gray-500">{TYPE_NAMES[el.type]}</span>
                 <span className="min-w-0 flex-1 truncate">{"text" in el && el.text ? el.text : TYPE_NAMES[el.type]}</span>
                 {i === 0 && <span className="shrink-0 text-[10px] text-blue-500">顶层</span>}
-                {i === doc.elements.length - 1 && doc.elements.length > 1 && (
+                {i === list.length - 1 && list.length > 1 && (
                   <span className="shrink-0 text-[10px] text-gray-400">底层</span>
                 )}
               </li>
