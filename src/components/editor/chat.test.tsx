@@ -265,6 +265,37 @@ describe("ChatPanel 破坏性操作确认", () => {
     await waitFor(() => expect(screen.getByText(/已取消：删除「矩形」/)).toBeInTheDocument());
   });
 
+  it("确认完成后可再次发起生成（无死锁）", async () => {
+    const mine = makeElement("rect", 0, 0, 100, 60);
+    useCanvasStore.getState().addElement(mine);
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        mockStream([
+          { type: "confirm-request", sessionId: "sx", summary: "好的", pending: [{ id: mine.id, description: "删除「矩形」" }] },
+        ])
+      )
+      .mockResolvedValueOnce(
+        mockStream([
+          { type: "confirm-done", results: [{ id: mine.id, description: "删除「矩形」", approved: true }] },
+        ])
+      )
+      .mockResolvedValueOnce(
+        mockStream([
+          { type: "complete", canvas: { width: 1600, height: 1000, elements: [] }, summary: "第二次生成", touched: [] },
+        ])
+      );
+    render(<ChatPanel />);
+    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "删掉矩形" } });
+    fireEvent.click(screen.getByText("一键生成"));
+    await waitFor(() => expect(screen.getByTestId("confirm-dialog")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("确认"));
+    await waitFor(() => expect(screen.queryByTestId("confirm-dialog")).toBeNull());
+    // 再次生成：confirmReq 若残留真值，send() 守卫会永久 return，这里死锁
+    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "再来" } });
+    fireEvent.click(screen.getByText("一键生成"));
+    await waitFor(() => expect(screen.getByText(/第二次生成/)).toBeInTheDocument());
+  });
+
   it("多条挂起项逐条确认：第一条确认后会话仍在，第二条可继续确认", async () => {
     const a = makeElement("rect", 0, 0, 100, 60);
     const b = makeElement("ellipse", 200, 200, 40, 40);

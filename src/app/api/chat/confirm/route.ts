@@ -15,10 +15,14 @@ export async function POST(req: Request) {
   }
   const draft = getConfirmSession(sessionId);
   if (!draft) return Response.json({ error: "确认会话已过期，请重新生成" }, { status: 404 });
+  // 只认会话内真实挂起项的 id：伪造 id 不得计入 resolved，防虚增 resolved 导致会话被提前删除
+  const validIds = new Set(draft.pending.map((p) => p.id));
   // 这批复挂起项用户已表态（含取消）：多挂起项逐条确认时会话保留，全部表态后由 isSessionComplete 删除
-  markResolved(
+  const newlyResolved = markResolved(
     sessionId,
-    approvals.filter((a): a is { id: string; approved?: boolean } => typeof a.id === "string").map((a) => a.id)
+    approvals
+      .filter((a): a is { id: string; approved?: boolean } => typeof a.id === "string" && validIds.has(a.id))
+      .map((a) => a.id)
   );
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
@@ -43,8 +47,9 @@ export async function POST(req: Request) {
         })),
       });
       controller.close();
-      // 全部挂起项都已表态 → 删除会话；未表态的残留项由 TTL sweep 15 分钟兜底作废
-      isSessionComplete(sessionId, draft.pending.length);
+      // 全部挂起项都已表态 → 删除会话（完成全部表态的那一批不删：幂等重试需会话存活应答，
+      // 纯重复提交批才删除；未表态的残留项由 TTL sweep 15 分钟兜底作废）
+      isSessionComplete(sessionId, draft.pending.length, newlyResolved);
     },
   });
   return new Response(stream, {

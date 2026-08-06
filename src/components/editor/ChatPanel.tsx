@@ -59,8 +59,9 @@ export default function ChatPanel() {
   const send = async () => {
     const text = input.trim();
     // 守卫用 getState()：避免订阅闭包在极端时序下被旧请求的 finally 误解锁；
-    // confirmReq 非空时禁止发起新生成，避免覆盖丢弃未解决的确认项
-    if (!text || useCanvasStore.getState().isGenerating || confirmReq) return;
+    // 仍有未解决的确认项时禁止发起新生成，避免覆盖丢弃；pending 清空后 confirmReq 会被置 null，
+    // 但保险起见同时校验 pending.length（防残留真值死锁聊天）
+    if (!text || useCanvasStore.getState().isGenerating || (confirmReq && confirmReq.pending.length > 0)) return;
     const s = useCanvasStore.getState();
     const settings = loadSettings();
     // 生成前画布作为撤销基线：snapshot 中间态不入栈，生成完成后整体一步 undo 回到该基线；
@@ -136,9 +137,9 @@ export default function ChatPanel() {
               summary = ev.summary ?? "";
             } else if (ev.type === "confirm-request") {
               // 生成主体结束：把最后快照作为最终结果入历史（一步 undo 回到生成前），再弹确认框；
-              // AI 文字回复先入对话（与 complete 分支的 summary 行为一致）
+              // AI 文字回复先入对话（与 complete 分支的 summary 行为一致，空串不产生气泡）
               if (lastSnapshot) useCanvasStore.getState().applyAIResult(lastSnapshot, baseline);
-              setMessages((m) => [...m, { role: "assistant", content: ev.summary }]);
+              if (ev.summary) setMessages((m) => [...m, { role: "assistant", content: ev.summary }]);
               setConfirmReq({ sessionId: ev.sessionId, summary: ev.summary, pending: ev.pending });
             } else if (ev.type === "error") setError(ev.message);
           }
@@ -202,7 +203,12 @@ export default function ChatPanel() {
       }
       setMessages((m) => [...m, { role: "assistant", content: approved ? `已确认：${desc}` : `已取消：${desc}` }]);
       useCanvasStore.getState().setAiLocked([]);
-      setConfirmReq((c) => (c ? { ...c, pending: c.pending.filter((p) => p.id !== id) } : c));
+      // 过滤后无剩余挂起项则整段清空（置 null）：否则 confirmReq 残留真值会让 send() 守卫永久拦截新生成
+      setConfirmReq((c) => {
+        if (!c) return c;
+        const rest = c.pending.filter((p) => p.id !== id);
+        return rest.length > 0 ? { ...c, pending: rest } : null;
+      });
     } catch (err) {
       setError("确认失败：" + String(err));
     } finally {
