@@ -12,6 +12,15 @@ export interface ElementShadow {
   opacity: number;
 }
 
+// 图表联动绑定：元素 ↔ 图表数据项的反向映射（C 图表公式化）。
+// role+index 标识 spec.data[index]（slice-i/bar-i 可拖动改数据）；非数据项（轴/标题/图例）只有 role 无 index。
+// bind 缺失（旧数据/已解除关联）= 无联动。
+export interface ChartBind {
+  chartId: string;
+  role: "slice" | "bar" | "pie-label" | "bar-label" | "pie-legend" | "axis" | "title" | "x-label" | "y-label" | "grid";
+  index?: number;
+}
+
 export interface BaseElement {
   id: string;
   type: ElementType;
@@ -27,6 +36,7 @@ export interface BaseElement {
   zIndex: number;
   parentId?: string;
   chartId?: string; // 属于哪个图表（图表数据编辑/整图重排用）
+  bind?: ChartBind; // 图表联动绑定（C：数据↔图形双向映射，拖动图形改数据）
   flipH?: boolean; // 水平镜像（绕元素中心翻转）
   flipV?: boolean; // 垂直镜像
   // 边框/内部/整体三套独立外观：填充透明度与边框透明度分别控制，

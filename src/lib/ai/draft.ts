@@ -357,7 +357,7 @@ export class DraftCanvas {
     // 全零数据（如饼图）静默空成功：引擎按 total<=0 返回空图形，必须显式拒绝
     if (args.data.reduce((s, d) => s + d.value, 0) <= 0) return { ok: false, error: "数据总和必须大于 0" };
     const chartId = `c-${Math.random().toString(36).slice(2, 10)}`;
-    const els = layoutChart(args).map((el) => ({ ...el, chartId }) as CanvasElement);
+    const els = layoutChart(args, chartId);
     for (const el of els) this.pushElement(el);
     this.charts[chartId] = structuredClone(args);
     this.activity.push(`图表已生成：${chartTypeName(args.type)}（${args.data.length} 项数据）`);

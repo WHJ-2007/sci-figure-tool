@@ -85,7 +85,7 @@ export default function ChartDialog({
       yLabel: yLabel.trim() || undefined,
     };
     const id = chartId ?? newId();
-    const elements: CanvasElement[] = layoutChart(spec).map((e) => ({ ...e, chartId: id }));
+    const elements: CanvasElement[] = layoutChart(spec, id);
     const replaceIds = chartId
       ? useCanvasStore.getState().doc.elements.filter((e) => e.chartId === chartId).map((e) => e.id)
       : [];

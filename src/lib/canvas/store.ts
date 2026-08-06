@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import type { CanvasDocument, CanvasElement, ToolType } from "./types";
-import type { ChartSpec } from "./chartLayout";
+import type { ArrowElement, CanvasDocument, CanvasElement, PolylineElement, ToolType } from "./types";
+import { layoutChart, niceScale, PLOT, type ChartSpec } from "./chartLayout";
 import { createHistory, pushHistory, undo as undoHistory, redo as redoHistory, type HistoryState } from "./history";
 import {
   loadProjects,
@@ -84,6 +84,11 @@ export interface CanvasStore {
   setBackground: (bg: string | undefined) => void;
   setDoc: (doc: CanvasDocument) => void;
   applyChartEdit: (chartId: string, spec: ChartSpec, elements: CanvasElement[], replaceIds: string[]) => void;
+  // C 图表公式化：拖动联动——拖动中只改数据+被拖元素几何（不入历史），松手后 recomputeChart 整图重排一步入栈
+  updateChartDrag: (chartId: string, index: number, value: number) => void;
+  // baseline = 拖动前快照（交互层在指针按下时捕获）：入栈 baseline 使一步撤销回到拖动前
+  recomputeChart: (chartId: string, baseline?: CanvasDocument) => void;
+  detachChart: (chartId: string) => void;
   applyAISnapshot: (doc: CanvasDocument) => void;
   applyAIResult: (doc: CanvasDocument, baseline: CanvasDocument) => void;
   setAiLocked: (ids: string[]) => void;
@@ -234,14 +239,14 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => {
           const dx = e.x - cx;
           const dy = e.y - cy;
           const next = { ...e, x: cx + dx * cos - dy * sin, y: cy + dx * sin + dy * cos, rotation: e.rotation + deg } as CanvasElement;
-          if (next.type === "polyline") {
-            next.points = e.points.map((p) => ({
+          if (e.type === "polyline") {
+            (next as PolylineElement).points = e.points.map((p) => ({
               x: cx + (p.x - cx) * cos - (p.y - cy) * sin,
               y: cy + (p.x - cx) * sin + (p.y - cy) * cos,
             }));
           }
-          if (next.type === "arrow" && next.midPoints) {
-            next.midPoints = next.midPoints.map((m) => ({ ...m, x: m.x * cos - m.y * sin, y: m.x * sin + m.y * cos }));
+          if (e.type === "arrow" && e.midPoints) {
+            (next as ArrowElement).midPoints = e.midPoints.map((m) => ({ ...m, x: m.x * cos - m.y * sin, y: m.x * sin + m.y * cos }));
           }
           return next;
         });
@@ -277,6 +282,70 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => {
         doc.elements = [...doc.elements.filter((e) => !replaceIds.includes(e.id)), ...copies];
         doc.charts = { ...(doc.charts ?? {}), [chartId]: spec };
         return { ...syncProject(s, doc, pushHistory(s.history, s.doc)), selection: [] };
+      }),
+    // 拖动联动（图形→数据）：拖动中实时改数据与被拖元素几何，不入历史；
+    // 松手后由 recomputeChart 整图重排并入栈（pushHistory 的 s.doc 是拖动前状态 → 一次拖动 = 一步撤销）
+    updateChartDrag: (chartId, index, value) =>
+      set((s) => {
+        const doc = structuredClone(s.doc);
+        const spec = doc.charts?.[chartId];
+        if (!spec || !spec.data[index]) return {};
+        spec.data[index].value = value;
+        const total = spec.data.reduce((sum, d) => sum + d.value, 0);
+        const max = niceScale(Math.max(...spec.data.map((d) => d.value), 1)).max;
+        doc.elements = doc.elements.map((e) => {
+          if (e.bind?.chartId !== chartId || e.bind.index !== index) return e;
+          if (e.type === "sector" && e.bind.role === "slice") {
+            e.endAngle = e.startAngle + (value / total) * Math.PI * 2;
+          } else if (e.type === "rect" && e.bind.role === "bar") {
+            const by = PLOT.bottom - (value / max) * (PLOT.bottom - PLOT.top);
+            e.y = by;
+            e.height = Math.max(1, PLOT.bottom - by);
+          } else if (e.type === "text" && e.bind.role === "pie-label") {
+            e.text = `${Math.round((value / total) * 100)}%`;
+          } else if (e.type === "text" && e.bind.role === "bar-label") {
+            e.text = String(Number(value.toFixed(2)));
+          }
+          return e;
+        });
+        return { ...syncProject(s, doc, s.history) };
+      }),
+    // 整图重排（数据→图形）：按 charts[chartId] 重新布局，替换全部绑定元素；
+    // baseline（拖动前快照）存在时入栈 baseline → 一步撤销回到拖动前；一次手势 = 一步撤销
+    recomputeChart: (chartId, baseline) =>
+      set((s) => {
+        const spec = s.doc.charts?.[chartId];
+        if (!spec) return {};
+        const doc = structuredClone(s.doc);
+        const els = layoutChart(spec, chartId);
+        let z = maxZIndex(doc.elements);
+        const copies = els.map((e) => {
+          const c = structuredClone(e);
+          c.zIndex = ++z;
+          return c;
+        });
+        const replaceIds = doc.elements.filter((e) => e.bind?.chartId === chartId).map((e) => e.id);
+        doc.elements = [...doc.elements.filter((e) => !replaceIds.includes(e.id)), ...copies];
+        return { ...syncProject(s, doc, pushHistory(s.history, baseline ?? s.doc)), selection: [] };
+      }),
+    // 解除图表关联：全部绑定元素移除 bind + chartId 变普通元素，charts 删除该图；
+    // 单向操作不入撤销栈（规格明确不做撤销恢复关联）
+    detachChart: (chartId) =>
+      set((s) => {
+        const doc = structuredClone(s.doc);
+        doc.elements = doc.elements.map((e) => {
+          if (e.bind?.chartId !== chartId) return e;
+          const c = structuredClone(e);
+          delete c.bind;
+          delete c.chartId;
+          return c;
+        });
+        if (doc.charts) {
+          const next = { ...doc.charts };
+          delete next[chartId];
+          doc.charts = next;
+        }
+        return { ...syncProject(s, doc, s.history), selection: s.selection };
       }),
     setAiLocked: (ids) => set({ aiLockedIds: [...ids] }),
     setAiBaseline: (ids) => set({ aiBaselineIds: [...ids] }),

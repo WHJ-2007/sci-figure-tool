@@ -2,8 +2,16 @@ import { useRef, useState, useCallback, useEffect } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { makeElement } from "@/lib/canvas/elements";
 import { snapRect, nearestAnchor, hitTestElement, elementBounds } from "@/lib/canvas/geometry";
-import type { ShapeType } from "@/lib/canvas/types";
+import { niceScale, PLOT } from "@/lib/canvas/chartLayout";
+import type { CanvasDocument, ShapeType } from "@/lib/canvas/types";
 import type { Anchor } from "@/lib/canvas/geometry";
+
+// 角度差归一化到 (-π, π]：跨 0 点拖动不跳变
+function normRad(a: number) {
+  while (a > Math.PI) a -= Math.PI * 2;
+  while (a < -Math.PI) a += Math.PI * 2;
+  return a;
+}
 
 // 拖动松手后的补间动画时长（ease-out）：预览框消失、元素从原位平滑滑到目标落点
 const MOVE_ANIMATION_MS = 150;
@@ -17,6 +25,9 @@ type Mode =
   | { kind: "rotate"; id: string; cx: number; cy: number }
   | { kind: "draw-shape"; tool: ShapeType | "rounded" | "logic" | "text"; startX: number; startY: number; x: number; y: number }
   | { kind: "draw-line"; tool: "arrow" | "polyline" | "line"; startX: number; startY: number; points: { x: number; y: number }[]; sourceId?: string }
+  // C 图表联动：拖动扇形/柱体本体改数据（圆周方向拖 = 改扇角，垂直拖 = 改柱高）；
+  // 拖动中实时更新数据与被拖元素（不入历史），松手 recomputeChart 整图重排 = 一步撤销
+  | { kind: "chart-edit"; chartId: string; role: "slice" | "bar"; index: number; startY: number; startValue: number; startSweep: number; lastAngle: number; sweep: number; moved: boolean; yMax: number; baseline: CanvasDocument }
   // 箭头/线条两点制：起点已定（原地点击），等待第二次点击作为终点；预览跟随指针
   | { kind: "arrow-wait"; tool: "arrow" | "line"; startX: number; startY: number; sourceId?: string; startAnchorId?: string };
 
@@ -105,6 +116,32 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
           width: Math.abs(m.x - m.startX),
           height: Math.abs(m.y - m.startY),
         });
+      } else if (m.kind === "chart-edit") {
+        const st = useCanvasStore.getState();
+        const spec = st.doc.charts?.[m.chartId];
+        if (!spec) return;
+        m.moved = true;
+        let v: number;
+        if (m.role === "slice") {
+          const sec = st.doc.elements.find(
+            (e) => e.type === "sector" && e.bind?.chartId === m.chartId && e.bind.index === m.index
+          );
+          if (!sec) return;
+          const angle = Math.atan2(wy - sec.y, wx - sec.x);
+          m.sweep += normRad(angle - m.lastAngle);
+          m.lastAngle = angle;
+          const total = spec.data.reduce((sum, d) => sum + d.value, 0);
+          const rest = total - m.startValue;
+          const s = m.startSweep + m.sweep;
+          // 守恒公式：其余项保持原值，v' = rest·s'/(2π−s')，总和自动守恒；夹紧 [0.5, 0.95×total]
+          v = rest > 0 ? (rest * s) / (2 * Math.PI - s) : (total * s) / (2 * Math.PI);
+          v = Math.min(Math.max(v, 0.5), total * 0.95);
+        } else {
+          // 柱高换算：按拖动起点数值 + 指针 y 位移（绘图区高度 / y 轴上限）
+          v = m.startValue + ((m.startY - wy) / (PLOT.bottom - PLOT.top)) * m.yMax;
+          v = Math.min(Math.max(v, 0), m.yMax);
+        }
+        st.updateChartDrag(m.chartId, m.index, v);
       } else if (m.kind === "draw-line") {
         // 保持 [起点, 当前指针] 两个点：首帧补上当前点，后续替换末点，polyline 最终恰好 2 点；
         // 箭头/线条终点吸附到最近锚点（12px 内），吸附时高亮该锚点
@@ -185,6 +222,9 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
           else s.setSelection(hit);
         }
         setRubber(null);
+      } else if (m.kind === "chart-edit") {
+        // 松手：拖动过才整图重排（入栈拖动前快照 = 一步撤销），未移动的点按不产生历史
+        if (m.moved) useCanvasStore.getState().recomputeChart(m.chartId, m.baseline);
       } else if (m.kind === "draw-shape") {
         const w = Math.abs(m.x - m.startX);
         const h = Math.abs(m.y - m.startY);
@@ -344,6 +384,31 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
         // AI 非阻塞：本轮生成中 AI 正在编辑的元素锁定——不可选中/拖动/编辑
         if (s.aiLockedIds.includes(id)) return;
         if (el && s.tool === "select") {
+          // C 图表联动：命中扇形/柱体（带 bind）进入 chart-edit——拖本体直接改数据
+          const b = el.bind;
+          if (b && (b.role === "slice" || b.role === "bar") && s.doc.charts?.[b.chartId]) {
+            const spec = s.doc.charts![b.chartId];
+            const isSlice = b.role === "slice" && el.type === "sector";
+            const cx = isSlice ? el.x : 0;
+            const cy = isSlice ? el.y : 0;
+            modeRef.current = {
+              kind: "chart-edit",
+              chartId: b.chartId,
+              role: b.role,
+              index: b.index ?? 0,
+              startY: wy,
+              startValue: spec.data[b.index ?? 0]?.value ?? 0,
+              startSweep: isSlice ? el.endAngle - el.startAngle : 0,
+              lastAngle: isSlice ? Math.atan2(wy - cy, wx - cx) : 0,
+              sweep: 0,
+              moved: false,
+              yMax: b.role === "bar" ? niceScale(Math.max(...spec.data.map((d) => d.value), 1)).max : 0,
+              baseline: s.doc,
+            };
+            if (!s.selection.includes(id)) s.setSelection([id]);
+            startDrag();
+            return;
+          }
           // Shift 只追加（点击已选元素保持选区）：toggle 移除会让"点已选元素拖动"变成该元素
           // 原地不动、其他元素在动（用户报的"拖动乱动"）。取消选择走空白点击清空。
           const next = s.selection.includes(id) ? s.selection : e.shiftKey ? [...s.selection, id] : [id];

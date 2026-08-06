@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { useCanvasStore } from "./store";
 import { makeElement, estimateTextSize } from "./elements";
-import { layoutChart, type ChartSpec } from "./chartLayout";
-import type { ArrowElement, LogicElement, PolylineElement, TextElement } from "./types";
+import { layoutChart, PLOT, type ChartSpec } from "./chartLayout";
+import type { ArrowElement, LogicElement, PolylineElement, RectElement, SectorElement, TextElement } from "./types";
 
 beforeEach(() => useCanvasStore.setState(useCanvasStore.getInitialState()));
 
@@ -579,5 +579,83 @@ describe("B4 多选旋转 rotateSelection", () => {
     expect(b.x).toBe(200);
     expect(b.y).toBe(0);
     expect(b.rotation).toBe(0);
+  });
+});
+
+describe("C 图表公式化 bind 联动", () => {
+  function pieChart() {
+    const spec: ChartSpec = { type: "pie", data: [{ label: "A", value: 50 }, { label: "B", value: 30 }, { label: "C", value: 20 }] };
+    useCanvasStore.getState().applyChartEdit("c1", spec, layoutChart(spec, "c1"), []);
+  }
+
+  it("updateChartDrag 实时改数据 + 扇形角度与百分比标签跟手（不入历史）", () => {
+    pieChart();
+    useCanvasStore.getState().updateChartDrag("c1", 0, 90);
+    const doc = useCanvasStore.getState().doc;
+    expect(doc.charts!["c1"].data[0].value).toBe(90);
+    const sec = doc.elements.find((e) => e.type === "sector" && e.bind?.index === 0)! as SectorElement;
+    // total=140 → sweep = 90/140×2π（拖动路径先夹紧数值，角度按新占比跟手）
+    expect(sec.endAngle - sec.startAngle).toBeCloseTo((90 / 140) * Math.PI * 2, 5);
+    const label = doc.elements.find((e) => e.type === "text" && e.bind?.role === "pie-label" && e.bind.index === 0)! as TextElement;
+    expect(label.text).toBe("64%");
+  });
+
+  it("拖动全流程：recomputeChart 整图重排替换绑定元素（标签/图例同步），一步撤销回到拖动前", () => {
+    pieChart();
+    const originalId = useCanvasStore.getState().doc.elements.find((e) => e.type === "sector" && e.bind?.index === 0)!.id;
+    const baseline = useCanvasStore.getState().doc;
+    useCanvasStore.getState().updateChartDrag("c1", 0, 90);
+    useCanvasStore.getState().recomputeChart("c1", baseline);
+    const doc = useCanvasStore.getState().doc;
+    // 全部绑定元素被新元素替换（旧 id 消失），图例与标签按新数据重排
+    expect(doc.elements.some((e) => e.id === originalId)).toBe(false);
+    const labels = doc.elements.filter((e) => e.type === "text" && e.bind?.role === "pie-label") as TextElement[];
+    expect(labels.map((l) => l.text)).toEqual(["64%", "21%", "14%"]);
+    expect(doc.elements.filter((e) => e.type === "sector")).toHaveLength(3);
+    // 一步撤销：回到拖动前（原 id 恢复、数据 50/30/20）
+    useCanvasStore.getState().undo();
+    const back = useCanvasStore.getState().doc;
+    expect(back.charts!["c1"].data[0].value).toBe(50);
+    expect(back.elements.some((e) => e.id === originalId)).toBe(true);
+  });
+
+  it("updateChartDrag 柱状图：柱体 y/height 与数值标签跟随新数值", () => {
+    const spec: ChartSpec = { type: "bar", data: [{ label: "Q1", value: 120 }, { label: "Q2", value: 80 }] };
+    useCanvasStore.getState().applyChartEdit("c2", spec, layoutChart(spec, "c2"), []);
+    const plotH = PLOT.bottom - PLOT.top;
+    useCanvasStore.getState().updateChartDrag("c2", 0, 60);
+    const doc = useCanvasStore.getState().doc;
+    expect(doc.charts!["c2"].data[0].value).toBe(60);
+    const bar = doc.elements.find((e) => e.type === "rect" && e.bind?.role === "bar" && e.bind.index === 0)! as RectElement;
+    // y 上限按当前数据 niceScale(80).max = 80（拖动中比例尺自适应）
+    expect(bar.height).toBeCloseTo((60 / 80) * plotH, 5);
+    expect(bar.y).toBeCloseTo(PLOT.bottom - (60 / 80) * plotH, 5);
+    const label = doc.elements.find((e) => e.type === "text" && e.bind?.role === "bar-label" && e.bind.index === 0)! as TextElement;
+    expect(label.text).toBe("60");
+  });
+
+  it("detachChart：全部绑定元素移除 bind/chartId 变普通元素，charts 登记删除，可自由编辑；不入历史", () => {
+    pieChart();
+    useCanvasStore.getState().detachChart("c1");
+    const doc = useCanvasStore.getState().doc;
+    expect(doc.charts?.["c1"]).toBeUndefined();
+    expect(doc.elements.some((e) => e.bind)).toBe(false);
+    expect(doc.elements.some((e) => e.chartId)).toBe(false);
+    // 不入历史：undo 回到最近一次提交（applyChartEdit 前 = 空画布），关联不会恢复
+    useCanvasStore.getState().undo();
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(0);
+  });
+
+  it("解除关联后元素变普通元素：可自由改色（updateElement 正常入历史）", () => {
+    pieChart();
+    useCanvasStore.getState().detachChart("c1");
+    const sec = useCanvasStore.getState().doc.elements.find((e) => e.type === "sector")!;
+    useCanvasStore.getState().updateElement(sec.id, { fill: "#ff0000" });
+    expect(useCanvasStore.getState().doc.elements.find((e) => e.id === sec.id)!.fill).toBe("#ff0000");
+    // 一步撤销回到解除关联后的状态（图表元素仍在，只是去绑定了）
+    useCanvasStore.getState().undo();
+    const back = useCanvasStore.getState().doc;
+    expect(back.elements.find((e) => e.id === sec.id)!.fill).toBe("#eef4ff");
+    expect(back.elements.some((e) => e.bind)).toBe(false);
   });
 });

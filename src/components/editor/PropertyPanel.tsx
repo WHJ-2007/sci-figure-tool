@@ -289,6 +289,14 @@ export default function PropertyPanel() {
               </button>
             )}
           </div>
+          <p className="text-[10px] leading-relaxed text-gray-400">拖动扇形/柱体可直接改数值；改数据图形自动重排</p>
+          <button
+            onClick={() => useCanvasStore.getState().detachChart(chartId)}
+            className="lift rounded-lg border border-red-200/70 bg-red-50/60 px-3 py-1.5 text-sm text-red-600 hover:bg-red-100/60"
+            data-testid="detach-chart"
+          >
+            解除图表关联（变为普通元素）
+          </button>
         </Section>
       )}
 

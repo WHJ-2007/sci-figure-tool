@@ -3,6 +3,8 @@ import { render, fireEvent, act, screen } from "@testing-library/react";
 import Canvas from "./Canvas";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { makeElement } from "@/lib/canvas/elements";
+import { layoutChart } from "@/lib/canvas/chartLayout";
+import type { TextElement } from "@/lib/canvas/types";
 
 beforeEach(() => useCanvasStore.setState(useCanvasStore.getInitialState()));
 
@@ -547,5 +549,45 @@ describe("AI 非阻塞：锁定元素", () => {
     fireEvent.pointerDown(lockedNode, { clientX: 150, clientY: 130, button: 0 });
     fireEvent.pointerUp(window, { clientX: 150, clientY: 130 });
     expect(useCanvasStore.getState().selection).toContain(locked.id);
+  });
+});
+
+describe("C 图表公式化：拖动图形改数据", () => {
+  it("饼图：圆周方向拖扇形 → 数值按守恒公式变化，松手整图重排（标签/图例同步），一步撤销", async () => {
+    const s = useCanvasStore.getState();
+    const spec = { type: "pie" as const, data: [{ label: "A", value: 50 }, { label: "B", value: 30 }, { label: "C", value: 20 }] };
+    s.applyChartEdit("c1", spec, layoutChart(spec, "c1"), []);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    // 扇形 0 从 -π/2 到 π/2；从角度 0 处（(1080,500)）拖到角度 π/2（(800,780)）→ +90°
+    const slice0 = useCanvasStore.getState().doc.elements.find((e) => e.type === "sector" && e.bind?.index === 0)!;
+    const node = document.querySelector(`[data-element-id="${slice0.id}"]`)!;
+    drag(node, { x: 1080, y: 500 }, { x: 800, y: 780 });
+    const doc = useCanvasStore.getState().doc;
+    // 守恒公式：rest=80，s=1.5π → v = 80×1.5/(2−1.5) = 240 → 夹紧 0.95×100 = 95
+    expect(doc.charts!["c1"].data[0].value).toBe(95);
+    // 松手整图重排：百分比标签按新占比（95/145=66%）
+    const label = doc.elements.find((e) => e.type === "text" && e.bind?.role === "pie-label" && e.bind.index === 0)! as TextElement;
+    expect(label.text).toBe("66%");
+    expect(doc.elements.filter((e) => e.type === "sector")).toHaveLength(3);
+    // 一步撤销回到拖动前
+    useCanvasStore.getState().undo();
+    expect(useCanvasStore.getState().doc.charts!["c1"].data[0].value).toBe(50);
+  });
+
+  it("柱状图：垂直拖柱顶 → 数值按绘图区比例换算（到底部 = 0），松手重排", async () => {
+    const s = useCanvasStore.getState();
+    const spec = { type: "bar" as const, data: [{ label: "Q1", value: 120 }, { label: "Q2", value: 80 }] };
+    s.applyChartEdit("c2", spec, layoutChart(spec, "c2"), []);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    // 柱 0：bx=462.5，y 顶 = 850−(120/125)×720 = 158.8；拖到绘图区底 (850) → 数值 0
+    const bar0 = useCanvasStore.getState().doc.elements.find((e) => e.type === "rect" && e.bind?.role === "bar" && e.bind.index === 0)!;
+    const node = document.querySelector(`[data-element-id="${bar0.id}"]`)!;
+    drag(node, { x: 497.5, y: 158.8 }, { x: 497.5, y: 850 });
+    const doc = useCanvasStore.getState().doc;
+    expect(doc.charts!["c2"].data[0].value).toBe(0);
+    const bar = doc.elements.find((e) => e.type === "rect" && e.bind?.role === "bar" && e.bind.index === 0)!;
+    expect(bar.height).toBe(1); // 空柱底线
+    const label = doc.elements.find((e) => e.type === "text" && e.bind?.role === "bar-label" && e.bind.index === 0)! as TextElement;
+    expect(label.text).toBe("0");
   });
 });

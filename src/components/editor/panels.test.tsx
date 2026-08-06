@@ -268,6 +268,20 @@ describe("PropertyPanel", () => {
     expect(useCanvasStore.getState().selection).toEqual(ids);
   });
 
+  it("数据卡：解除图表关联移除全部绑定元素的 bind/chartId 并删除图表登记，数据卡消失", () => {
+    const spec: ChartSpec = { type: "bar", data: [{ label: "Q1", value: 10 }, { label: "Q2", value: 20 }] };
+    useCanvasStore.getState().applyChartEdit("c1", spec, layoutChart(spec, "c1"), []);
+    const ids = useCanvasStore.getState().doc.elements.map((e) => e.id);
+    useCanvasStore.getState().setSelection([ids[0]]);
+    render(<PropertyPanel />);
+    fireEvent.click(screen.getByTestId("detach-chart"));
+    const s = useCanvasStore.getState();
+    expect(s.doc.charts?.["c1"]).toBeUndefined();
+    expect(s.doc.elements.some((e) => e.bind || e.chartId)).toBe(false);
+    // 数据卡消失（按钮不再渲染）
+    expect(screen.queryByTestId("detach-chart")).toBeNull();
+  });
+
   it("层级卡片：按 zIndex 降序列出全部元素（首个顶层、末个底层），点击条目选中元素", () => {
     const a = makeElement("rect", 0, 0, 100, 60, { id: "a1" });
     const b = makeElement("ellipse", 10, 10, 50, 50, { id: "b1" });

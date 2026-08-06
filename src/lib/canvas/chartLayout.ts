@@ -1,6 +1,6 @@
 import { makeElement, estimateTextSize } from "./elements";
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from "./geometry";
-import type { CanvasElement } from "./types";
+import type { CanvasElement, ChartBind } from "./types";
 
 export interface ChartDatum {
   label: string;
@@ -21,7 +21,8 @@ const CHART_STROKE_PALETTE = ["#3b82f6", "#22c55e", "#f59e0b", "#8b5cf6", "#ef44
 const AXIS = "#2f2f2f";
 const LABEL = "#4a5568";
 
-const PLOT = { left: 150, right: CANVAS_WIDTH - 60, top: 130, bottom: CANVAS_HEIGHT - 150 };
+// 绘图区边界（世界坐标）：拖动柱顶换算数值、y 刻度共用
+export const PLOT = { left: 150, right: CANVAS_WIDTH - 60, top: 130, bottom: CANVAS_HEIGHT - 150 };
 
 // 刻度取整：5 档候选 {1,2,2.5,5,10}×10^k 取首个 ≥ max/5，上限 = ceil(max/step)×step
 export function niceScale(maxV: number): { step: number; max: number } {
@@ -32,17 +33,24 @@ export function niceScale(maxV: number): { step: number; max: number } {
   return { step, max: Math.ceil(raw / step) * step };
 }
 
-// 语义与布局分离：AI 只声明图表类型与数据，本模块产出全部元素（轴/刻度/图形/标签/图例）
-export function layoutChart(spec: ChartSpec): CanvasElement[] {
-  if (spec.type === "pie") return pie(spec);
-  return cartesian(spec);
+// 语义与布局分离：AI 只声明图表类型与数据，本模块产出全部元素（轴/刻度/图形/标签/图例）。
+// chartId 传入时为每个元素打上 chartId + bind（元素↔数据反向映射，供拖动联动/整图重排）
+export function layoutChart(spec: ChartSpec, chartId?: string): CanvasElement[] {
+  if (spec.type === "pie") return pie(spec, chartId);
+  return cartesian(spec, chartId);
 }
 
-function textEl(text: string, fontSize: number, x: number, y: number, opts: { bold?: boolean; fill?: string; align?: "left" | "center" | "right"; zIndex?: number } = {}): CanvasElement {
+function textEl(
+  text: string,
+  fontSize: number,
+  x: number,
+  y: number,
+  opts: { bold?: boolean; fill?: string; align?: "left" | "center" | "right"; zIndex?: number; bind?: ChartBind; chartId?: string } = {}
+): CanvasElement {
   const size = estimateTextSize(text, fontSize, opts.bold ?? false);
   const align = opts.align ?? "center";
   const tx = align === "left" ? x : align === "right" ? x - size.width : x - size.width / 2;
-  return makeElement("text", tx, y - size.height / 2, size.width, size.height, {
+  const el = makeElement("text", tx, y - size.height / 2, size.width, size.height, {
     text,
     fontSize,
     bold: opts.bold ?? false,
@@ -50,9 +58,21 @@ function textEl(text: string, fontSize: number, x: number, y: number, opts: { bo
     align,
     zIndex: opts.zIndex ?? 3,
   });
+  if (opts.chartId) {
+    el.chartId = opts.chartId;
+    el.bind = opts.bind;
+  }
+  return el;
 }
 
-function cartesian(spec: ChartSpec): CanvasElement[] {
+// 给元素补 chartId + bind（图表引擎产出元素后统一附上）
+function tag(el: CanvasElement, chartId: string, bind: ChartBind): CanvasElement {
+  el.chartId = chartId;
+  el.bind = bind;
+  return el;
+}
+
+function cartesian(spec: ChartSpec, chartId?: string): CanvasElement[] {
   const out: CanvasElement[] = [];
   const plotW = PLOT.right - PLOT.left;
   const plotH = PLOT.bottom - PLOT.top;
@@ -61,23 +81,24 @@ function cartesian(spec: ChartSpec): CanvasElement[] {
   const y = (v: number) => PLOT.bottom - (v / max) * plotH;
 
   // 标题 / 轴名
-  if (spec.title) out.push(textEl(spec.title, 22, 800, 52, { bold: true, fill: AXIS }));
-  if (spec.xLabel) out.push(textEl(spec.xLabel, 14, PLOT.left + plotW / 2, PLOT.bottom + 56));
+  if (spec.title) out.push(textEl(spec.title, 22, 800, 52, { bold: true, fill: AXIS, chartId, bind: { chartId: chartId ?? "", role: "title" } }));
+  if (spec.xLabel) out.push(textEl(spec.xLabel, 14, PLOT.left + plotW / 2, PLOT.bottom + 56, { chartId, bind: { chartId: chartId ?? "", role: "x-label" } }));
   if (spec.yLabel) {
-    const el = textEl(spec.yLabel, 14, PLOT.left - 56, PLOT.top + plotH / 2);
+    const el = textEl(spec.yLabel, 14, PLOT.left - 56, PLOT.top + plotH / 2, { chartId, bind: { chartId: chartId ?? "", role: "y-label" } });
     el.rotation = -90;
     out.push(el);
   }
 
   // 坐标轴（y 轴向上 = 负高度，直接 makeElement 不经钳制）
-  out.push(makeElement("arrow", PLOT.left, PLOT.bottom, plotW, 0, { stroke: AXIS, strokeWidth: 2, zIndex: 1 }));
-  out.push(makeElement("arrow", PLOT.left, PLOT.bottom, 0, -plotH, { stroke: AXIS, strokeWidth: 2, zIndex: 1 }));
+  const axisBind = { chartId: chartId ?? "", role: "axis" as const };
+  out.push(chartId ? tag(makeElement("arrow", PLOT.left, PLOT.bottom, plotW, 0, { stroke: AXIS, strokeWidth: 2, zIndex: 1 }), chartId, axisBind) : makeElement("arrow", PLOT.left, PLOT.bottom, plotW, 0, { stroke: AXIS, strokeWidth: 2, zIndex: 1 }));
+  out.push(chartId ? tag(makeElement("arrow", PLOT.left, PLOT.bottom, 0, -plotH, { stroke: AXIS, strokeWidth: 2, zIndex: 1 }), chartId, axisBind) : makeElement("arrow", PLOT.left, PLOT.bottom, 0, -plotH, { stroke: AXIS, strokeWidth: 2, zIndex: 1 }));
 
   // y 刻度值（精度按 step 的小数位数，step=0.25 时 0.75 应标 "0.75" 而非 "0.8"）
   const decimals = String(step).includes(".") ? String(step).split(".")[1].length : 0;
   for (let v = step; v <= max + 1e-9; v += step) {
     const ty = y(v);
-    out.push(textEl(Number.isInteger(v) ? String(v) : v.toFixed(decimals), 12, PLOT.left - 12, ty, { align: "right" }));
+    out.push(textEl(Number.isInteger(v) ? String(v) : v.toFixed(decimals), 12, PLOT.left - 12, ty, { align: "right", chartId, bind: { chartId: chartId ?? "", role: "axis" } }));
   }
 
   // 系列与分类
@@ -95,7 +116,7 @@ function cartesian(spec: ChartSpec): CanvasElement[] {
   for (const [ci, cat] of cats.entries()) {
     const cx0 = PLOT.left + ci * catW + catW / 2;
     const rows = spec.data.filter((d) => d.label === cat);
-    const vals = rows.map((d) => ({ si: seriesNames.indexOf(d.series ?? "默认"), value: d.value }));
+    const vals = rows.map((d) => ({ si: seriesNames.indexOf(d.series ?? "默认"), value: d.value, di: spec.data.indexOf(d) }));
 
     if (spec.type === "bar") {
       const groupW = catW - 24;
@@ -104,29 +125,35 @@ function cartesian(spec: ChartSpec): CanvasElement[] {
       for (const v of vals) {
         const bx = cx0 - groupW / 2 + off + v.si * bw;
         const by = y(v.value);
-        out.push(makeElement("rect", bx, by, bw, Math.max(1, PLOT.bottom - by), {
+        const bar = makeElement("rect", bx, by, bw, Math.max(1, PLOT.bottom - by), {
           fill: series[v.si].color, stroke: AXIS, strokeWidth: 1, zIndex: 2,
-        }));
-        out.push(textEl(String(v.value), 12, bx + bw / 2, by - 12));
+        });
+        if (chartId) tag(bar, chartId, { chartId, role: "bar", index: v.di });
+        out.push(bar);
+        out.push(textEl(String(Number(v.value.toFixed(2))), 12, bx + bw / 2, by - 12, { chartId, bind: { chartId: chartId ?? "", role: "bar-label", index: v.di } }));
       }
     } else {
       for (const v of vals) {
         const px = cx0;
         const py = y(v.value);
         if (spec.type === "line") {
-          out.push(makeElement("ellipse", px - 4, py - 4, 8, 8, {
+          const pt = makeElement("ellipse", px - 4, py - 4, 8, 8, {
             fill: "#ffffff", stroke: series[v.si].color, strokeWidth: 2, zIndex: 2,
-          }));
-          out.push(textEl(String(v.value), 12, px, py - 14));
+          });
+          if (chartId) tag(pt, chartId, { chartId, role: "bar", index: v.di });
+          out.push(pt);
+          out.push(textEl(String(Number(v.value.toFixed(2))), 12, px, py - 14, { chartId, bind: { chartId: chartId ?? "", role: "bar-label", index: v.di } }));
         } else {
           // scatter：数据点圆点
-          out.push(makeElement("ellipse", px - 5, py - 5, 10, 10, {
+          const pt = makeElement("ellipse", px - 5, py - 5, 10, 10, {
             fill: series[v.si].color, stroke: AXIS, strokeWidth: 1, zIndex: 2,
-          }));
+          });
+          if (chartId) tag(pt, chartId, { chartId, role: "bar", index: v.di });
+          out.push(pt);
         }
       }
     }
-    out.push(textEl(cat, 14, cx0, PLOT.bottom + 24));
+    out.push(textEl(cat, 14, cx0, PLOT.bottom + 24, { chartId, bind: { chartId: chartId ?? "", role: "axis" } }));
   }
 
   // 折线：每个系列一条 polyline（无箭头）
@@ -140,9 +167,11 @@ function cartesian(spec: ChartSpec): CanvasElement[] {
           return { x: PLOT.left + ci * catW + catW / 2, y: y(row.value) };
         });
       if (pts.length >= 2) {
-        out.push(makeElement("polyline", 0, 0, 0, 0, {
+        const line = makeElement("polyline", 0, 0, 0, 0, {
           points: pts, stroke: series[si].color, strokeWidth: 2, arrow: false, zIndex: 1,
-        }));
+        });
+        if (chartId) tag(line, chartId, { chartId, role: "grid" });
+        out.push(line);
       }
     }
   }
@@ -151,8 +180,10 @@ function cartesian(spec: ChartSpec): CanvasElement[] {
   if (series.length > 1) {
     let ly = PLOT.top + 10;
     for (const s of series) {
-      out.push(makeElement("rect", PLOT.right - 170, ly, 14, 14, { fill: s.color, stroke: AXIS, strokeWidth: 1, zIndex: 2 }));
-      out.push(textEl(s.name, 13, PLOT.right - 148, ly + 7, { align: "left" }));
+      const sw = makeElement("rect", PLOT.right - 170, ly, 14, 14, { fill: s.color, stroke: AXIS, strokeWidth: 1, zIndex: 2 });
+      if (chartId) tag(sw, chartId, { chartId, role: "grid" });
+      out.push(sw);
+      out.push(textEl(s.name, 13, PLOT.right - 148, ly + 7, { align: "left", chartId, bind: { chartId: chartId ?? "", role: "grid" } }));
       ly += 26;
     }
   }
@@ -160,11 +191,11 @@ function cartesian(spec: ChartSpec): CanvasElement[] {
   return out;
 }
 
-function pie(spec: ChartSpec): CanvasElement[] {
+function pie(spec: ChartSpec, chartId?: string): CanvasElement[] {
   const out: CanvasElement[] = [];
   const total = spec.data.reduce((s, d) => s + d.value, 0);
   if (total <= 0) return out;
-  if (spec.title) out.push(textEl(spec.title, 22, 800, 52, { bold: true, fill: AXIS }));
+  if (spec.title) out.push(textEl(spec.title, 22, 800, 52, { bold: true, fill: AXIS, chartId, bind: { chartId: chartId ?? "", role: "title" } }));
   const cx = 800;
   const cy = 500;
   const r = 280;
@@ -173,18 +204,22 @@ function pie(spec: ChartSpec): CanvasElement[] {
     const sweep = (d.value / total) * Math.PI * 2;
     const start = angle;
     const end = angle + sweep;
-    out.push(makeElement("sector", cx, cy, r * 2, r * 2, {
+    const sec = makeElement("sector", cx, cy, r * 2, r * 2, {
       radius: r, startAngle: start, endAngle: end,
       fill: CHART_PALETTE[i % CHART_PALETTE.length], stroke: AXIS, strokeWidth: 1, zIndex: 2,
-    }));
+    });
+    if (chartId) tag(sec, chartId, { chartId, role: "slice", index: i });
+    out.push(sec);
     const mid = (start + end) / 2;
-    out.push(textEl(`${Math.round((d.value / total) * 100)}%`, 13, cx + Math.cos(mid) * r * 0.62, cy + Math.sin(mid) * r * 0.62, { fill: AXIS }));
+    out.push(textEl(`${Math.round((d.value / total) * 100)}%`, 13, cx + Math.cos(mid) * r * 0.62, cy + Math.sin(mid) * r * 0.62, { fill: AXIS, chartId, bind: { chartId: chartId ?? "", role: "pie-label", index: i } }));
     angle = end;
   });
   let ly = 200;
   spec.data.forEach((d, i) => {
-    out.push(makeElement("rect", 1350, ly, 14, 14, { fill: CHART_PALETTE[i % CHART_PALETTE.length], stroke: AXIS, strokeWidth: 1, zIndex: 2 }));
-    out.push(textEl(d.label, 13, 1372, ly + 7, { align: "left" }));
+    const sw = makeElement("rect", 1350, ly, 14, 14, { fill: CHART_PALETTE[i % CHART_PALETTE.length], stroke: AXIS, strokeWidth: 1, zIndex: 2 });
+    if (chartId) tag(sw, chartId, { chartId, role: "pie-legend", index: i });
+    out.push(sw);
+    out.push(textEl(d.label, 13, 1372, ly + 7, { align: "left", chartId, bind: { chartId: chartId ?? "", role: "pie-legend", index: i } }));
     ly += 26;
   });
   return out;
