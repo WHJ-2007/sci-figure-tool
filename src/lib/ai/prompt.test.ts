@@ -25,8 +25,11 @@ describe("buildSystemPrompt 多模式", () => {
   it("科研审美规范含硬数字（统一尺寸/间距/色板）", () => {
     const p = buildSystemPrompt(["sci"]);
     expect(p).toContain("150~180");
+    expect(p).toContain("48~60");
     expect(p).toContain("20~60");
     expect(p).toContain("#eef4ff");
+    // 颜色上限自洽：语义色 + 强调色不超总计
+    expect(p).toContain("总计 ≤4 色");
   });
 
   it("公共节含画完自查规则", () => {
