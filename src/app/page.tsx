@@ -7,6 +7,7 @@ import ChatPanel from "@/components/editor/ChatPanel";
 import EditorHost from "@/components/editor/EditorHost";
 import FirstRunHint from "@/components/editor/FirstRunHint";
 import GenerationToast from "@/components/editor/GenerationToast";
+import AutoSave from "@/components/editor/AutoSave";
 
 export default function Home() {
   return (
@@ -30,6 +31,7 @@ export default function Home() {
         </div>
       </main>
       <GenerationToast />
+      <AutoSave />
     </EditorHost>
   );
 }
