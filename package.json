@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^1.0.0",
+    "@smartupcorp/onedollar-unistroke-recognizer": "^1.0.0",
     "ai": "^5.0.0",
     "dagre": "^0.8.5",
     "next": "^15.1.0",

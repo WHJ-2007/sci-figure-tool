@@ -39,10 +39,36 @@ describe("layoutChart", () => {
     expect(els.filter((e) => e.type === "rect")).toHaveLength(2);    // 图例色块
   });
 
-  it("饼图：扇形数 = 数据项数，百分比标签，右侧图例", () => {
+  it("饼图：扇形数 = 数据项数，标签默认只显示占比，右侧图例；showValues 时显示数值+占比", () => {
     const els = layoutChart({ type: "pie", data: [{ label: "A", value: 3 }, { label: "B", value: 1 }] });
     expect(els.filter((e) => e.type === "sector")).toHaveLength(2);
+    // 默认只显示占比
     expect(els.filter((e) => e.type === "text").some((t) => t.text === "75%")).toBe(true);
+    expect(els.filter((e) => e.type === "text").some((t) => t.text === "25%")).toBe(true);
+    // showValues:true → 规范格式"数值 (占比)"
+    const withVals = layoutChart({ type: "pie", showValues: true, data: [{ label: "A", value: 3 }, { label: "B", value: 1 }] });
+    expect(withVals.filter((e) => e.type === "text").some((t) => t.text === "3 (75%)")).toBe(true);
+    expect(withVals.filter((e) => e.type === "text").some((t) => t.text === "1 (25%)")).toBe(true);
+  });
+
+  it("饼图空心变体：variant hollow 的扇形带内孔（innerRadius），实心缺省无内孔", () => {
+    const solid = layoutChart({ type: "pie", data: [{ label: "A", value: 3 }, { label: "B", value: 1 }] });
+    expect(solid.filter((e) => e.type === "sector").every((s) => !(s as { innerRadius?: number }).innerRadius)).toBe(true);
+    const hollow = layoutChart({ type: "pie", variant: "hollow", data: [{ label: "A", value: 3 }, { label: "B", value: 1 }] });
+    const hs = hollow.filter((e) => e.type === "sector");
+    expect(hs).toHaveLength(2);
+    expect((hs[0] as { innerRadius?: number }).innerRadius).toBe(130);
+    expect((hs[1] as { innerRadius?: number }).innerRadius).toBe(130);
+  });
+
+  it("每条目自定义颜色：data[].color 同时应用到扇形与图例色块，缺省自动配色", () => {
+    const els = layoutChart({ type: "pie", data: [{ label: "A", value: 3, color: "#ff0000" }, { label: "B", value: 1 }] }, "c1");
+    const slice0 = els.find((e) => e.type === "sector" && e.bind?.index === 0)!;
+    expect(slice0.fill).toBe("#ff0000");
+    const legend0 = els.find((e) => e.type === "rect" && e.bind?.role === "pie-legend" && e.bind.index === 0)!;
+    expect(legend0.fill).toBe("#ff0000");
+    const slice1 = els.find((e) => e.type === "sector" && e.bind?.index === 1)!;
+    expect(slice1.fill).not.toBe("#ff0000"); // 缺省自动配色
   });
 
   it("散点图：每个数据点一个椭圆，无折线", () => {

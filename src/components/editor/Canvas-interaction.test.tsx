@@ -4,7 +4,7 @@ import Canvas from "./Canvas";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { makeElement } from "@/lib/canvas/elements";
 import { layoutChart } from "@/lib/canvas/chartLayout";
-import type { TextElement } from "@/lib/canvas/types";
+import type { SectorElement, TextElement } from "@/lib/canvas/types";
 
 beforeEach(() => useCanvasStore.setState(useCanvasStore.getInitialState()));
 
@@ -553,25 +553,26 @@ describe("AI 非阻塞：锁定元素", () => {
 });
 
 describe("C 图表公式化：拖动图形改数据", () => {
-  it("饼图：圆周方向拖扇形 → 数值按守恒公式变化，松手整图重排（标签/图例同步），一步撤销", async () => {
+  it("饼图：拖起始接缝（slice 0 起点 -π/2）→ 整图旋转使接缝停在鼠标处，数据不变，一步撤销", async () => {
     const s = useCanvasStore.getState();
     const spec = { type: "pie" as const, data: [{ label: "A", value: 50 }, { label: "B", value: 30 }, { label: "C", value: 20 }] };
     s.applyChartEdit("c1", spec, layoutChart(spec, "c1"), []);
     render(<Canvas viewportWidth={800} viewportHeight={600} />);
-    // 扇形 0 从 -π/2 到 π/2；从角度 0 处（(1080,500)）拖到角度 π/2（(800,780)）→ +90°
+    // slice 0 起始接缝在 -π/2（圆心 (800,500) 上方 (800,220)）；拖到角度 0（(1080,500)）
     const slice0 = useCanvasStore.getState().doc.elements.find((e) => e.type === "sector" && e.bind?.index === 0)!;
     const node = document.querySelector(`[data-element-id="${slice0.id}"]`)!;
-    drag(node, { x: 1080, y: 500 }, { x: 800, y: 780 });
+    drag(node, { x: 800, y: 220 }, { x: 1080, y: 500 });
     const doc = useCanvasStore.getState().doc;
-    // 守恒公式：rest=80，s=1.5π → v = 80×1.5/(2−1.5) = 240 → 夹紧 0.95×100 = 95
-    expect(doc.charts!["c1"].data[0].value).toBe(95);
-    // 松手整图重排：百分比标签按新占比（95/145=66%）
-    const label = doc.elements.find((e) => e.type === "text" && e.bind?.role === "pie-label" && e.bind.index === 0)! as TextElement;
-    expect(label.text).toBe("66%");
+    // 起始接缝拖动 = 整图旋转：pieStart 变为鼠标角度 0，数据占比不变
+    expect(doc.charts!["c1"].pieStart).toBeCloseTo(0, 5);
+    expect(doc.charts!["c1"].data.map((d) => d.value)).toEqual([50, 30, 20]);
+    // 松手整图重排：slice 0 起始角 = 0（接缝停在鼠标松手处）
+    const sec0 = doc.elements.find((e) => e.type === "sector" && e.bind?.index === 0)! as SectorElement;
+    expect(sec0.startAngle).toBeCloseTo(0, 5);
     expect(doc.elements.filter((e) => e.type === "sector")).toHaveLength(3);
-    // 一步撤销回到拖动前
+    // 一步撤销回到拖动前（pieStart 恢复缺省）
     useCanvasStore.getState().undo();
-    expect(useCanvasStore.getState().doc.charts!["c1"].data[0].value).toBe(50);
+    expect(useCanvasStore.getState().doc.charts!["c1"].pieStart).toBeUndefined();
   });
 
   it("柱状图：垂直拖柱顶 → 数值按绘图区比例换算（到底部 = 0），松手重排", async () => {

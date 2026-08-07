@@ -1,5 +1,6 @@
 import { runAgent } from "@/lib/ai/agent";
 import type { CanvasDocument } from "@/lib/canvas/types";
+import type { CanvasSnapshot } from "@/lib/ai/tools";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,7 +12,7 @@ export async function POST(req: Request) {
   } catch {
     return Response.json({ error: "请求体无效" }, { status: 400 });
   }
-  const { messages, canvas, apiKey, baseURL, model, tavilyApiKey, modes } = body as {
+  const { messages, canvas, apiKey, baseURL, model, tavilyApiKey, modes, canvases } = body as {
     messages: { role: "user" | "assistant"; content: string }[];
     canvas: CanvasDocument;
     apiKey: string;
@@ -19,6 +20,7 @@ export async function POST(req: Request) {
     model: string;
     tavilyApiKey?: string;
     modes?: ("sci" | "mindmap" | "chart")[] | null;
+    canvases?: CanvasSnapshot[];
   };
   if (!apiKey) {
     return Response.json({ error: "未配置 API Key，请先到设置页填写" }, { status: 400 });
@@ -28,7 +30,7 @@ export async function POST(req: Request) {
     async start(controller) {
       const send = (ev: unknown) => controller.enqueue(encoder.encode(JSON.stringify(ev) + "\n"));
       try {
-        await runAgent({ messages, canvas, apiKey, baseURL, model, tavilyApiKey, modes, onEvent: send });
+        await runAgent({ messages, canvas, apiKey, baseURL, model, tavilyApiKey, modes, canvases, onEvent: send });
       } catch (err) {
         send({ type: "error", message: err instanceof Error ? err.message : String(err) });
       } finally {

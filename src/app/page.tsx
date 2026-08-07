@@ -6,7 +6,6 @@ import PropertyPanel from "@/components/editor/PropertyPanel";
 import ChatPanel from "@/components/editor/ChatPanel";
 import EditorHost from "@/components/editor/EditorHost";
 import FirstRunHint from "@/components/editor/FirstRunHint";
-import GenerationToast from "@/components/editor/GenerationToast";
 import AutoSave from "@/components/editor/AutoSave";
 import { useCanvasStore } from "@/lib/canvas/store";
 
@@ -42,7 +41,6 @@ export default function Home() {
           </div>
         </div>
       </main>
-      <GenerationToast />
       <AutoSave />
     </EditorHost>
   );

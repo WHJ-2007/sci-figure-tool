@@ -10,6 +10,8 @@ describe("ChartDialog", () => {
   it("手动生成图表：填 3 行数据点生成，元素带 chartId 且登记 charts", () => {
     render(<ChartDialog open={true} onClose={() => {}} />);
     fireEvent.click(screen.getByText("折线图"));
+    // 默认 2 行：先添加第 3 行再填 3 个数据点
+    fireEvent.click(screen.getByText("+ 添加行"));
     const labels = screen.getAllByLabelText(/标签 \d+/);
     const values = screen.getAllByLabelText(/数值 \d+/);
     fireEvent.change(labels[0], { target: { value: "Q1" } });
@@ -45,5 +47,86 @@ describe("ChartDialog", () => {
     fireEvent.click(screen.getByText("保存修改"));
     const st = useCanvasStore.getState();
     expect(st.doc.elements.length).toBe(oldCount); // 替换而非追加
+  });
+
+  it("类型选择：4 种图表均以图标卡片呈现，点击切换选中态", () => {
+    render(<ChartDialog open={true} onClose={() => {}} />);
+    for (const label of ["柱状图", "折线图", "饼图", "散点图"]) {
+      const btn = screen.getByRole("button", { name: label });
+      expect(btn.querySelector("svg")).not.toBeNull(); // 每个类型都带迷你图表图标
+    }
+    fireEvent.click(screen.getByRole("button", { name: "饼图" }));
+    expect(screen.getByRole("button", { name: "饼图" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "柱状图" })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("饼图隐藏无意义字段：无 X/Y 轴输入、无系列列", () => {
+    render(<ChartDialog open={true} onClose={() => {}} />);
+    // 默认柱状图显示坐标轴与系列
+    expect(screen.getByLabelText("X 轴名")).toBeInTheDocument();
+    expect(screen.getByLabelText("Y 轴名")).toBeInTheDocument();
+    expect(screen.getAllByLabelText(/系列 \d+/).length).toBe(2);
+    // 切到饼图：轴与系列全部隐藏，数据行只剩标签/数值
+    fireEvent.click(screen.getByRole("button", { name: "饼图" }));
+    expect(screen.queryByLabelText("X 轴名")).toBeNull();
+    expect(screen.queryByLabelText("Y 轴名")).toBeNull();
+    expect(screen.queryByLabelText(/系列 \d+/)).toBeNull();
+    expect(screen.getAllByLabelText(/标签 \d+/).length).toBe(2);
+    expect(screen.getAllByLabelText(/数值 \d+/).length).toBe(2);
+  });
+
+  it("类型切换保留已填数据：柱状图填完切走再切回，数据不丢", () => {
+    render(<ChartDialog open={true} onClose={() => {}} />);
+    const labels = screen.getAllByLabelText(/标签 \d+/);
+    const values = screen.getAllByLabelText(/数值 \d+/);
+    fireEvent.change(labels[0], { target: { value: "Q1" } });
+    fireEvent.change(values[0], { target: { value: "42" } });
+    fireEvent.click(screen.getByRole("button", { name: "饼图" }));
+    fireEvent.click(screen.getByRole("button", { name: "柱状图" }));
+    expect(screen.getByLabelText("标签 1")).toHaveValue("Q1");
+    expect(screen.getByLabelText("数值 1")).toHaveValue("42");
+  });
+
+  it("饼图生成时丢弃系列与坐标轴名：spec 不含 xLabel/yLabel/series", () => {
+    render(<ChartDialog open={true} onClose={() => {}} />);
+    // 柱状图下先填好系列，再切饼图生成——系列不应进入 spec
+    fireEvent.change(screen.getByLabelText("系列 1"), { target: { value: "S1" } });
+    fireEvent.change(screen.getByLabelText("X 轴名"), { target: { value: "季度" } });
+    fireEvent.click(screen.getByRole("button", { name: "饼图" }));
+    // 默认 2 行：先添加第 3 行再填 3 个数据点
+    fireEvent.click(screen.getByText("+ 添加行"));
+    const labels = screen.getAllByLabelText(/标签 \d+/);
+    const values = screen.getAllByLabelText(/数值 \d+/);
+    fireEvent.change(labels[0], { target: { value: "A" } });
+    fireEvent.change(values[0], { target: { value: "50" } });
+    fireEvent.change(labels[1], { target: { value: "B" } });
+    fireEvent.change(values[1], { target: { value: "30" } });
+    fireEvent.change(labels[2], { target: { value: "C" } });
+    fireEvent.change(values[2], { target: { value: "20" } });
+    fireEvent.click(screen.getByRole("button", { name: "生成图表" }));
+    const st = useCanvasStore.getState();
+    const spec = Object.values(st.doc.charts ?? {})[0];
+    expect(spec.type).toBe("pie");
+    expect(spec.xLabel).toBeUndefined();
+    expect(spec.yLabel).toBeUndefined();
+    expect(spec.data.every((d) => d.series === undefined)).toBe(true);
+  });
+
+  it("数据行可删到最少 1 条：删 2 行后单行生成成功，1 行时删除按钮禁用", () => {
+    render(<ChartDialog open={true} onClose={() => {}} />);
+    // 初始 2 行：删到 1 行
+    const delBtns = screen.getAllByTitle("删除行");
+    expect(delBtns.length).toBe(2);
+    fireEvent.click(delBtns[1]);
+    expect(screen.getAllByLabelText(/标签 \d+/).length).toBe(1);
+    expect(screen.getAllByTitle("删除行")[0]).toBeDisabled();
+    // 单行也能生成
+    fireEvent.change(screen.getByLabelText("标签 1"), { target: { value: "A" } });
+    fireEvent.change(screen.getByLabelText("数值 1"), { target: { value: "100" } });
+    fireEvent.click(screen.getByRole("button", { name: "生成图表" }));
+    const st = useCanvasStore.getState();
+    const spec = Object.values(st.doc.charts ?? {})[0];
+    expect(spec.data).toHaveLength(1);
+    expect(spec.data[0]).toMatchObject({ label: "A", value: 100 });
   });
 });

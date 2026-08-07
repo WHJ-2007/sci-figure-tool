@@ -2,7 +2,7 @@ import { generateText, stepCountIs, hasToolCall } from "ai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { CanvasDocument } from "@/lib/canvas/types";
 import { DraftCanvas } from "./draft";
-import { buildTools } from "./tools";
+import { buildTools, type CanvasSnapshot } from "./tools";
 import { buildSystemPrompt, type AIMode } from "./prompt";
 import { setConfirmSession } from "./confirmStore";
 
@@ -17,7 +17,8 @@ export type AgentEvent =
   | { type: "new-canvas" }
   | { type: "complete"; canvas: CanvasDocument; summary: string; touched: string[] }
   | { type: "confirm-request"; sessionId: string; summary: string; pending: { id: string; description: string }[] }
-  | { type: "question"; question: string }
+  | { type: "question"; question: string; options?: string[] }
+  | { type: "referenced"; canvasName: string }
   | { type: "error"; message: string };
 
 export async function runAgent(opts: {
@@ -28,6 +29,8 @@ export async function runAgent(opts: {
   model: string;
   tavilyApiKey?: string;
   modes?: AIMode[] | null;
+  // 其他画布摘要：AI 可跨画布读取/参考（画布与 AI 隔离——绝不切换当前画布）
+  canvases?: CanvasSnapshot[];
   onEvent: (ev: AgentEvent) => void;
 }): Promise<string> {
   const provider = createOpenAICompatible({ baseURL: opts.baseURL, apiKey: opts.apiKey, name: "deepseek" });
@@ -42,7 +45,7 @@ export async function runAgent(opts: {
     model: provider(opts.model),
     system: buildSystemPrompt(opts.modes?.length ? opts.modes : undefined),
     messages: opts.messages,
-    tools: buildTools(draft, opts.tavilyApiKey),
+    tools: buildTools(draft, opts.tavilyApiKey, opts.canvases, (name) => opts.onEvent({ type: "referenced", canvasName: name })),
     // AI SDK v5 已移除 maxSteps，改用 stopWhen 限制多轮工具调用步数（默认只跑 1 步）
     stopWhen: [hasToolCall("askUser"), stepCountIs(20)],
     onStepFinish: () => {
@@ -50,19 +53,22 @@ export async function runAgent(opts: {
       if (activity.length) opts.onEvent({ type: "progress", activity });
     },
   });
-  // 从结果步骤中提取 askUser 问题（stopWhen 已在此类调用后停止）
+  // 从结果步骤中提取 askUser 问题与选项（stopWhen 已在此类调用后停止）
   let askQuestion: string | null = null;
+  let askOptions: string[] | undefined;
   for (const s of result.steps ?? []) {
     const call = s.toolCalls?.find((c) => c.toolName === "askUser");
     if (call) {
-      askQuestion = (call.input as { question?: string } | undefined)?.question ?? "";
+      const input = call.input as { question?: string; options?: string[] } | undefined;
+      askQuestion = input?.question ?? "";
+      askOptions = input?.options;
       break;
     }
   }
   const pending = draft.pending;
   if (askQuestion !== null) {
     // 提问优先：askUser 后 AI 若已画了元素也不发 snapshot，全部丢弃（前端恢复生成前基线）
-    opts.onEvent({ type: "question", question: askQuestion });
+    opts.onEvent({ type: "question", question: askQuestion, options: askOptions });
   } else if (pending.length > 0) {
     // 挂起阶段结束主生成：解除 onChange（旧流已关闭，确认阶段由 /api/chat/confirm 独立回发）
     draft.setOnChange(undefined);

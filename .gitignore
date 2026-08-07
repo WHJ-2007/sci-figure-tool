@@ -6,3 +6,7 @@ tools/launcher/.runtime/
 .claude/settings.local.json
 .env*
 *.tsbuildinfo
+
+# 本地 AtomCode 安装包（不应上传）
+atomcode-*.exe
+atomcode-*.exe.bak

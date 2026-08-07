@@ -29,8 +29,93 @@ describe("ChatPanel", () => {
     fireEvent.click(screen.getByText("一键生成"));
     await waitFor(() => expect(screen.getByText(/画好了/)).toBeInTheDocument());
     await waitFor(() => expect(useCanvasStore.getState().doc.elements).toHaveLength(1));
-    // 活动日志不再显示在对话区（改由左下角气泡显示）
-    expect(screen.queryByText(/创建矩形/)).toBeNull();
+    // 活动日志显示在输入框上方的气泡（GenerationToast）里，不再作为消息气泡出现在对话区
+    await waitFor(() => expect(screen.getByTestId("generation-toast")).toBeInTheDocument());
+    expect(screen.getByText(/创建矩形/)).toBeInTheDocument();
+  });
+
+  it("AI 执行时输入框上方显示活动气泡：最新步骤实时更新，结束收起", async () => {
+    let ctrl!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({ start(c) { ctrl = c; } });
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(stream, { headers: { "Content-Type": "application/x-ndjson" } }));
+    render(<ChatPanel />);
+    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "画一个流程" } });
+    fireEvent.click(screen.getByText("一键生成"));
+    // 生成中：活动气泡（GenerationToast，位于输入框上方）出现，逐步推送最新步骤
+    await waitFor(() => expect(screen.getByTestId("generation-toast")).toBeInTheDocument());
+    const enc = new TextEncoder();
+    ctrl.enqueue(enc.encode(JSON.stringify({ type: "progress", activity: ["创建矩形"] }) + "\n"));
+    await waitFor(() => expect(screen.getByText("创建矩形")).toBeInTheDocument());
+    // 再推一条 → 最新步骤实时更新
+    ctrl.enqueue(enc.encode(JSON.stringify({ type: "progress", activity: ["连接箭头"] }) + "\n"));
+    await waitFor(() => expect(screen.getByText("连接箭头")).toBeInTheDocument());
+    // 生成结束气泡收起（动画后卸载）
+    ctrl.enqueue(enc.encode(JSON.stringify({ type: "complete", canvas: { width: 1600, height: 1000, elements: [] }, summary: "画好了" }) + "\n"));
+    ctrl.close();
+    await waitFor(() => expect(screen.queryByTestId("generation-toast")).toBeNull());
+  });
+
+  it("AI 提问带可点击选项：渲染选项按钮，点选即作为回答发送并继续生成", async () => {
+    let ctrl!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({ start(c) { ctrl = c; } });
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(stream, { headers: { "Content-Type": "application/x-ndjson" } }));
+    render(<ChatPanel />);
+    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "画个对比" } });
+    fireEvent.click(screen.getByText("一键生成"));
+    const enc = new TextEncoder();
+    // AI 提问 + 选项
+    ctrl.enqueue(enc.encode(JSON.stringify({ type: "question", question: "你想用哪种图表？", options: ["柱状图", "折线图", "饼图"] }) + "\n"));
+    ctrl.close(); // 提问流结束 → isGenerating 复位，点选项才能发起下一轮
+    await waitFor(() => expect(screen.getByText("你想用哪种图表？")).toBeInTheDocument());
+    expect(screen.getByTestId("question-options")).toBeInTheDocument();
+    expect(screen.getByText("柱状图")).toBeInTheDocument();
+    expect(screen.getByText("折线图")).toBeInTheDocument();
+    expect(screen.getByText("饼图")).toBeInTheDocument();
+    // 点选项 → 作为回答发送（第二次 fetch），生成完成
+    vi.mocked(fetch).mockResolvedValueOnce(
+      mockStream([
+        { type: "complete", canvas: { width: 1600, height: 1000, elements: [] }, summary: "柱状图画好了" },
+      ])
+    );
+    fireEvent.click(screen.getByText("饼图"));
+    await waitFor(() => expect(screen.getByText(/柱状图画好了/)).toBeInTheDocument());
+    // 选项区在回答后消失
+    await waitFor(() => expect(screen.queryByTestId("question-options")).toBeNull());
+  });
+
+  it("A7 对话长期记忆：消息持久化到 localStorage，刷新（重挂载）后恢复", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      mockStream([
+        { type: "complete", canvas: { width: 1600, height: 1000, elements: [] }, summary: "AI 记忆回复" },
+      ])
+    );
+    const pid = useCanvasStore.getState().currentProjectId;
+    const { unmount } = render(<ChatPanel />);
+    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "记住这句话" } });
+    fireEvent.click(screen.getByText("一键生成"));
+    await waitFor(() => expect(screen.getByText(/AI 记忆回复/)).toBeInTheDocument());
+    // 消息已写入 localStorage（按画布键隔离）
+    expect(localStorage.getItem(`chatMessages-${pid}`)).toContain("记住这句话");
+    unmount();
+    // 模拟刷新：重新挂载 ChatPanel → 对话恢复
+    render(<ChatPanel />);
+    expect(screen.getByText("记住这句话")).toBeInTheDocument();
+    expect(screen.getByText(/AI 记忆回复/)).toBeInTheDocument();
+  });
+
+  it("A7 对话按画布隔离：切换画布恢复各自对话，互不污染", async () => {
+    const pidA = useCanvasStore.getState().currentProjectId;
+    // 画布 A：先放一条历史消息
+    localStorage.setItem(`chatMessages-${pidA}`, JSON.stringify([{ role: "user", content: "画布A的旧问题" }]));
+    const { unmount } = render(<ChatPanel />);
+    await waitFor(() => expect(screen.getByText("画布A的旧问题")).toBeInTheDocument());
+    // 新建画布 B：对话应为空
+    useCanvasStore.getState().createProject();
+    await waitFor(() => expect(screen.queryByText("画布A的旧问题")).toBeNull());
+    // 回画布 A：恢复其对话
+    useCanvasStore.getState().setCurrentProject(pidA);
+    await waitFor(() => expect(screen.getByText("画布A的旧问题")).toBeInTheDocument());
+    unmount();
   });
 
   it("用户与 AI 消息气泡都带出现动画类 msg-in", async () => {
@@ -49,6 +134,32 @@ describe("ChatPanel", () => {
     await waitFor(() => expect(screen.getByText(/画好了/)).toBeInTheDocument());
     const aiMsg = screen.getByText(/画好了/).closest("div")!;
     expect(aiMsg.className).toContain("msg-in");
+  });
+
+  it("消息气泡带 hover 复制按钮（group-hover 显示），点击复制内容到剪贴板", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+    vi.mocked(fetch).mockResolvedValueOnce(
+      mockStream([
+        { type: "complete", canvas: { width: 1600, height: 1000, elements: [] }, summary: "AI 回复内容" },
+      ])
+    );
+    render(<ChatPanel />);
+    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "我的问题" } });
+    fireEvent.click(screen.getByText("一键生成"));
+    await waitFor(() => expect(screen.getByText(/AI 回复内容/)).toBeInTheDocument());
+    // 用户消息 + AI 回复各有一个复制按钮；可见性由 CSS group-hover 控制（默认 hidden，hover 显示）
+    const copyBtns = screen.getAllByLabelText("复制消息");
+    expect(copyBtns.length).toBe(2);
+    for (const btn of copyBtns) {
+      expect(btn.className).toContain("group-hover/msg:flex");
+      expect(btn.className).toContain("hidden");
+    }
+    // 点击复制用户消息内容
+    fireEvent.click(copyBtns[0]);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("我的问题"));
+    fireEvent.click(copyBtns[1]);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("AI 回复内容"));
   });
 
   it("NDJSON 事件行被拆成多个网络分块时仍能完整解析", async () => {

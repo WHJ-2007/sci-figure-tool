@@ -87,4 +87,31 @@ describe("buildSystemPrompt 多模式", () => {
     expect(p).toContain("zIndex 数值大者在上");
     expect(p).toContain("头随粗细自动变大");
   });
+
+  it("科研审美体系：分区容器 Zone 策略 + 线条语义（实线/虚线）+ 字体纪律 + 陷阱清单", () => {
+    const p = buildSystemPrompt(["sci"]);
+    expect(p).toContain("分区容器（Zone 策略）");
+    expect(p).toContain("浅色虚线圆角框");
+    expect(p).toContain("颜色表达状态与语义");
+    expect(p).toContain("实线 = 主数据流");
+    expect(p).toContain("虚线（dash 参数");
+    expect(p).toContain("禁止主数据流与辅助流用同一种线");
+    expect(p).toContain("字体纪律");
+    expect(p).toContain("衬线斜体");
+    expect(p).toContain("业余感陷阱");
+    expect(p).toContain("PowerPoint 默认风");
+    // 多模式分支同样包含审美体系
+    const multi = buildSystemPrompt(["sci", "chart"]);
+    expect(multi).toContain("分区容器（Zone 策略）");
+    expect(multi).toContain("业余感陷阱");
+  });
+
+  it("科研审美体系：形状语义（圆角=流程/直角=数据）与构图规则", () => {
+    const p = buildSystemPrompt(["sci"]);
+    expect(p).toContain("形状语义");
+    expect(p).toContain("圆角矩形 = 流程/处理单元");
+    expect(p).toContain("直角矩形 = 数据/张量/存储");
+    expect(p).toContain("构图");
+    expect(p).toContain("对齐隐式网格");
+  });
 });

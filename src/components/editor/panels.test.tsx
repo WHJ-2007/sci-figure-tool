@@ -169,44 +169,6 @@ describe("PropertyPanel", () => {
     expect(screen.getByText(/未选中元素/)).toBeInTheDocument();
   });
 
-  it("对齐水平居中：参考元素不动、其余移到同一 centerX，一步撤销恢复", () => {
-    const a = makeElement("rect", 0, 0, 100, 60);
-    const b = makeElement("rect", 200, 100, 100, 60);
-    useCanvasStore.getState().addElement(a);
-    useCanvasStore.getState().addElement(b);
-    useCanvasStore.getState().setSelection([a.id, b.id]);
-    render(<PropertyPanel />);
-    fireEvent.click(screen.getByText("水平居中"));
-    const [ea, eb] = useCanvasStore.getState().doc.elements;
-    // alignOffsets：doc 顺序首个为参考，仅其余元素偏移到参考的 centerX（a 中心 50）
-    expect(ea.x).toBe(0);
-    expect(ea.y).toBe(0);
-    expect(eb.x).toBe(0); // b 中心 250 → 50，偏移 -200
-    expect(eb.y).toBe(100); // 纵向不受影响
-    useCanvasStore.getState().undo();
-    const [ua, ub] = useCanvasStore.getState().doc.elements;
-    expect(ua.x).toBe(0);
-    expect(ub.x).toBe(200);
-    expect(ub.y).toBe(100);
-  });
-
-  it("横分布：首尾不动，中间等距均匀化", () => {
-    const a = makeElement("rect", 0, 0, 100, 60);
-    const b = makeElement("rect", 200, 0, 100, 60);
-    const c = makeElement("rect", 400, 0, 100, 60);
-    useCanvasStore.getState().addElement(a);
-    useCanvasStore.getState().addElement(b);
-    useCanvasStore.getState().addElement(c);
-    useCanvasStore.getState().setSelection([a.id, b.id, c.id]);
-    render(<PropertyPanel />);
-    fireEvent.click(screen.getByText("横分布"));
-    const [ea, eb, ec] = useCanvasStore.getState().doc.elements;
-    // distributeOffsets：span 400 - 总宽 300 = 100，除以 2 个间距 → 间隙 50
-    expect(ea.x).toBe(0);
-    expect(eb.x).toBe(150);
-    expect(ec.x).toBe(300);
-  });
-
   it("预设科研色板点击设置填充色", () => {
     const a = makeElement("rect", 0, 0, 100, 60);
     useCanvasStore.getState().addElement(a);

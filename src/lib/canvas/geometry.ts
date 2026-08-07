@@ -315,6 +315,11 @@ export function elementBounds(e: CanvasElement): Rect {
     const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
     return { x: minX, y: minY, width: Math.max(maxX - minX, 1), height: Math.max(maxY - minY, 1) };
   }
+  if (e.type === "pen") {
+    const xs = e.points.map((p) => p.x), ys = e.points.map((p) => p.y);
+    const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+    return { x: minX, y: minY, width: Math.max(maxX - minX, 1), height: Math.max(maxY - minY, 1) };
+  }
   if (e.type === "curve") {
     const c = curveControl(e);
     const xs = [e.x, c.x, e.x + e.width];
@@ -339,6 +344,10 @@ export function hitTestElement(e: CanvasElement, p: Point, tolerance = HIT_TOLER
   if (e.type === "polyline") {
     return e.points.some((pt, i) => i > 0 && distToSegment(p, e.points[i - 1], pt) <= tolerance);
   }
+  if (e.type === "pen") {
+    // 手写笔迹是细线，命中范围放宽（与箭头同为逐段测距，但容差更大便于点选）
+    return e.points.some((pt, i) => i > 0 && distToSegment(p, e.points[i - 1], pt) <= tolerance + 6);
+  }
   if (e.type === "curve") {
     const c = curveControl(e);
     return distToQuadCurve(p, { x: e.x, y: e.y }, c, { x: e.x + e.width, y: e.y + e.height }) <= tolerance;
@@ -353,7 +362,10 @@ export function hitTestElement(e: CanvasElement, p: Point, tolerance = HIT_TOLER
       return dx * dx + dy * dy <= 1;
     }
     case "sector": {
-      if (Math.hypot(p.x - e.x, p.y - e.y) > e.radius + tolerance) return false;
+      const dist = Math.hypot(p.x - e.x, p.y - e.y);
+      if (dist > e.radius + tolerance) return false;
+      // 空心扇形：内孔不命中（圆环饼图）
+      if (e.innerRadius && dist < e.innerRadius - tolerance) return false;
       return angleInSector(Math.atan2(p.y - e.y, p.x - e.x), e.startAngle, e.endAngle);
     }
     case "donut": {
@@ -475,6 +487,78 @@ export function snapRect(r: Rect, elements: CanvasElement[], threshold = SNAP_TH
     }
   }
   return { dx: bestDx, dy: bestDy };
+}
+
+// 缩放专用吸附：只吸附正在被拖动的边（handle 含 e/w/s/n），把该边吸到其他元素最近的边缘（阈值内）。
+// 与 snapRect（整体平移吸附）区分——缩放时固定边不动，仅动边吸附，避免整框漂移。
+export function snapResizeRect(r: Rect, handle: string, elements: CanvasElement[], threshold = SNAP_THRESHOLD): Rect {
+  const out = { ...r };
+  // 各活动边候选参考位置（其他元素的上/下/左/右边缘）
+  const edgeRefs = (axis: "x" | "y"): number[] => {
+    const refs: number[] = [];
+    for (const e of elements) {
+      const t = lineBounds(e);
+      refs.push(axis === "x" ? t.x : t.y);
+      refs.push(axis === "x" ? t.x + t.width : t.y + t.height);
+    }
+    return refs;
+  };
+  const snapEdge = (pos: number, axis: "x" | "y"): number => {
+    let best = pos;
+    let bestD = threshold;
+    for (const ref of edgeRefs(axis)) {
+      const d = Math.abs(ref - pos);
+      if (d <= bestD) { bestD = d; best = ref; }
+    }
+    return best;
+  };
+  if (handle.includes("e")) out.width = snapEdge(r.x + r.width, "x") - r.x;
+  if (handle.includes("w")) { const nx = snapEdge(r.x, "x"); out.width = r.x + r.width - nx; out.x = nx; }
+  if (handle.includes("s")) out.height = snapEdge(r.y + r.height, "y") - r.y;
+  if (handle.includes("n")) { const ny = snapEdge(r.y, "y"); out.height = r.y + r.height - ny; out.y = ny; }
+  out.width = Math.max(8, out.width);
+  out.height = Math.max(8, out.height);
+  return out;
+}
+
+// PPT 式对齐参考线：拖动矩形 r 时，与周围元素边缘/中心对齐（阈值内）就返回参考线位置
+// （x = 垂直参考线、y = 水平参考线，世界坐标，供画布绘制非阻塞提示线；无对齐返回 undefined）。
+// 与 snapRect 同源：用户"拖到规整位置"时，既有吸附又有可见提示线，所见即所得。
+export interface AlignGuides { x?: number; y?: number }
+export function alignmentGuides(r: Rect, elements: CanvasElement[], threshold = SNAP_THRESHOLD, movingId?: string): AlignGuides {
+  let gx: number | undefined;
+  let gy: number | undefined;
+  let bestX = threshold;
+  let bestY = threshold;
+  for (const e of elements) {
+    if (e.id === movingId) continue;
+    const t = lineBounds(e);
+    // 垂直候选：左-左、右-右、左-右、右-左、中心对齐
+    const xCands: { pos: number; ref: number }[] = [
+      { pos: r.x, ref: t.x },
+      { pos: r.x + r.width, ref: t.x + t.width },
+      { pos: r.x, ref: t.x + t.width },
+      { pos: r.x + r.width, ref: t.x },
+      { pos: r.x + r.width / 2, ref: t.x + t.width / 2 },
+    ];
+    for (const c of xCands) {
+      const d = Math.abs(c.ref - c.pos);
+      if (d <= bestX) { bestX = d; gx = c.ref; }
+    }
+    // 水平候选：上-上、下-下、上-下、下-上、中心对齐
+    const yCands: { pos: number; ref: number }[] = [
+      { pos: r.y, ref: t.y },
+      { pos: r.y + r.height, ref: t.y + t.height },
+      { pos: r.y, ref: t.y + t.height },
+      { pos: r.y + r.height, ref: t.y },
+      { pos: r.y + r.height / 2, ref: t.y + t.height / 2 },
+    ];
+    for (const c of yCands) {
+      const d = Math.abs(c.ref - c.pos);
+      if (d <= bestY) { bestY = d; gy = c.ref; }
+    }
+  }
+  return { x: gx, y: gy };
 }
 
 // 箭头头尺寸随线宽等比缩放（默认线宽 2 → 10px 头，保持默认观感）；

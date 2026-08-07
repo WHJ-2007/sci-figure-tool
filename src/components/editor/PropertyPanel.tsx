@@ -2,7 +2,8 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
-import { alignOffsets, distributeOffsets, lineBounds } from "@/lib/canvas/geometry";
+import { lineBounds } from "@/lib/canvas/geometry";
+import { adjustSaturation, saturationOf } from "@/lib/canvas/color";
 import type { CanvasElement, ElementType, ElementShadow } from "@/lib/canvas/types";
 import ChartDialog from "./ChartDialog";
 
@@ -56,8 +57,8 @@ function ColorPicker({ value, onChange, ariaLabel }: { value: string; onChange: 
 const TYPE_NAMES: Record<ElementType | "rounded", string> = {
   rect: "矩形", rounded: "圆角矩形", ellipse: "椭圆", triangle: "三角形", diamond: "菱形",
   hexagon: "六边形", star: "五角星", cross: "十字", donut: "圆环", half: "半圆",
-  arrow: "箭头", polyline: "折线", text: "文字", logic: "逻辑节点",
-  curve: "曲线", sector: "扇形", image: "图片",
+  arrow: "箭头", polyline: "折线", text: "文字", logic: "逻辑节点", formula: "公式",
+  curve: "曲线", sector: "扇形", image: "图片", pen: "画笔",
 };
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -135,33 +136,21 @@ export default function PropertyPanel() {
   }
   const one = selected[0];
   const chartId = selected.find((e) => e.chartId)?.chartId;
-
-  const patch = (p: Partial<CanvasElement>) => updateElement(one.id, p);
   const multi = selected.length > 1;
 
-  const applyAlign = (axis: "left" | "right" | "top" | "bottom" | "centerX" | "centerY") => {
-    // 偏移与循环内元素位置取自同一旧 doc 快照：对齐后参考元素位置不再用于其余元素
-    const offs = alignOffsets(selection, doc.elements, axis);
-    // 一次对齐 = 一步撤销：先提交快照，逐元素用 updateElementFast（不入历史）
-    const s = useCanvasStore.getState();
-    s.commitHistory();
-    for (const [id, { dx, dy }] of offs) {
-      const el = doc.elements.find((e) => e.id === id);
-      if (!el) continue;
-      s.updateElementFast(id, { x: el.x + dx, y: el.y + dy });
+  // 多选同类型 → 共享编辑器：patch 应用到全部选中元素（一次历史同步生效，改一个全部跟着变）；
+  // 不同类型多选 → 不展示单元素编辑，由组合卡片接管（下方组合按钮）
+  const sameType = multi && selected.every((e) => e.type === one.type);
+  const patch = (p: Partial<CanvasElement>) => {
+    if (sameType) {
+      useCanvasStore.getState().updateElements(selection, p);
+    } else {
+      updateElement(one.id, p);
     }
   };
-  const applyDistribute = (dir: "horizontal" | "vertical") => {
-    // 偏移与循环内元素位置取自同一旧 doc 快照：避免前一元素位移污染后续偏移
-    const offs = distributeOffsets(selection, doc.elements, dir);
-    const s = useCanvasStore.getState();
-    s.commitHistory();
-    for (const [id, { dx, dy }] of offs) {
-      const el = doc.elements.find((e) => e.id === id);
-      if (!el) continue;
-      s.updateElementFast(id, { x: el.x + dx, y: el.y + dy });
-    }
-  };
+  // 当前选区内是否包含组合对象成员（任一元素带 groupId 即视为组合选中，展示移除组合入口）
+  const groupId = selected.find((e) => e.groupId)?.groupId;
+  const groupMembers = groupId ? doc.elements.filter((e) => e.groupId === groupId) : [];
 
   const isTextLike = one.type === "text" || one.type === "logic";
 
@@ -173,6 +162,9 @@ export default function PropertyPanel() {
         {"text" in one && one.text && <span className="truncate text-xs text-gray-500">{one.text}</span>}
       </header>
 
+      {/* 混合类型多选：不展示单元素编辑卡片，改为组合入口（同类多选才进入共享编辑模式） */}
+      {(!multi || sameType) && (
+        <>
       {/* #87 三独立外观：内部（填充色/填充透明度/圆角）、边框（边框色/线宽/边框透明度/箭头样式）、
           整体（透明度/旋转/阴影）；无填充渲染的线条/位图省略内部卡，文字省略边框卡 */}
       {one.type !== "arrow" && one.type !== "polyline" && one.type !== "curve" && one.type !== "image" && (
@@ -219,6 +211,16 @@ export default function PropertyPanel() {
 
       <Section title="整体">
         <SliderRow label="透明" ariaLabel="透明度" value={one.opacity} min={0} max={1} step={0.05} onChange={(v) => patch({ opacity: v })} />
+        {/* 整体颜色饱和度：同步调整填充色与边框色（保持色相/亮度），直观控制图标鲜艳度 */}
+        <SliderRow
+          label="饱和"
+          ariaLabel="颜色饱和度"
+          value={saturationOf(one.fill)}
+          min={0}
+          max={1}
+          step={0.05}
+          onChange={(v) => patch({ fill: adjustSaturation(one.fill, v), stroke: adjustSaturation(one.stroke, v) })}
+        />
         {one.type !== "curve" && one.type !== "sector" && (
           <SliderRow label="旋转" ariaLabel="旋转" value={one.rotation} min={-360} max={360} step={1} onChange={(v) => patch({ rotation: v })} />
         )}
@@ -260,15 +262,44 @@ export default function PropertyPanel() {
           </label>
         </Section>
       )}
+        </>
+      )}
+
+      {/* 组合对象卡片：已选组合成员 → 显示组合信息 + 移除组合；不同类型多选 → 组合入口 */}
+      <Section title="组合">
+        {groupId ? (
+          <div className="space-y-2">
+            <p className="text-[10px] leading-relaxed text-gray-400">组合对象：{groupMembers.length} 个元素整体选中/移动/编辑</p>
+            <button
+              onClick={() => {
+                useCanvasStore.getState().ungroupElements(groupId);
+                setSelection(groupMembers.map((e) => e.id));
+              }}
+              className="lift rounded-lg border border-red-200/70 bg-red-50/60 px-3 py-1.5 text-sm text-red-600 hover:bg-red-100/60"
+              data-testid="ungroup"
+            >
+              移除组合（拆为独立元素）
+            </button>
+          </div>
+        ) : multi && !sameType ? (
+          <div className="space-y-2">
+            <p className="text-[10px] leading-relaxed text-gray-400">已选 {selected.length} 个不同类型元素，可组合为整体对象（单击任一个即全选、整体移动）</p>
+            <button
+              onClick={() => useCanvasStore.getState().groupElements(selection)}
+              className="lift rounded-lg bg-blue-600/85 px-3 py-1.5 text-sm text-white"
+              data-testid="group"
+            >
+              组合为整体对象
+            </button>
+          </div>
+        ) : (
+          <p className="text-[10px] leading-relaxed text-gray-400">选中多个元素后可组合为整体对象</p>
+        )}
+      </Section>
 
       {multi && (
         <Section title="排列">
           <div className="flex flex-wrap gap-1">
-            {([["left", "左"], ["centerX", "水平居中"], ["right", "右"], ["top", "上"], ["centerY", "垂直居中"], ["bottom", "下"]] as const).map(([a, label]) => (
-              <button key={a} title={label} onClick={() => applyAlign(a)} className="lift rounded-lg border border-white/60 bg-white/70 px-2 py-0.5 text-gray-600 shadow-sm hover:bg-white/90">{label}</button>
-            ))}
-            <button onClick={() => applyDistribute("horizontal")} className="lift rounded-lg border border-white/60 bg-white/70 px-2 py-0.5 text-gray-600 shadow-sm hover:bg-white/90">横分布</button>
-            <button onClick={() => applyDistribute("vertical")} className="lift rounded-lg border border-white/60 bg-white/70 px-2 py-0.5 text-gray-600 shadow-sm hover:bg-white/90">纵分布</button>
             <button onClick={() => useCanvasStore.getState().rotateSelection(-15)} className="lift rounded-lg border border-white/60 bg-white/70 px-2 py-0.5 text-gray-600 shadow-sm hover:bg-white/90">左旋 15°</button>
             <button onClick={() => useCanvasStore.getState().rotateSelection(15)} className="lift rounded-lg border border-white/60 bg-white/70 px-2 py-0.5 text-gray-600 shadow-sm hover:bg-white/90">右旋 15°</button>
           </div>
@@ -367,25 +398,61 @@ export default function PropertyPanel() {
       </Section>
 
       <Section title="操作">
-        <div className="flex gap-2">
+        <div className="grid grid-cols-2 gap-1.5">
           <button
             onClick={() => patch({ flipH: !one.flipH })}
             title="水平镜像"
-            className={`lift rounded-lg border px-2 py-1 text-xs ${one.flipH ? "border-blue-300 bg-blue-100 text-blue-700" : "border-white/60 bg-white/70 text-gray-600 shadow-sm hover:bg-white/90"}`}
+            aria-pressed={one.flipH}
+            className={`lift flex h-8 items-center justify-center gap-1.5 rounded-lg border text-xs font-medium transition-colors ${
+              one.flipH ? "border-blue-300 bg-blue-100 text-blue-700" : "border-white/60 bg-white/70 text-gray-600 shadow-sm hover:bg-white/90"
+            }`}
           >
-            ↔ 水平镜像
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 3v18" />
+              <path d="M5 8l-3 4 3 4" />
+              <path d="M19 8l3 4-3 4" />
+            </svg>
+            水平
           </button>
           <button
             onClick={() => patch({ flipV: !one.flipV })}
             title="垂直镜像"
-            className={`lift rounded-lg border px-2 py-1 text-xs ${one.flipV ? "border-blue-300 bg-blue-100 text-blue-700" : "border-white/60 bg-white/70 text-gray-600 shadow-sm hover:bg-white/90"}`}
+            aria-pressed={one.flipV}
+            className={`lift flex h-8 items-center justify-center gap-1.5 rounded-lg border text-xs font-medium transition-colors ${
+              one.flipV ? "border-blue-300 bg-blue-100 text-blue-700" : "border-white/60 bg-white/70 text-gray-600 shadow-sm hover:bg-white/90"
+            }`}
           >
-            ↕ 垂直镜像
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M3 12h18" />
+              <path d="M8 5l-4 3 4 3" />
+              <path d="M16 5l4 3-4 3" />
+            </svg>
+            垂直
           </button>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={() => deleteElements(selection)} className="lift rounded-lg border border-red-200/70 bg-red-50/70 px-3 py-1 text-red-500 shadow-sm hover:bg-red-100/80">删除</button>
-          <button onClick={() => setSelection([])} className="lift rounded-lg border border-white/60 bg-white/70 px-3 py-1 text-gray-600 shadow-sm hover:bg-white/90">取消选择</button>
+          <button
+            onClick={() => deleteElements(selection)}
+            title="删除选中元素"
+            className="lift flex h-8 items-center justify-center gap-1.5 rounded-lg border border-red-200/70 bg-red-50/70 text-xs font-medium text-red-500 shadow-sm transition-colors hover:bg-red-100/80"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M3 6h18" />
+              <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+              <path d="M10 11v6M14 11v6" />
+            </svg>
+            删除
+          </button>
+          <button
+            onClick={() => setSelection([])}
+            title="取消选择"
+            className="lift flex h-8 items-center justify-center gap-1.5 rounded-lg border border-white/60 bg-white/70 text-xs font-medium text-gray-600 shadow-sm transition-colors hover:bg-white/90"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M9 9l6 6M15 9l-6 6" />
+            </svg>
+            取消
+          </button>
         </div>
       </Section>
 

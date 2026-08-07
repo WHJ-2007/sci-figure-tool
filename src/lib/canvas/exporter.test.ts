@@ -52,6 +52,14 @@ describe("exporter", () => {
     expect(elementToSvg(a)).toContain("<polygon");
   });
 
+  it("elementToSvg 虚线描边输出 stroke-dasharray（辅助流语义）", () => {
+    const a = makeElement("arrow", 0, 0, 100, 50, { dash: [8, 4] });
+    const out = elementToSvg(a);
+    expect(out).toContain('stroke-dasharray="8 4"');
+    // 无 dash 的旧元素不输出该属性，保持兼容
+    expect(elementToSvg(makeElement("rect", 0, 0, 50, 50))).not.toContain("stroke-dasharray");
+  });
+
   it("elementToSvg 箭头样式：none 无箭头多边形，double 两个（终点 + 起点反向）", () => {
     const none = makeElement("arrow", 0, 0, 100, 50, { head: "none" });
     expect(elementToSvg(none)).not.toContain("<polygon");

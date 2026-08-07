@@ -4,11 +4,13 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { makeElement } from "@/lib/canvas/elements";
 import { hitTestElement, logicAnchors, arrowPoints, distToSegment, projectOnSegment, elementBounds } from "@/lib/canvas/geometry";
+import { CANVAS_WIDTH, CANVAS_HEIGHT } from "@/lib/canvas/geometry";
 import { loadImageElement } from "@/lib/canvas/imageImport";
 import type { CanvasElement } from "@/lib/canvas/types";
 import ElementShape from "./ElementShape";
 import SelectionOverlay from "./SelectionOverlay";
 import TextEditor from "./TextEditor";
+import FormulaDialog from "./FormulaDialog";
 import CanvasStyleMenu from "./CanvasStyleMenu";
 import ArrowContextMenu, { type ArrowMenuState } from "./ArrowContextMenu";
 import { usePointerInteraction, type DrawPreview } from "./usePointerInteraction";
@@ -39,6 +41,10 @@ function previewElement(p: DrawPreview): CanvasElement {
     // 线条 = 无头箭头：与成图一致的 arrow + head:"none"
     if (p.type === "line") {
       return makeElement("arrow", first.x, first.y, last.x - first.x, last.y - first.y, { head: "none", strokeOpacity: 0.6 });
+    }
+    if (p.type === "pen") {
+      // 画笔预览：连续点列 + 圆头描边（半透明提示，与成图一致）
+      return makeElement("pen", first.x, first.y, 0, 0, { points: p.points, strokeOpacity: 0.6, strokeWidth: 3, stroke: "#2f2f2f" });
     }
     return makeElement("polyline", first.x, first.y, 0, 0, { points: p.points, strokeOpacity: 0.6 });
   }
@@ -74,7 +80,7 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
     return (clientY - (rect?.top ?? 0) - v.oy) / v.scale;
   }, []);
 
-  const { rubber, preview, panning, anchorHint, movingIds, movePreview, onPointerDown, onPointerMove, onPointerUp, modeRef, startTouchArrow, lastRightClickRef } = usePointerInteraction(worldX, worldY);
+  const { rubber, preview, panning, anchorHint, movingIds, movePreview, alignGuides, arrowMoveAnchors, seamHover, onPointerDown, onPointerMove, onPointerUp, modeRef, startTouchArrow, lastRightClickRef } = usePointerInteraction(worldX, worldY);
 
   // 右键菜单（画布样式 + 箭头折点）：点击菜单外/Escape 关闭
   const [styleMenu, setStyleMenu] = useState<{ x: number; y: number } | null>(null);
@@ -153,7 +159,7 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
         if (hitTestElement(el, p)) {
           // AI 非阻塞：AI 正在编辑的元素锁定——双击不进编辑
           if (s.aiLockedIds.includes(el.id)) return;
-          if (el.type === "text") s.setEditingText(el.id);
+          if (el.type === "text" || el.type === "formula") s.setEditingText(el.id);
           return;
         }
       }
@@ -248,7 +254,7 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
   };
 
   const sorted = [...doc.elements].sort((a, b) => a.zIndex - b.zIndex);
-  const editing = doc.elements.find((e) => e.id === editingText && e.type === "text");
+  const editing = doc.elements.find((e) => e.id === editingText && (e.type === "text" || e.type === "formula"));
   const grad = backgroundGradient(doc.background);
 
   return (
@@ -259,7 +265,7 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
         ref={svgRef}
         width={viewportWidth}
         height={viewportHeight}
-        className={`block ${tool === "select" ? (panning ? "cursor-grabbing" : "cursor-grab") : ""}`}
+        className={`block ${tool === "select" ? (seamHover ? "cursor-ew-resize" : panning ? "cursor-grabbing" : "cursor-grab") : ""}`}
         data-testid="canvas-svg"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -292,6 +298,22 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
             <ElementShape key={e.id} e={e} locked={aiLockedIds.includes(e.id)} ghost={movingIds.includes(e.id)} />
           ))}
           {preview && <ElementShape e={previewElement(preview)} />}
+          {/* 文本框拖动预览：蓝色虚线框显示"松手后框的落点"（拖动过程中即可见） */}
+          {preview && preview.type === "text" && (
+            <rect
+              data-testid="text-preview-box"
+              x={preview.x}
+              y={preview.y}
+              width={preview.width}
+              height={preview.height}
+              fill="#2563eb"
+              fillOpacity={0.06}
+              stroke="#2563eb"
+              strokeWidth={1.5 / view.scale}
+              strokeDasharray={6 / view.scale}
+              pointerEvents="none"
+            />
+          )}
           {/* 拖动预览：虚线框显示"在这里松手元素会落在哪"（含吸附偏移） */}
           {movePreview && (
             <rect
@@ -307,6 +329,17 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
               strokeDasharray={6 / view.scale}
               pointerEvents="none"
             />
+          )}
+          {/* PPT 式对齐参考线：拖动到与其他元素边缘/中心对齐时，非阻塞提示线贯穿画布 */}
+          {alignGuides && (
+            <g pointerEvents="none" data-testid="align-guides">
+              {alignGuides.x !== undefined && (
+                <line x1={alignGuides.x} y1={0} x2={alignGuides.x} y2={CANVAS_HEIGHT} stroke="#f59e0b" strokeWidth={1.5 / view.scale} strokeDasharray={5 / view.scale} />
+              )}
+              {alignGuides.y !== undefined && (
+                <line x1={0} y1={alignGuides.y} x2={CANVAS_WIDTH} y2={alignGuides.y} stroke="#f59e0b" strokeWidth={1.5 / view.scale} strokeDasharray={5 / view.scale} />
+              )}
+            </g>
           )}
           {/* AI 非阻塞：本轮生成中 AI 正在编辑的元素——蓝色虚线呼吸框，不可交互 */}
           {aiLockedIds.map((id) => {
@@ -331,15 +364,17 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
             );
           })}
           <SelectionOverlay scale={view.scale} startTouchArrow={startTouchArrow} />
-          {editing && <TextEditor id={editing.id} x={editing.x} y={editing.y} />}
+          {editing && editing.type === "formula" && <FormulaDialog id={editing.id} onClose={() => useCanvasStore.setState({ editingText: null })} />}
+          {editing && editing.type === "text" && <TextEditor id={editing.id} x={editing.x} y={editing.y} />}
         </g>
         {rubber && (
           <g transform={`translate(${view.ox} ${view.oy}) scale(${view.scale})`}>
             <rect x={rubber.x} y={rubber.y} width={rubber.width} height={rubber.height} fill="#2563eb22" stroke="#2563eb" strokeWidth={1} />
           </g>
         )}
-        {/* 锚点候选层：箭头/线条工具悬停/绘制中，或逻辑触点拉箭头拖动中（preview.type === "arrow"） */}
-        {(tool === "arrow" || tool === "line" || preview?.type === "arrow" || preview?.type === "line") && (
+        {/* 锚点候选层：箭头/线条工具悬停/绘制中、逻辑触点拉箭头拖动中（preview.type === "arrow"），
+            或移动已有箭头时（arrowMoveAnchors 非空）——显示其他逻辑节点的箭头锚点，吸附中的高亮 */}
+        {(tool === "arrow" || tool === "line" || preview?.type === "arrow" || preview?.type === "line" || !!arrowMoveAnchors) && (
           <g transform={`translate(${view.ox} ${view.oy}) scale(${view.scale})`} pointerEvents="none">
             {doc.elements.flatMap((e) => logicAnchors(e)).map((a) => {
               const active = anchorHint?.id === a.id;

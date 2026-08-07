@@ -5,7 +5,7 @@ import { buildTools } from "./tools";
 import { runAgent } from "./agent";
 import { CANVAS_WIDTH } from "../canvas/geometry";
 import { estimateTextSize, logicBoxSize, makeElement } from "../canvas/elements";
-import type { ArrowElement, LogicElement, TextElement } from "../canvas/types";
+import type { ArrowElement, FormulaElement, LogicElement, PolylineElement, RectElement, TextElement } from "../canvas/types";
 
 // vi.mock 工厂被提升执行时引用外部变量会 TDZ 报错，必须用 vi.hoisted 创建 mock；
 // 只替换 generateText，保留真实的 tool（tools.ts 依赖它构造工具对象）
@@ -46,10 +46,11 @@ describe("DraftCanvas", () => {
     const d = new DraftCanvas([]);
     const r = d.createElement({ type: "rect", x: 0, y: 0, width: 100, height: 60 });
     d.flushActivity();
-    d.updateElement({ id: r.id!, patch: { x: 10, y: 20, flipH: true } as unknown as Record<string, unknown> });
+    // flipH/flipV 已在白名单（镜像属性，AI 可调）→ 显示为"水平镜像"；未知名键 "bogus" 不出现
+    d.updateElement({ id: r.id!, patch: { x: 10, y: 20, flipH: true, bogus: 1 } as unknown as Record<string, unknown> });
     const act = d.flushActivity().join("");
-    expect(act).toBe("修改矩形：位置");
-    expect(act).not.toContain("flipH");
+    expect(act).toBe("修改矩形：位置、水平镜像");
+    expect(act).not.toContain("bogus");
   });
 
   it("updateElement 对不存在的 id 报错", () => {
@@ -333,6 +334,97 @@ describe("DraftCanvas", () => {
     expect(l.height).toBeGreaterThanOrEqual(logicBoxSize("预处理", "去噪\n归一化", 14).height);
   });
 
+  it("applyGraph zones 分区容器：浅色虚线圆角框包围成员节点 + 分区标签", () => {
+    const d = new DraftCanvas([]);
+    const r = d.applyGraph({
+      nodes: [
+        { id: "a", text: "输入" },
+        { id: "b", text: "编码" },
+        { id: "c", text: "输出" },
+      ],
+      edges: [{ from: "a", to: "b" }, { from: "b", to: "c" }],
+      zones: [{ label: "预训练阶段", nodeIds: ["a", "b"] }],
+    });
+    expect(r.ok).toBe(true);
+    const els = d.serialize().elements;
+    const zone = els.find((e) => e.type === "rect" && e.dash);
+    expect(zone).toBeDefined();
+    expect(zone!.fillOpacity).toBe(0.5);
+    expect(zone!.dash).toEqual([6, 4]);
+    // 分区框必须包围成员节点（含 24px 内边距）
+    const logics = els.filter((e) => e.type === "logic");
+    const zoneRect = zone!;
+    for (const l of logics.filter((x) => ["输入", "编码"].includes(x.text))) {
+      expect(l.x).toBeGreaterThanOrEqual(zoneRect.x);
+      expect(l.y).toBeGreaterThanOrEqual(zoneRect.y);
+      expect(l.x + l.width).toBeLessThanOrEqual(zoneRect.x + zoneRect.width);
+      expect(l.y + l.height).toBeLessThanOrEqual(zoneRect.y + zoneRect.height);
+    }
+    // 分区标签文字
+    const label = els.find((e) => e.type === "text" && e.text === "预训练阶段") as TextElement | undefined;
+    expect(label).toBeDefined();
+    expect(label!.bold).toBe(true);
+  });
+
+  it("applyGraph zones 引用不存在的节点时报错且不创建任何元素", () => {
+    const d = new DraftCanvas([]);
+    const r = d.applyGraph({
+      nodes: [{ id: "a", text: "A" }],
+      edges: [],
+      zones: [{ label: "坏分区", nodeIds: ["a", "missing"] }],
+    });
+    expect(r.ok).toBe(false);
+    expect(d.serialize().elements).toHaveLength(0);
+  });
+
+  it("createElement 支持 dash 虚线描边并透传到元素", () => {
+    const d = new DraftCanvas([]);
+    const r = d.createElement({ type: "rect", x: 0, y: 0, width: 100, height: 60, dash: [8, 4] });
+    expect(r.ok).toBe(true);
+    expect(d.serialize().elements[0]).toMatchObject({ type: "rect", dash: [8, 4] });
+    // 箭头虚线（辅助流语义）
+    const a = d.createElement({ type: "arrow", x: 10, y: 10, width: 80, height: 40, dash: [6, 3] });
+    expect(a.ok).toBe(true);
+    expect(d.serialize().elements.some((e) => e.type === "arrow" && e.dash)).toBe(true);
+  });
+
+  it("connectElements 支持 dash 虚线箭头（跳连/梯度回传）", () => {
+    const d = new DraftCanvas([]);
+    const src = d.createElement({ type: "rect", x: 0, y: 0, width: 60, height: 40 });
+    const tgt = d.createElement({ type: "rect", x: 200, y: 0, width: 60, height: 40 });
+    const r = d.connectElements({ sourceId: src.id!, targetId: tgt.id!, dash: [8, 4] });
+    expect(r.ok).toBe(true);
+    const arrow = d.serialize().elements.find((e) => e.type === "arrow")!;
+    expect(arrow.dash).toEqual([8, 4]);
+    expect(arrow.startId).toBe(src.id);
+    expect(arrow.endId).toBe(tgt.id);
+  });
+
+  it("updateElement 支持 dash 属性（白名单含 dash）", () => {
+    const d = new DraftCanvas([]);
+    const r = d.createElement({ type: "rect", x: 0, y: 0, width: 100, height: 60 });
+    const u = d.updateElement({ id: r.id!, patch: { dash: [5, 5] } });
+    expect(u.ok).toBe(true);
+    expect(d.serialize().elements[0]).toMatchObject({ dash: [5, 5] });
+  });
+
+  it("createElement 支持 formula 公式元素（LaTeX 源码 + 衬线斜体），updateElement 重算宽高", () => {
+    const d = new DraftCanvas([]);
+    const r = d.createElement({ type: "formula", x: 100, y: 100, width: 80, height: 40, text: "E = mc^2" });
+    expect(r.ok).toBe(true);
+    const el = d.serialize().elements[0] as FormulaElement;
+    expect(el.type).toBe("formula");
+    expect(el.text).toBe("E = mc^2");
+    expect(el.italic).toBe(true);
+    expect(el.fontFamily).toContain("serif");
+    // 更新公式内容后宽度随渲染文本（latexToUnicode 后）重算
+    const u = d.updateElement({ id: r.id!, patch: { text: "\\frac{a}{b}" } });
+    expect(u.ok).toBe(true);
+    const el2 = d.serialize().elements[0] as FormulaElement;
+    expect(el2.text).toBe("\\frac{a}{b}");
+    expect(el2.width).toBeGreaterThan(0);
+  });
+
   it("applyMindMap 生成中心主题 + 一级分支 + 曲线 + 子分支关键词", () => {
     const d = new DraftCanvas([]);
     const r = d.applyMindMap({
@@ -409,6 +501,48 @@ describe("DraftCanvas", () => {
     expect(ser.charts && Object.keys(ser.charts)).toHaveLength(1);
     expect(ser.charts!["c-"] !== undefined).toBe(false); // chartId 随机，断言存在即可
     expect(Object.values(ser.charts!)[0].type).toBe("bar");
+  });
+
+  it("createElement 支持 rx 圆角弧度 / 箭头折点 / 折线点列，updateElement 白名单含 rx/flip", () => {
+    const d = new DraftCanvas([]);
+    // 圆角矩形：rx 透传
+    const r1 = d.createElement({ type: "rect", x: 0, y: 0, width: 100, height: 60, rx: 12 });
+    expect(r1.ok).toBe(true);
+    const rect = d.serialize().elements[0] as RectElement;
+    expect(rect.rx).toBe(12);
+    // 箭头折点透传（相对坐标）
+    const r2 = d.createElement({ type: "arrow", x: 10, y: 10, width: 80, height: 40, midPoints: [{ x: 40, y: -10 }, { x: 60, y: 30, smooth: true }] });
+    expect(r2.ok).toBe(true);
+    const arrow = d.serialize().elements.find((e) => e.type === "arrow") as ArrowElement;
+    expect(arrow.midPoints).toEqual([{ x: 40, y: -10 }, { x: 60, y: 30, smooth: true }]);
+    // 折线点列透传（世界坐标）
+    const r3 = d.createElement({ type: "polyline", x: 0, y: 0, width: 0, height: 0, points: [{ x: 0, y: 0 }, { x: 50, y: 80 }, { x: 100, y: 20 }] });
+    expect(r3.ok).toBe(true);
+    const pl = d.serialize().elements.find((e) => e.type === "polyline") as PolylineElement;
+    expect(pl.points).toEqual([{ x: 0, y: 0 }, { x: 50, y: 80 }, { x: 100, y: 20 }]);
+    // updateElement：rx / flipH / flipV 可改（白名单已含）
+    const u = d.updateElement({ id: rect.id, patch: { rx: 4, flipH: true } });
+    expect(u.ok).toBe(true);
+    expect(d.serialize().elements[0]).toMatchObject({ rx: 4, flipH: true });
+  });
+
+  it("applyChart 多图自动平铺：第二张图表自动分配网格位置（0.5 缩放 + 平移），不与第一张重叠", () => {
+    const d = new DraftCanvas([]);
+    const r1 = d.applyChart({ type: "bar", title: "图一", data: [{ label: "A", value: 1 }, { label: "B", value: 2 }] });
+    expect(r1.ok).toBe(true);
+    const r2 = d.applyChart({ type: "pie", title: "图二", data: [{ label: "X", value: 3 }, { label: "Y", value: 1 }] });
+    expect(r2.ok).toBe(true);
+    const els = d.serialize().elements;
+    // 两张图共登记 2 个 charts；第二张带 at 平铺参数
+    const charts = Object.values(d.serialize().charts ?? {});
+    expect(charts).toHaveLength(2);
+    expect(charts[1].at).toBeDefined();
+    expect(charts[1].at!.scale).toBe(0.5);
+    // 两张图的标题文字 x 坐标错开（不叠在默认区域中心）
+    const titles = els.filter((e) => e.type === "text" && (e.text === "图一" || e.text === "图二"));
+    expect(titles).toHaveLength(2);
+    const xs = titles.map((t) => t.x);
+    expect(new Set(xs).size).toBe(2); // x 不相同 = 已错开
   });
 
   it("applyChart 校验：空数据 / 负值 / 过多 / 未知类型报错且不创建元素", () => {
@@ -517,12 +651,16 @@ describe("DraftCanvas onChange", () => {
     d.clear();
     expect(onChange).toHaveBeenCalledTimes(3);
     expect(d.pending).toHaveLength(0);
-    // 非空画布 clear 直接清空并触发 onChange（不再挂起确认）
+    // 非空画布 clear 挂起确认：不立即清空、不触发 onChange，确认后才清空
     d.createElement({ type: "ellipse", x: 0, y: 0, width: 40, height: 30 });
     expect(onChange).toHaveBeenCalledTimes(4);
     d.clear();
+    expect(d.pending.map((p) => p.id)).toEqual(["clear-canvas"]);
+    expect(onChange).toHaveBeenCalledTimes(4); // 未确认不触发
+    expect(d.serialize().elements).toHaveLength(1);
+    d.pending[0].apply();
     expect(onChange).toHaveBeenCalledTimes(5);
-    expect(d.pending).toHaveLength(0);
+    expect(d.serialize().elements).toHaveLength(0);
   });
 });
 
@@ -556,16 +694,28 @@ describe("DraftCanvas 破坏性操作确认（仅画布级）", () => {
     expect(d.flushActivity().join("")).toContain("已是空的");
   });
 
-  it("clear 直接清空不挂起；newCanvas 挂起等确认", () => {
+  it("clear 挂起确认（用户允许后才清空）；newCanvas 挂起等确认", () => {
     const d = new DraftCanvas([]);
     d.createElement({ type: "rect", x: 0, y: 0, width: 100, height: 60 });
     d.clear();
-    expect(d.pending).toHaveLength(0);
-    expect(d.serialize().elements).toHaveLength(0);
-    d.newCanvas();
-    expect(d.pending.map((p) => p.id)).toEqual(["new-canvas"]);
+    expect(d.pending.map((p) => p.id)).toEqual(["clear-canvas"]);
+    // 未确认：画布内容保留
+    expect(d.serialize().elements).toHaveLength(1);
     d.pending[0].apply();
     expect(d.serialize().elements).toHaveLength(0);
+    d.newCanvas();
+    // clear 的挂起条目 apply 后仍留在 pending 列表（会话层管理删除），newCanvas 追加其后
+    expect(d.pending.map((p) => p.id)).toContain("new-canvas");
+    d.pending[d.pending.length - 1].apply();
+    expect(d.serialize().elements).toHaveLength(0);
+  });
+
+  it("clear 重复挂起去重：重复调用只挂起一次", () => {
+    const d = new DraftCanvas([]);
+    d.createElement({ type: "rect", x: 0, y: 0, width: 100, height: 60 });
+    d.clear();
+    expect(d.clear().note).toMatch(/已在等待确认/);
+    expect(d.pending.map((p) => p.id)).toEqual(["clear-canvas"]);
   });
 
   it("重复挂起去重：newCanvas 重复调用只挂起一次", () => {
@@ -611,32 +761,51 @@ describe("runAgent", () => {
     expect(events[events.length - 1].type).toBe("complete");
   });
 
-  it("newCanvas 工具挂起：主生成以 confirm-request 收尾，画布保持原样", async () => {
+  it("readCanvas 跨画布读取：返回其他画布摘要并触发 referenced 事件（不切换画布）", async () => {
     mockGenerateText.mockImplementation(async ({ tools, onStepFinish }: any) => {
-      await (tools as any).createElement.execute({ type: "rect", x: 0, y: 0, width: 50, height: 30 });
-      await (tools as any).newCanvas.execute({});
-      await (tools as any).createElement.execute({ type: "ellipse", x: 10, y: 10, width: 40, height: 30 });
-      onStepFinish?.({ toolResults: [] });
-      return { text: "已新建画布" };
+      const res = await (tools as any).readCanvas.execute({ canvasName: "画布 2" });
+      expect(res).toContain("画布 2");
+      expect(res).toContain("rect");
+      onStepFinish?.({ toolResults: [{ toolName: "readCanvas", result: res }] });
+      return { text: "参考了画布 2 的布局" };
     });
     const events: any[] = [];
     await runAgent({
-      messages: [{ role: "user", content: "换个画布画" }],
+      messages: [{ role: "user", content: "参考画布 2 的风格画一张" }],
       canvas: { width: 1600, height: 1000, elements: [] },
       apiKey: "sk-test",
       baseURL: "https://api.deepseek.com",
       model: "deepseek-chat",
+      canvases: [{ id: "p2", name: "画布 2", elements: [{ type: "rect", x: 0, y: 0, width: 100, height: 60 }] }],
       onEvent: (ev) => events.push(ev),
     });
-    // 挂起的 newCanvas 不再直接清空草稿：主生成以 confirm-request 收尾，无 complete/new-canvas 事件
-    const req = events.find((e) => e.type === "confirm-request");
-    expect(req).toBeTruthy();
-    expect(req.pending.map((p: any) => p.id)).toEqual(["new-canvas"]);
-    expect(events.some((e) => e.type === "complete")).toBe(false);
+    // 读取其他画布 → referenced 事件（前端显示「引用了…画布」图标）
+    expect(events.some((e) => e.type === "referenced" && e.canvasName === "画布 2")).toBe(true);
+    // 不切换画布：无 new-canvas 事件，主生成 normal complete 收尾
     expect(events.some((e) => e.type === "new-canvas")).toBe(false);
-    // 挂起未执行：rect 与 ellipse 都留在原草稿
-    const snaps = events.filter((e) => e.type === "snapshot");
-    expect(snaps[snaps.length - 1].canvas.elements).toHaveLength(2);
+    const complete = events.find((e) => e.type === "complete");
+    expect(complete).toBeTruthy();
+  });
+
+  it("readCanvas 未找到画布时返回可用画布列表提示", async () => {
+    mockGenerateText.mockImplementation(async ({ tools, onStepFinish }: any) => {
+      const res = await (tools as any).readCanvas.execute({ canvasName: "不存在的画布" });
+      expect(res).toContain("未找到画布");
+      onStepFinish?.({ toolResults: [] });
+      return { text: "没找到" };
+    });
+    const events: any[] = [];
+    await runAgent({
+      messages: [{ role: "user", content: "看看别的画布" }],
+      canvas: { width: 1600, height: 1000, elements: [] },
+      apiKey: "sk-test",
+      baseURL: "https://api.deepseek.com",
+      model: "deepseek-chat",
+      canvases: [{ id: "p1", name: "画布 1", elements: [] }],
+      onEvent: (ev) => events.push(ev),
+    });
+    // 未读取成功：不触发 referenced
+    expect(events.some((e) => e.type === "referenced")).toBe(false);
   });
 
   it("删除用户已有元素直接删除：complete 收尾，元素已移除", async () => {

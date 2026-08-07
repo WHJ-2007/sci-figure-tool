@@ -7,10 +7,13 @@ import type { CanvasDocument } from "@/lib/canvas/types";
 import type { AgentEvent } from "@/lib/ai/agent";
 import type { AIMode } from "@/lib/ai/prompt";
 import ConfirmDialog from "./ConfirmDialog";
+import GenerationToast from "./GenerationToast";
 
 interface Msg {
   role: "user" | "assistant";
   content: string;
+  // 跨画布引用：AI 调用 readCanvas 读取了其他画布时打标，气泡下方显示「引用了…画布」图标
+  referenced?: string;
 }
 
 // 确认流事件：/api/chat/confirm 回发的二次流（AgentEvent 联合类型不含 confirm-done）
@@ -40,11 +43,73 @@ export default function ChatPanel() {
   const [confirmBusy, setConfirmBusy] = useState(false);
   // A3 提问澄清：AI 的 askUser 问题（问题已作为 assistant 消息入 messages，此状态驱动输入框提示/聚焦/副标）
   const [waitingAnswer, setWaitingAnswer] = useState<string | null>(null);
+  // A9 可点击选项：当前等待回答的问题的可点击选项（点选即作为回答发送）
+  const [questionOptions, setQuestionOptions] = useState<string[] | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   // A5 画布守卫：记录本轮请求对应的画布 id，生成中切换画布 → 后续事件全部丢弃
   const requestProjectIdRef = useRef<string | null>(null);
   // AI 发起的画布切换（new-canvas 事件）：不当作"用户切画布"，对话会话保留
   const aiCanvasSwitchRef = useRef(false);
+  // A7 对话长期记忆：消息按画布持久化（localStorage），刷新/关页/切换画布后恢复
+  const chatKey = (pid: string) => `chatMessages-${pid}`;
+  const messagesRef = useRef<Msg[]>([]);
+  const lastProjectRef = useRef<string | null>(null);
+  // 本轮 AI 引用的其他画布名（referenced 事件收集，追加 assistant 消息时打标）
+  const referencedRef = useRef<string[]>([]);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+  // 消息变化即保存到当前画布的存档（仅当消息确实属于当前画布）；同时写回当前对话并持久化（刷新恢复）
+  useEffect(() => {
+    if (lastProjectRef.current !== currentProjectId) return;
+    localStorage.setItem(chatKey(currentProjectId), JSON.stringify(messages));
+    threadsRef.current = threadsRef.current.map((t) => (t.id === activeThreadIdRef.current ? { ...t, messages } : t));
+    setThreads([...threadsRef.current]);
+    persistThreads(currentProjectId);
+  }, [messages, currentProjectId]);
+
+  // A8 单画布多对话：每个画布有多个对话（threads），标签页切换/新建/删除/右键重命名；
+  // 持久化到 chatThreads-{projectId}（兼容旧 chatMessages-{projectId} 单对话格式，加载时自动迁移）
+  interface Thread { id: string; name: string; messages: Msg[] }
+  const threadsKey = (pid: string) => `chatThreads-${pid}`;
+  const [threads, setThreads] = useState<Thread[]>([]);
+  const [activeThreadId, setActiveThreadId] = useState("");
+  const threadsRef = useRef<Thread[]>([]);
+  const activeThreadIdRef = useRef("");
+  useEffect(() => { threadsRef.current = threads; }, [threads]);
+  useEffect(() => { activeThreadIdRef.current = activeThreadId; }, [activeThreadId]);
+
+  const persistThreads = (pid: string) => {
+    localStorage.setItem(threadsKey(pid), JSON.stringify({ threads: threadsRef.current, activeId: activeThreadIdRef.current }));
+  };
+  // 加载画布对话：优先多对话格式，缺失则迁移旧 chatMessages 单对话（保持刷新恢复兼容）
+  const loadThreadsFor = (pid: string): { threads: Thread[]; activeId: string } => {
+    const validMsg = (m: unknown): m is Msg => {
+      const x = m as Msg;
+      return !!x && (x.role === "user" || x.role === "assistant") && typeof x.content === "string";
+    };
+    try {
+      const raw = localStorage.getItem(threadsKey(pid));
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && Array.isArray(parsed.threads)) {
+          const t = parsed.threads
+            .filter((x: unknown) => { const th = x as Thread; return th && typeof th.id === "string" && Array.isArray(th.messages); })
+            .map((x: Thread) => ({ id: x.id, name: typeof x.name === "string" ? x.name : "对话", messages: x.messages.filter(validMsg) }));
+          const activeId = t.some((x: Thread) => x.id === parsed.activeId) ? String(parsed.activeId) : t[0]?.id ?? "";
+          if (t.length > 0) return { threads: t, activeId };
+        }
+      }
+    } catch { /* 走旧格式迁移 */ }
+    let msgs: Msg[] = [];
+    try {
+      const raw = localStorage.getItem(chatKey(pid));
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) msgs = parsed.filter(validMsg);
+      }
+    } catch { msgs = []; }
+    const t: Thread = { id: `t-${pid}-default`, name: "对话 1", messages: msgs };
+    return { threads: [t], activeId: t.id };
+  };
 
   // 模式选择按画布持久化：切换画布/刷新恢复（新格式 JSON 数组；旧格式字符串 → 单模式；自动 = "auto"）
   useEffect(() => {
@@ -62,19 +127,93 @@ export default function ChatPanel() {
     setModes([]);
   }, [currentProjectId]);
 
-  // A5 画布守卫：用户切换画布 → 清空对话会话（消息/输入/错误/确认框）；
-  // AI 的 new-canvas 事件也会改 currentProjectId，但那是同一会话的延续，不清空
+  // A5 画布守卫 + A7/A8 对话记忆：用户切换画布 → 保存旧画布对话、加载新画布对话（不再无脑清空）；
+  // AI 的 new-canvas 事件也是同会话延续（对话保留并继续存到新画布）
   useEffect(() => {
     if (aiCanvasSwitchRef.current) {
       aiCanvasSwitchRef.current = false;
+      lastProjectRef.current = currentProjectId;
+      // 把当前消息写回当前对话，再持久化整组对话
+      threadsRef.current = threadsRef.current.map((t) => (t.id === activeThreadIdRef.current ? { ...t, messages: messagesRef.current } : t));
+      persistThreads(currentProjectId);
+      localStorage.setItem(chatKey(currentProjectId), JSON.stringify(messagesRef.current));
       return;
     }
-    setMessages([]);
+    // 切走前保存旧画布对话
+    if (lastProjectRef.current && lastProjectRef.current !== currentProjectId) {
+      threadsRef.current = threadsRef.current.map((t) => (t.id === activeThreadIdRef.current ? { ...t, messages: messagesRef.current } : t));
+      persistThreads(lastProjectRef.current);
+      localStorage.setItem(chatKey(lastProjectRef.current), JSON.stringify(messagesRef.current));
+    }
+    // 加载新画布已保存的对话（多对话格式优先，缺失则迁移旧单对话格式）
+    const loaded = loadThreadsFor(currentProjectId);
+    threadsRef.current = loaded.threads;
+    activeThreadIdRef.current = loaded.activeId;
+    setThreads(loaded.threads);
+    setActiveThreadId(loaded.activeId);
+    const msgs = loaded.threads.find((t) => t.id === loaded.activeId)?.messages ?? [];
+    lastProjectRef.current = currentProjectId;
+    messagesRef.current = msgs;
+    setMessages(msgs);
     setInput("");
     setError("");
     setConfirmReq(null);
     setWaitingAnswer(null);
   }, [currentProjectId]);
+
+  // 对话操作：切换 / 新建 / 删除 / 重命名（标签页）
+  const switchThread = (id: string) => {
+    if (id === activeThreadIdRef.current) return;
+    threadsRef.current = threadsRef.current.map((t) => (t.id === activeThreadIdRef.current ? { ...t, messages: messagesRef.current } : t));
+    activeThreadIdRef.current = id;
+    setActiveThreadId(id);
+    const msgs = threadsRef.current.find((t) => t.id === id)?.messages ?? [];
+    messagesRef.current = msgs;
+    setMessages(msgs);
+    setInput("");
+    setError("");
+    setConfirmReq(null);
+    setWaitingAnswer(null);
+    persistThreads(currentProjectId);
+  };
+  const newThread = () => {
+    const id = `t-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const name = `对话 ${threadsRef.current.length + 1}`;
+    threadsRef.current = threadsRef.current.map((t) => (t.id === activeThreadIdRef.current ? { ...t, messages: messagesRef.current } : t));
+    threadsRef.current.push({ id, name, messages: [] });
+    activeThreadIdRef.current = id;
+    setThreads([...threadsRef.current]);
+    setActiveThreadId(id);
+    messagesRef.current = [];
+    setMessages([]);
+    setInput("");
+    setError("");
+    setConfirmReq(null);
+    setWaitingAnswer(null);
+    persistThreads(currentProjectId);
+  };
+  const deleteThread = (id: string) => {
+    if (threadsRef.current.length <= 1) return; // 至少保留一个对话
+    threadsRef.current = threadsRef.current.filter((t) => t.id !== id);
+    setThreads([...threadsRef.current]);
+    if (activeThreadIdRef.current === id) {
+      const next = threadsRef.current[0];
+      activeThreadIdRef.current = next.id;
+      setActiveThreadId(next.id);
+      messagesRef.current = next.messages;
+      setMessages(next.messages);
+    }
+    persistThreads(currentProjectId);
+  };
+  const renameThread = (id: string) => {
+    const t = threadsRef.current.find((x) => x.id === id);
+    const name = window.prompt("对话名称", t?.name ?? "");
+    if (name && name.trim()) {
+      threadsRef.current = threadsRef.current.map((x) => (x.id === id ? { ...x, name: name.trim() } : x));
+      setThreads([...threadsRef.current]);
+      persistThreads(currentProjectId);
+    }
+  };
 
   const selectAuto = () => {
     setAuto(true);
@@ -100,21 +239,19 @@ export default function ChatPanel() {
     if (waitingAnswer) inputRef.current?.focus();
   }, [waitingAnswer]);
 
-  const send = async () => {
-    const text = input.trim();
-    // 守卫用 getState()：避免订阅闭包在极端时序下被旧请求的 finally 误解锁；
-    // 仍有未解决的确认项时禁止发起新生成，避免覆盖丢弃；pending 清空后 confirmReq 会被置 null，
-    // 但保险起见同时校验 pending.length（防残留真值死锁聊天）
-    if (!text || useCanvasStore.getState().isGenerating || (confirmReq && confirmReq.pending.length > 0)) return;
+  // 主生成流程：给定完整消息列表发起 /api/chat 流式生成（send 与"确认拒绝/会话过期后自动续跑"共用）
+  const runGeneration = async (next: Msg[]) => {
+    if (useCanvasStore.getState().isGenerating) return;
     // 提问澄清的回答复用主流程：问题已在 messages 中，此处只追加回答，上下文完整 AI 会继续执行
     setWaitingAnswer(null);
+    setQuestionOptions(null);
+    referencedRef.current = [];
     const s = useCanvasStore.getState();
     requestProjectIdRef.current = s.currentProjectId;
     const settings = loadSettings();
     // 生成前画布作为撤销基线：snapshot 中间态不入栈，生成完成后整体一步 undo 回到该基线；
     // new-canvas 事件后基线重置为新画布的空态
     let baseline = structuredClone(s.doc);
-    const next = [...messages, { role: "user" as const, content: text }];
     setMessages(next);
     setInput("");
     setActivity([]);
@@ -134,6 +271,26 @@ export default function ChatPanel() {
           model: settings.model,
           tavilyApiKey: settings.tavilyApiKey ?? "",
           modes: auto ? null : modes,
+          // 其他画布摘要（跨画布读取/参考用，不含位图 dataURL）：AI 可引用但绝不切换画布
+          canvases: useCanvasStore
+            .getState()
+            .projects.filter((p) => p.id !== s.currentProjectId)
+            .map((p) => ({
+              id: p.id,
+              name: p.name,
+              elements: p.doc.elements.map((e) => ({
+                type: e.type,
+                x: e.x,
+                y: e.y,
+                width: e.width,
+                height: e.height,
+                text: "text" in e ? (e as { text?: string }).text : undefined,
+                body: "body" in e ? (e as { body?: string }).body : undefined,
+                fill: e.fill,
+                stroke: e.stroke,
+                head: e.type === "arrow" ? (e as { head?: string }).head : undefined,
+              })),
+            })),
         }),
       });
       if (!res.ok) {
@@ -197,15 +354,27 @@ export default function ChatPanel() {
               // 问题作为 assistant 消息入对话，等待用户回答后走主流程继续生成
               if (lastSnapshot) useCanvasStore.getState().applyAISnapshot(baseline);
               lastSnapshot = null;
-              setMessages((m) => [...m, { role: "assistant", content: ev.question }]);
+              const refs = referencedRef.current;
+              referencedRef.current = [];
+              setMessages((m) => [...m, { role: "assistant", content: ev.question, referenced: refs.length ? refs.join("、") : undefined }]);
               setWaitingAnswer(ev.question);
+              // A9 可点击选项：AI 提供选项时渲染可点击按钮，点选即作为回答发送
+              setQuestionOptions(ev.options && ev.options.length > 0 ? ev.options : null);
             } else if (ev.type === "confirm-request") {
               // 生成主体结束：把最后快照作为最终结果入历史（一步 undo 回到生成前），再弹确认框；
               // AI 文字回复先入对话（与 complete 分支的 summary 行为一致，空串不产生气泡）
               if (lastSnapshot) useCanvasStore.getState().applyAIResult(lastSnapshot, baseline);
-              if (ev.summary) setMessages((m) => [...m, { role: "assistant", content: ev.summary }]);
+              if (ev.summary) {
+                const refs = referencedRef.current;
+                referencedRef.current = [];
+                setMessages((m) => [...m, { role: "assistant", content: ev.summary, referenced: refs.length ? refs.join("、") : undefined }]);
+              }
               setConfirmReq({ sessionId: ev.sessionId, summary: ev.summary, pending: ev.pending });
             } else if (ev.type === "error") setError(ev.message);
+            else if (ev.type === "referenced") {
+              // 跨画布引用：记录画布名，追加 assistant 消息时打标（气泡下方显示「引用了…画布」）
+              referencedRef.current = [...referencedRef.current, ev.canvasName];
+            }
           }
           nl = buf.indexOf("\n");
         }
@@ -215,7 +384,11 @@ export default function ChatPanel() {
         setError("画布已切换，本次生成已丢弃");
       } else if (finalDoc) {
         useCanvasStore.getState().applyAIResult(finalDoc, baseline);
-        if (summary) setMessages((m) => [...m, { role: "assistant", content: summary }]);
+        if (summary) {
+          const refs = referencedRef.current;
+          referencedRef.current = [];
+          setMessages((m) => [...m, { role: "assistant", content: summary, referenced: refs.length ? refs.join("、") : undefined }]);
+        }
       }
     } catch (err) {
       setError("生成中断：" + String(err));
@@ -225,6 +398,19 @@ export default function ChatPanel() {
       useCanvasStore.getState().setAiBaseline([]);
       setGenerating(false);
     }
+  };
+
+  // 用户发送：读输入框 → 追加用户消息 → 走主生成流程；仍有未解决的确认项时禁止发起新生成
+  const send = async () => {
+    const text = input.trim();
+    if (!text || useCanvasStore.getState().isGenerating || (confirmReq && confirmReq.pending.length > 0)) return;
+    await runGeneration([...messages, { role: "user" as const, content: text }]);
+  };
+
+  // A9 可点击选项：点选选项即作为回答发送（问题已在 messages 中，追加选项文本后继续生成）
+  const answerOption = async (opt: string) => {
+    if (useCanvasStore.getState().isGenerating || (confirmReq && confirmReq.pending.length > 0)) return;
+    await runGeneration([...messages, { role: "user" as const, content: opt }]);
   };
 
   // 破坏性操作逐条确认：POST /api/chat/confirm 二次流应用已确认的操作，快照回发合并进画布
@@ -240,9 +426,13 @@ export default function ChatPanel() {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
+        // 会话过期(404)等失败：不能只报错死路——通知 AI 让它可以继续处理（重新发起或询问用户），否则用户只能手动重发
         setError(data.error ?? `确认失败 (${res.status})`);
-        // 失败必须关闭对话框：会话过期(404)等场景下残留 confirmReq 会让用户永远卡在弹窗，且 send() 守卫永久拦截后续生成
         setConfirmReq(null);
+        const notice: Msg = { role: "user", content: `（系统提示：确认会话已失效（${data.error ?? "会话过期"}），之前请求的操作未能执行。请根据情况重新发起操作，或询问用户希望如何处理。）` };
+        const next = [...messages, notice];
+        setMessages(next);
+        void runGeneration(next);
         return;
       }
       const reader = res.body!.getReader();
@@ -289,6 +479,14 @@ export default function ChatPanel() {
         const rest = c.pending.filter((p) => p.id !== id);
         return rest.length > 0 ? { ...c, pending: rest } : null;
       });
+      // 用户拒绝（不允许）→ 让 AI 知道并继续：追加系统提示、自动续跑，AI 可据此调整方案或继续向用户提问，
+      // 而不是直接关闭 AI 会话（"所有的请求如果不允许，应该让 AI 知道"）
+      if (!approved) {
+        const notice: Msg = { role: "user", content: `（系统提示：用户拒绝了操作「${desc}」。请根据情况调整方案：可以询问用户希望如何处理，或改用其他替代方案；不要重复执行已被拒绝的操作。）` };
+        const next = [...messages, { role: "assistant" as const, content: `已取消：${desc}` }, notice];
+        setMessages(next);
+        void runGeneration(next);
+      }
     } catch (err) {
       setError("确认失败：" + String(err));
       setConfirmReq(null);
@@ -299,6 +497,50 @@ export default function ChatPanel() {
 
   return (
     <div className="flex h-full flex-col bg-transparent">
+      {/* 对话标签页：多对话切换 / 新建 / 删除 / 右键重命名（单画布内） */}
+      <div className="border-b border-white/50 px-2 py-1.5">
+        <div className="flex items-center gap-1 overflow-x-auto">
+          {threads.map((t) => {
+            const active = t.id === activeThreadId;
+            return (
+              <div
+                key={t.id}
+                data-testid="chat-thread-tab"
+                data-active={active ? "true" : undefined}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  renameThread(t.id);
+                }}
+                className={`flex h-7 shrink-0 items-center gap-1 rounded-lg border px-2 text-xs ${
+                  active ? "border-blue-400 bg-blue-600 text-white" : "border-white/60 bg-white/40 text-gray-600 hover:bg-white/70"
+                }`}
+              >
+                <button
+                  title={`切换到 ${t.name}`}
+                  onClick={() => switchThread(t.id)}
+                  className={`lift max-w-[6rem] truncate ${active ? "" : "hover:text-blue-600"}`}
+                >
+                  {t.name}
+                </button>
+                <button
+                  title={`删除对话 ${t.name}`}
+                  onClick={() => deleteThread(t.id)}
+                  className="lift flex h-4 w-4 shrink-0 items-center justify-center rounded text-xs leading-none hover:bg-red-500 hover:text-white"
+                >
+                  ×
+                </button>
+              </div>
+            );
+          })}
+          <button
+            title="新建对话"
+            onClick={newThread}
+            className="lift flex h-7 w-7 shrink-0 items-center justify-center rounded border border-dashed border-white/60 bg-white/40 text-gray-600 hover:bg-white/70"
+          >
+            +
+          </button>
+        </div>
+      </div>
       <div className="border-b border-white/50 px-4 py-3">
         <span className="text-sm font-semibold text-gray-700">AI 助手</span>
       </div>
@@ -328,20 +570,74 @@ export default function ChatPanel() {
           ))}
         </div>
       </div>
-      <div className="flex-1 space-y-2 overflow-y-auto p-3.5 text-sm" ref={bodyRef}>
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3.5 pb-12 pt-3.5 text-sm" ref={bodyRef}>
         {messages.map((m, i) => (
-          <div
-            key={i}
-            className={`msg-in max-w-[85%] border px-3.5 py-2 backdrop-blur-md ${
-              m.role === "user"
-                ? "ml-auto rounded-[14px_14px_4px_14px] border-blue-400/40 bg-blue-500/85 text-white shadow-md"
-                : "rounded-[14px_14px_14px_4px] border-white/60 bg-white/80 text-gray-800 shadow-md"
-            }`}
-          >
-            {m.content}
-            {m.role === "assistant" && waitingAnswer && m.content === waitingAnswer && (
-              <div data-testid="waiting-answer" className="mt-1 text-xs text-blue-600">等待你的回答…</div>
-            )}
+          <div key={i} className="group/msg relative">
+            <div className={`flex max-w-[85%] ${m.role === "user" ? "ml-auto flex-col items-end" : "flex-col items-start"}`}>
+              <div
+                className={`msg-in w-fit border px-3.5 py-2 backdrop-blur-md ${
+                  m.role === "user"
+                    ? "rounded-[14px_14px_4px_14px] border-blue-400/40 bg-blue-500/85 text-white shadow-md"
+                    : "rounded-[14px_14px_14px_4px] border-white/60 bg-white/80 text-gray-800 shadow-md"
+                }`}
+              >
+                {m.content}
+                {/* 跨画布引用图标：AI 读取了其他画布内容（readCanvas）时显示，指明引用来源 */}
+                {m.referenced && (
+                  <div
+                    data-testid="canvas-referenced"
+                    className="mt-1.5 flex w-fit items-center gap-1 rounded-md bg-amber-100/70 px-1.5 py-0.5 text-[10px] text-amber-700"
+                    title={`AI 引用了其他画布的内容：${m.referenced}`}
+                  >
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <rect x="3" y="3" width="18" height="18" rx="2" />
+                      <path d="M3 9h18M9 21V9" />
+                    </svg>
+                    引用了「{m.referenced}」画布
+                  </div>
+                )}
+                {m.role === "assistant" && waitingAnswer && m.content === waitingAnswer && (
+                  <div data-testid="waiting-answer" className="mt-1 text-xs text-blue-600">等待你的回答…</div>
+                )}
+                {/* A9 可点击选项：AI 提问带选项时渲染可点击按钮，点选即作为回答发送（玻璃胶囊 + 点击图标） */}
+                {m.role === "assistant" && waitingAnswer && m.content === waitingAnswer && questionOptions && (
+                  <div className="mt-2 flex flex-wrap gap-1.5" data-testid="question-options">
+                    {questionOptions.map((opt) => (
+                      <button
+                        key={opt}
+                        onClick={() => answerOption(opt)}
+                        className="lift group/opt flex items-center gap-1.5 rounded-full border border-blue-300/60 bg-gradient-to-b from-white/95 to-blue-50/90 px-3 py-1.5 text-xs font-medium text-blue-700 shadow-sm backdrop-blur-md transition-all hover:border-blue-400 hover:from-blue-50 hover:to-blue-100 hover:shadow-md active:scale-95"
+                      >
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0 opacity-60 transition-transform group-hover/opt:scale-110">
+                          <path d="M22 2L11 13" />
+                          <path d="M22 2l-7 20-4-9-9-4 20-7z" />
+                        </svg>
+                        {opt}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {/* 复制按钮：绝对定位于气泡下方间隙（不占文档流，显示时也不挤开后续对话）。
+                  hover 保持：鼠标从气泡移向按钮的路径上（含气泡到按钮的 2px 间隙），
+                  靠按钮自身 hover + 向上延伸的透明热区（before）不闪隐，到达即点中 */}
+              <button
+                title="复制"
+                aria-label="复制消息"
+                onClick={() => {
+                  navigator.clipboard?.writeText(m.content).catch(() => {});
+                }}
+                className={`lift absolute top-full mt-0.5 hidden h-5 items-center gap-1 rounded-full px-2 text-[10px] text-gray-500 hover:bg-white/80 group-hover/msg:flex hover:flex before:pointer-events-none before:absolute before:-top-1.5 before:left-0 before:right-0 before:bottom-0 before:content-[''] ${
+                  m.role === "user" ? "right-0" : "left-0"
+                }`}
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <rect x="9" y="9" width="13" height="13" rx="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+                复制
+              </button>
+            </div>
           </div>
         ))}
         {isGenerating && messages.length > 0 && messages[messages.length - 1].role === "user" && (
@@ -352,6 +648,10 @@ export default function ChatPanel() {
           </div>
         )}
         {error && <div className="rounded-xl border border-red-200/60 bg-red-100/40 p-2 text-xs text-red-700 backdrop-blur-md">{error}</div>}
+      </div>
+      {/* AI 活动气泡：位于输入框上方（弹出/关闭动画），取代左下角气泡 */}
+      <div className="px-3 pt-2">
+        <GenerationToast />
       </div>
       <div className="border-t border-white/50 p-3">
         <textarea

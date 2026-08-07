@@ -1,7 +1,7 @@
 import type { ChartSpec } from "./chartLayout";
 
 export type ShapeType = "rect" | "ellipse" | "triangle" | "diamond" | "hexagon" | "star" | "cross" | "donut" | "half";
-export type ElementType = ShapeType | "arrow" | "polyline" | "text" | "logic" | "curve" | "sector" | "image";
+export type ElementType = ShapeType | "arrow" | "polyline" | "text" | "logic" | "curve" | "sector" | "image" | "formula" | "pen";
 export type ToolType = "select" | "rounded" | ElementType | "line";
 
 export interface ElementShadow {
@@ -32,11 +32,14 @@ export interface BaseElement {
   fill: string;
   stroke: string;
   strokeWidth: number;
+  // 虚线描边（stroke-dasharray 模式，如 [8,4]）：科研图中"辅助流"语义（跳连/梯度回传/可选路径/逻辑阶段）用
+  dash?: number[];
   opacity: number;
   zIndex: number;
   parentId?: string;
   chartId?: string; // 属于哪个图表（图表数据编辑/整图重排用）
   bind?: ChartBind; // 图表联动绑定（C：数据↔图形双向映射，拖动图形改数据）
+  groupId?: string; // 组合对象：多个元素组合后共享同一 groupId（整体选中/移动/编辑，可移除组合）
   flipH?: boolean; // 水平镜像（绕元素中心翻转）
   flipV?: boolean; // 垂直镜像
   // 边框/内部/整体三套独立外观：填充透明度与边框透明度分别控制，
@@ -73,6 +76,18 @@ export interface TextElement extends BaseElement {
   align: "left" | "center" | "right";
 }
 
+// 公式元素：数学/物理/化学公式（text 存源码——支持 LaTeX 记法与 Unicode 数学符号，渲染时 LaTeX 自动转 Unicode；
+// 用衬线斜体风格模拟论文公式排版，与正文文字区分）
+export interface FormulaElement extends BaseElement {
+  type: "formula";
+  text: string;
+  fontSize: number;
+  fontFamily: string;
+  bold: boolean;
+  italic: boolean;
+  align: "left" | "center" | "right";
+}
+
 export interface ArrowElement extends BaseElement {
   type: "arrow";
   startId?: string;
@@ -89,6 +104,13 @@ export interface PolylineElement extends BaseElement {
   type: "polyline";
   points: { x: number; y: number }[];
   arrow?: boolean; // 是否画端点箭头（默认 true；图表折线用 false）
+}
+
+// 画笔（自由手写笔迹）：points = 世界坐标点列（连续采样，渲染为平滑描边圆头曲线）。
+// 手绘箭头可被识别替换为规整 ArrowElement（同方向/大小/粗细），撤销一步复原手写笔迹
+export interface PenElement extends BaseElement {
+  type: "pen";
+  points: { x: number; y: number }[];
 }
 
 // 逻辑节点：流程/结构图节点，圆角矩形 + 内置居中标题 + 多行正文（body，\n 分隔），自带上下左右 4 个箭头锚点
@@ -115,6 +137,8 @@ export interface SectorElement extends BaseElement {
   radius: number;
   startAngle: number;
   endAngle: number;
+  // 空心饼图（圆环扇形）：innerRadius > 0 时挖去内孔，命中/渲染/导出为环形
+  innerRadius?: number;
 }
 
 // 位图图片（用户导入，AI 不创建）：x/y=左上角，width/height=显示尺寸，src=dataURL；preserveAspectRatio=none 拉伸填充
@@ -123,7 +147,7 @@ export interface ImageElement extends BaseElement {
   src: string;
 }
 
-export type CanvasElement = RectElement | EllipseElement | TriangleElement | DiamondElement | HexagonElement | StarElement | CrossElement | DonutElement | HalfElement | TextElement | ArrowElement | PolylineElement | LogicElement | CurveElement | SectorElement | ImageElement;
+export type CanvasElement = RectElement | EllipseElement | TriangleElement | DiamondElement | HexagonElement | StarElement | CrossElement | DonutElement | HalfElement | TextElement | FormulaElement | ArrowElement | PolylineElement | PenElement | LogicElement | CurveElement | SectorElement | ImageElement;
 
 export interface CanvasDocument {
   width: number;

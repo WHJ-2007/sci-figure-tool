@@ -5,7 +5,8 @@ import { useCanvasStore } from "@/lib/canvas/store";
 
 const MAX_ITEMS = 30;
 
-// AI 生成中的左下角提示气泡：折叠显示最新动作，点击展开完整时间线；每次新动作滑入弹出
+// AI 生成中的提示气泡（位于聊天面板输入框上方）：折叠显示最新动作，点击展开完整时间线；
+// 每次新动作滑入弹出；AI 运行时弹出动画（上浮+淡入+缩放），结束后收起动画（下沉+淡出）
 export default function GenerationToast() {
   const isGenerating = useCanvasStore((s) => s.isGenerating);
   const activity = useCanvasStore((s) => s.activity);
@@ -16,7 +17,8 @@ export default function GenerationToast() {
   useEffect(() => {
     if (isGenerating) {
       setMounted(true);
-      setVisible(true);
+      // 弹出动画：先挂载在隐藏态，下一帧加 visible 触发过渡
+      requestAnimationFrame(() => setVisible(true));
     } else if (mounted) {
       setVisible(false);
       const t = setTimeout(() => setMounted(false), 200);
@@ -44,8 +46,8 @@ export default function GenerationToast() {
           setExpanded((x) => !x);
         }
       }}
-      className={`fixed bottom-4 left-4 z-50 max-w-sm cursor-pointer rounded-2xl border border-white/50 bg-white/80 p-3 shadow-xl backdrop-blur-md transition-all duration-200 ${
-        visible ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
+      className={`w-full max-w-sm cursor-pointer rounded-2xl border border-white/50 bg-white/80 p-3 shadow-xl backdrop-blur-md transition-all duration-200 ${
+        visible ? "translate-y-0 scale-100 opacity-100" : "translate-y-2 scale-95 opacity-0"
       }`}
     >
       <div className="flex w-full items-center gap-2 text-left text-sm text-gray-800">
@@ -66,3 +68,4 @@ export default function GenerationToast() {
     </div>
   );
 }
+

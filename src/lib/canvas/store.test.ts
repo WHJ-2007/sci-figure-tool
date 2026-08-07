@@ -28,13 +28,17 @@ describe("canvas store", () => {
     expect(useCanvasStore.getState().doc.elements[0].fill).toBe("#ff0000");
   });
 
-  it("updateElement 修改文字内容后自动重算文字元素宽高（文字与选中框大小匹配）", () => {
-    const t = makeElement("text", 0, 0, 0, 0, { text: "A", fontSize: 20 });
+  it("updateElement 修改文字内容保留框尺寸（不重算宽高）", () => {
+    const t = makeElement("text", 0, 0, 200, 60, { text: "A", fontSize: 20 });
+    // 模拟用户拖拽创建的框：makeElement 会按内容定初始宽高，手动设为用户拖出的框尺寸
+    (t as TextElement).width = 200;
+    (t as TextElement).height = 60;
     useCanvasStore.getState().addElement(t);
     useCanvasStore.getState().updateElement(t.id, { text: "你好世界" });
     const el = useCanvasStore.getState().doc.elements[0] as TextElement;
-    expect(el.width).toBeCloseTo(80);
-    expect(el.height).toBeCloseTo(20 * 1.4);
+    // 文本框是用户可任意移动/缩放的框：改内容不再重置用户设定的宽高
+    expect(el.width).toBe(200);
+    expect(el.height).toBe(60);
   });
 
   it("updateElement 修改逻辑节点标题后自动扩展框宽以容纳（文字与框大小匹配）", () => {
@@ -55,12 +59,21 @@ describe("canvas store", () => {
     expect(el.height).toBeGreaterThanOrEqual(14 * 1.4 + 3 * 12 * 1.4 + 10 - 0.01);
   });
 
-  it("updateElement 改字号/加粗也会重算文字宽高", () => {
-    const t = makeElement("text", 0, 0, 0, 0, { text: "你好", fontSize: 16 });
+  it("updateElement 改字号/加粗保留框尺寸（不重置位置与大小）", () => {
+    const t = makeElement("text", 50, 80, 160, 40, { text: "你好", fontSize: 16 });
+    // 模拟用户拖拽创建的框：makeElement 会按内容定初始宽高，手动设为用户拖出的框尺寸
+    (t as TextElement).width = 160;
+    (t as TextElement).height = 40;
     useCanvasStore.getState().addElement(t);
     useCanvasStore.getState().updateElement(t.id, { fontSize: 32, bold: true });
     const el = useCanvasStore.getState().doc.elements[0] as TextElement;
-    expect(el.width).toBeCloseTo(32 * 2 * 1.06);
+    // 只改字体信息，位置与框大小都不变
+    expect(el.fontSize).toBe(32);
+    expect(el.bold).toBe(true);
+    expect(el.x).toBe(50);
+    expect(el.y).toBe(80);
+    expect(el.width).toBe(160);
+    expect(el.height).toBe(40);
   });
 
   it("reorderElements 按列表顺序重分配 zIndex（第一个最顶层），一步撤销恢复", () => {
@@ -512,6 +525,41 @@ describe("A5 画布切换：AI 锁定/基线随项目切换重置", () => {
     useCanvasStore.getState().redo();
     expect(useCanvasStore.getState().currentProjectId).toBe(first);
     expect(useCanvasStore.getState().aiLockedIds).toEqual([]);
+  });
+});
+
+describe("组合对象 groupElements/ungroupElements", () => {
+  it("组合为整体对象：选中多个元素共享同一 groupId，移除组合后清空 groupId", () => {
+    useCanvasStore.getState().addElement(makeElement("rect", 0, 0, 100, 60));
+    useCanvasStore.getState().addElement(makeElement("ellipse", 200, 0, 60, 40));
+    useCanvasStore.getState().addElement(makeElement("text", 300, 0, 40, 20, { text: "标签" }));
+    const ids = useCanvasStore.getState().doc.elements.map((e) => e.id);
+    useCanvasStore.getState().setSelection([ids[0], ids[1]]);
+    useCanvasStore.getState().groupElements([ids[0], ids[1]]);
+    const [a, b, c] = useCanvasStore.getState().doc.elements;
+    expect(a.groupId).toBeTruthy();
+    expect(b.groupId).toBe(a.groupId); // 同组共享
+    expect(c.groupId).toBeUndefined(); // 未选中的不带组
+    // 移除组合：清空该组全部元素 groupId
+    useCanvasStore.getState().ungroupElements(a.groupId!);
+    const after = useCanvasStore.getState().doc.elements;
+    expect(after[0].groupId).toBeUndefined();
+    expect(after[1].groupId).toBeUndefined();
+  });
+
+  it("updateElements 多选同步编辑：一次历史应用到多个元素（text 重算宽高）", () => {
+    useCanvasStore.getState().addElement(makeElement("rect", 0, 0, 100, 60));
+    useCanvasStore.getState().addElement(makeElement("rect", 200, 0, 100, 60));
+    const ids = useCanvasStore.getState().doc.elements.map((e) => e.id);
+    useCanvasStore.getState().updateElements(ids, { fill: "#ff0000" });
+    const [a, b] = useCanvasStore.getState().doc.elements;
+    expect(a.fill).toBe("#ff0000");
+    expect(b.fill).toBe("#ff0000");
+    // 一步撤销恢复到改前
+    useCanvasStore.getState().undo();
+    const [a0, b0] = useCanvasStore.getState().doc.elements;
+    expect(a0.fill).not.toBe("#ff0000");
+    expect(b0.fill).not.toBe("#ff0000");
   });
 });
 

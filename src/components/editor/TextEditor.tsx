@@ -17,7 +17,11 @@ export default function TextEditor({ id, x, y }: { id: string; x: number; y: num
   const commit = () => {
     if (doneRef.current) return;
     doneRef.current = true;
-    useCanvasStore.getState().updateElement(id, { text: value });
+    // 提交只改文字内容、保留文本框尺寸（新版可移动框不按内容重算宽高）；
+    // 先入一步历史快照（一次编辑 = 一步撤销），再用 fast 更新避免重复入栈
+    const st = useCanvasStore.getState();
+    st.commitHistory();
+    st.updateElementFast(id, { text: value });
     useCanvasStore.setState({ editingText: null });
   };
 

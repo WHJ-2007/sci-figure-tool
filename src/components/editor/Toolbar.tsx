@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { exportSvgFile, exportPng } from "@/lib/canvas/exporter";
@@ -8,6 +7,8 @@ import { loadImageElement } from "@/lib/canvas/imageImport";
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from "@/lib/canvas/geometry";
 import type { ToolType } from "@/lib/canvas/types";
 import ChartDialog from "./ChartDialog";
+import FormulaDialog from "./FormulaDialog";
+import SettingsDialog from "./SettingsDialog";
 
 // 设置图标：齿轮（描边风格，与左上角工具图标一致）
 const SETTINGS_ICON = (
@@ -57,6 +58,16 @@ const CURSOR_ICON = (
   </svg>
 );
 
+// 画笔图标：笔尖 + 描边轨迹（画笔工具入口）
+const PEN_ICON = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M12 19l7-7 3 3-7 7-3-3z" />
+    <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z" />
+    <path d="M2 2l7.586 7.586" />
+    <circle cx="11" cy="11" r="2" />
+  </svg>
+);
+
 // 图形图标：圆形描边（图案工具组入口，与文本框按钮并列）
 const SHAPE_ICON = (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true">
@@ -76,6 +87,16 @@ const ARROW_ICON = (
 const TEXT_ICON = (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
     <path d="M5 6h14M12 6v12" />
+  </svg>
+);
+
+// 公式图标：π 与 x² 样式（描边风格，数学/物理/化学公式入口）
+const FORMULA_ICON = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M4 7h5M6.5 7v8" />
+    <path d="M10 17h4" />
+    <path d="M12 7v6" />
+    <path d="M15 9l6 6M21 9l-6 6" />
   </svg>
 );
 
@@ -135,8 +156,8 @@ const HALF_ICON = (
 
 // 工具分组：图案 = 纯图形（箭头/线条是与图案平级的独立坞按钮；文本框是独立分类）
 const SHAPE_TOOLS: ToolItem[] = [
-  { title: "矩形", tool: "rect", label: "▢" },
-  { title: "圆角矩形", tool: "rounded", label: "▭" },
+  { title: "矩形", tool: "rect", label: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="4" y="6" width="16" height="12" /></svg> },
+  { title: "圆角矩形", tool: "rounded", label: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="4" y="6" width="16" height="12" rx="4" /></svg> },
   { title: "椭圆", tool: "ellipse", label: "○" },
   { title: "三角形", tool: "triangle", label: "△" },
   { title: "菱形", tool: "diamond", label: "◇" },
@@ -170,6 +191,9 @@ export default function Toolbar() {
   const redo = useCanvasStore((s) => s.redo);
   // 生成中禁撤销/重做：快照不入栈，undo 会破坏 AI 流式状态
   const isGenerating = useCanvasStore((s) => s.isGenerating);
+  // 无可撤销/重做的内容时按钮变灰：普通历史栈 + 画布级恢复栈（删除画布的撤销/重做）
+  const canUndo = useCanvasStore((s) => s.history.past.length > 0 || s.deletedProjects.length > 0);
+  const canRedo = useCanvasStore((s) => s.history.future.length > 0 || s.restoredProjects.length > 0);
   const doc = useCanvasStore((s) => s.doc);
   const projects = useCanvasStore((s) => s.projects);
   const currentProjectId = useCanvasStore((s) => s.currentProjectId);
@@ -183,6 +207,8 @@ export default function Toolbar() {
   const [exportOpen, setExportOpen] = useState(false);
   const [tabMenu, setTabMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [chartOpen, setChartOpen] = useState(false);
+  const [formulaOpen, setFormulaOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const toolRef = useRef<HTMLDivElement>(null);
   const exportRef = useRef<HTMLDivElement>(null);
   const tabMenuRef = useRef<HTMLDivElement>(null);
@@ -195,6 +221,13 @@ export default function Toolbar() {
     addElement(el);
     setSelection([el.id]);
   };
+
+  // 首启提示条「前往设置」→ 打开设置弹窗（旧 /settings 页面已删除，统一走弹窗）
+  useEffect(() => {
+    const onOpen = () => setSettingsOpen(true);
+    window.addEventListener("open-settings", onOpen);
+    return () => window.removeEventListener("open-settings", onOpen);
+  }, []);
 
   // 非阻塞气泡：点击主按钮开/关、点击气泡外任意处关闭（pointerdown 优先于 click，先收气泡再落画布）
   useEffect(() => {
@@ -298,75 +331,119 @@ export default function Toolbar() {
             </div>
           )}
         </div>
-        <Link href="/settings" className="lift flex h-8 w-8 items-center justify-center rounded hover:bg-gray-100" title="设置">{SETTINGS_ICON}</Link>
+        <button title="设置" onClick={() => setSettingsOpen(true)} className="lift flex h-8 w-8 items-center justify-center rounded hover:bg-gray-100">{SETTINGS_ICON}</button>
       </div>
-      {/* 左侧悬浮玻璃坞：撤销/重做最上，下面依次选择/图形/文本框/逻辑/图表 */}
+      {/* 左侧悬浮玻璃坞：悬停自动横向展开露出中文标签（撤销/重做/选择/图案/箭头/文本/公式/逻辑/图表/导入） */}
       {/* top-[4.625rem]（74px）= 顶栏 41px（h-8 + py-1 + border-b）+ FirstRunHint 33px（py-1.5 + text-sm + border-b），坞落在提示条下方 */}
-      <div className="fixed left-4 top-[4.625rem] z-40 flex flex-col items-center gap-1 rounded-2xl border border-white/50 bg-white/70 p-1.5 shadow-xl backdrop-blur-md">
-        <button title="撤销" onClick={undo} disabled={isGenerating} className="lift flex h-9 w-9 items-center justify-center rounded hover:bg-gray-100 disabled:bg-transparent disabled:opacity-40">{UNDO_ICON}</button>
-        <button title="重做" onClick={redo} disabled={isGenerating} className="lift flex h-9 w-9 items-center justify-center rounded hover:bg-gray-100 disabled:bg-transparent disabled:opacity-40">{REDO_ICON}</button>
+      <div className="group fixed left-4 top-[4.625rem] z-40 flex flex-col items-center gap-1 rounded-2xl border border-white/50 bg-white/70 p-1.5 shadow-xl backdrop-blur-md">
+        <div className="flex items-center">
+          <button title="撤销" onClick={undo} disabled={isGenerating || !canUndo} className="lift flex h-9 w-9 shrink-0 items-center justify-center rounded hover:bg-gray-100 disabled:bg-transparent disabled:opacity-40">{UNDO_ICON}</button>
+          <span className="max-w-0 overflow-hidden whitespace-nowrap text-xs text-gray-600 opacity-0 transition-all duration-200 group-hover:ml-1.5 group-hover:mr-2.5 group-hover:max-w-20 group-hover:opacity-100">撤销</span>
+        </div>
+        <div className="flex items-center">
+          <button title="重做" onClick={redo} disabled={isGenerating || !canRedo} className="lift flex h-9 w-9 shrink-0 items-center justify-center rounded hover:bg-gray-100 disabled:bg-transparent disabled:opacity-40">{REDO_ICON}</button>
+          <span className="max-w-0 overflow-hidden whitespace-nowrap text-xs text-gray-600 opacity-0 transition-all duration-200 group-hover:ml-1.5 group-hover:mr-2.5 group-hover:max-w-20 group-hover:opacity-100">重做</span>
+        </div>
         <div className="my-0.5 h-px w-7 bg-gray-200" />
-        <button
-          title="选择"
-          onClick={() => setTool("select")}
-          className={`lift flex h-9 w-9 items-center justify-center rounded ${
-            tool === "select" ? "bg-blue-100 text-blue-700 ring-1 ring-blue-400" : "hover:bg-gray-100"
-          }`}
-        >
-          {CURSOR_ICON}
-        </button>
-        <div className="relative" ref={toolRef}>
+        <div className="flex items-center">
           <button
-            title="图形"
-            onClick={() => setOpen(open === "shape" ? null : "shape")}
-            aria-expanded={open === "shape"}
-            className={`lift flex h-9 w-9 items-center justify-center rounded ${
-              shapeActive || open === "shape" ? "bg-blue-100 text-blue-700 ring-1 ring-blue-400" : "hover:bg-gray-100"
+            title="选择"
+            onClick={() => setTool("select")}
+            className={`lift flex h-9 w-9 shrink-0 items-center justify-center rounded ${
+              tool === "select" ? "bg-blue-100 text-blue-700 ring-1 ring-blue-400" : "hover:bg-gray-100"
             }`}
           >
-            {SHAPE_ICON}
+            {CURSOR_ICON}
           </button>
-          {open === "shape" && (
-            <div className="absolute left-full top-0 z-40 ml-2 w-40 rounded-xl border border-white/50 bg-white/80 p-2 shadow-xl backdrop-blur-md">
-              <div className="mb-1 px-1 text-[10px] font-medium text-gray-400">图案</div>
-              <div className="grid grid-cols-3 gap-1">
-                {SHAPE_TOOLS.map((t) => (
-                  <ToolButton key={t.tool} item={t} active={t.tool === tool} onClick={() => setTool(t.tool)} />
-                ))}
+          <span className="max-w-0 overflow-hidden whitespace-nowrap text-xs text-gray-600 opacity-0 transition-all duration-200 group-hover:ml-1.5 group-hover:mr-2.5 group-hover:max-w-20 group-hover:opacity-100">选择</span>
+        </div>
+        <div className="flex items-center">
+          <div className="relative" ref={toolRef}>
+            <button
+              title="图形"
+              onClick={() => setOpen(open === "shape" ? null : "shape")}
+              aria-expanded={open === "shape"}
+              className={`lift flex h-9 w-9 items-center justify-center rounded ${
+                shapeActive || open === "shape" ? "bg-blue-100 text-blue-700 ring-1 ring-blue-400" : "hover:bg-gray-100"
+              }`}
+            >
+              {SHAPE_ICON}
+            </button>
+            {open === "shape" && (
+              <div className="absolute left-full top-0 z-40 ml-2 w-40 rounded-xl border border-white/50 bg-white/80 p-2 shadow-xl backdrop-blur-md">
+                <div className="mb-1 px-1 text-[10px] font-medium text-gray-400">图案</div>
+                <div className="grid grid-cols-3 gap-1">
+                  {SHAPE_TOOLS.map((t) => (
+                    <ToolButton key={t.tool} item={t} active={t.tool === tool} onClick={() => setTool(t.tool)} />
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
+          <span className="max-w-0 overflow-hidden whitespace-nowrap text-xs text-gray-600 opacity-0 transition-all duration-200 group-hover:ml-1.5 group-hover:mr-2.5 group-hover:max-w-20 group-hover:opacity-100">图案</span>
         </div>
         {/* 箭头：与图案平级的独立坞按钮（连线最常用，不藏在图案气泡里） */}
-        <button
-          title="箭头"
-          onClick={() => setTool("arrow")}
-          className={`lift flex h-9 w-9 items-center justify-center rounded ${
-            tool === "arrow" ? "bg-blue-100 text-blue-700 ring-1 ring-blue-400" : "hover:bg-gray-100"
-          }`}
-        >
-          {ARROW_ICON}
-        </button>
-        <button
-          title="文本框"
-          onClick={() => setTool("text")}
-          className={`lift flex h-9 w-9 items-center justify-center rounded ${
-            tool === "text" ? "bg-blue-100 text-blue-700 ring-1 ring-blue-400" : "hover:bg-gray-100"
-          }`}
-        >
-          {TEXT_ICON}
-        </button>
-        <button
-          title="逻辑"
-          onClick={() => setTool("logic")}
-          className={`lift flex h-9 w-9 items-center justify-center rounded ${
-            tool === "logic" ? "bg-blue-100 text-blue-700 ring-1 ring-blue-400" : "hover:bg-gray-100"
-          }`}
-        >
-          {LOGIC_ICON}
-        </button>
-        <button title="图表" onClick={() => setChartOpen(true)} className="lift flex h-9 w-9 items-center justify-center rounded hover:bg-gray-100">{CHART_ICON}</button>
-        <button title="导入" onClick={() => fileRef.current?.click()} className="lift flex h-9 w-9 items-center justify-center rounded hover:bg-gray-100">{IMPORT_ICON}</button>
+        <div className="flex items-center">
+          <button
+            title="箭头"
+            onClick={() => setTool("arrow")}
+            className={`lift flex h-9 w-9 shrink-0 items-center justify-center rounded ${
+              tool === "arrow" ? "bg-blue-100 text-blue-700 ring-1 ring-blue-400" : "hover:bg-gray-100"
+            }`}
+          >
+            {ARROW_ICON}
+          </button>
+          <span className="max-w-0 overflow-hidden whitespace-nowrap text-xs text-gray-600 opacity-0 transition-all duration-200 group-hover:ml-1.5 group-hover:mr-2.5 group-hover:max-w-20 group-hover:opacity-100">箭头</span>
+        </div>
+        {/* 画笔：自由手绘 + 手写箭头识别（$1）自动替换为规整箭头 */}
+        <div className="flex items-center">
+          <button
+            title="画笔"
+            onClick={() => setTool("pen")}
+            className={`lift flex h-9 w-9 shrink-0 items-center justify-center rounded ${
+              tool === "pen" ? "bg-blue-100 text-blue-700 ring-1 ring-blue-400" : "hover:bg-gray-100"
+            }`}
+          >
+            {PEN_ICON}
+          </button>
+          <span className="max-w-0 overflow-hidden whitespace-nowrap text-xs text-gray-600 opacity-0 transition-all duration-200 group-hover:ml-1.5 group-hover:mr-2.5 group-hover:max-w-20 group-hover:opacity-100">画笔</span>
+        </div>
+        <div className="flex items-center">
+          <button
+            title="文本框"
+            onClick={() => setTool("text")}
+            className={`lift flex h-9 w-9 shrink-0 items-center justify-center rounded ${
+              tool === "text" ? "bg-blue-100 text-blue-700 ring-1 ring-blue-400" : "hover:bg-gray-100"
+            }`}
+          >
+            {TEXT_ICON}
+          </button>
+          <span className="max-w-0 overflow-hidden whitespace-nowrap text-xs text-gray-600 opacity-0 transition-all duration-200 group-hover:ml-1.5 group-hover:mr-2.5 group-hover:max-w-20 group-hover:opacity-100">文本</span>
+        </div>
+        <div className="flex items-center">
+          <button title="公式" onClick={() => setFormulaOpen(true)} className="lift flex h-9 w-9 shrink-0 items-center justify-center rounded hover:bg-gray-100">{FORMULA_ICON}</button>
+          <span className="max-w-0 overflow-hidden whitespace-nowrap text-xs text-gray-600 opacity-0 transition-all duration-200 group-hover:ml-1.5 group-hover:mr-2.5 group-hover:max-w-20 group-hover:opacity-100">公式</span>
+        </div>
+        <div className="flex items-center">
+          <button
+            title="逻辑"
+            onClick={() => setTool("logic")}
+            className={`lift flex h-9 w-9 shrink-0 items-center justify-center rounded ${
+              tool === "logic" ? "bg-blue-100 text-blue-700 ring-1 ring-blue-400" : "hover:bg-gray-100"
+            }`}
+          >
+            {LOGIC_ICON}
+          </button>
+          <span className="max-w-0 overflow-hidden whitespace-nowrap text-xs text-gray-600 opacity-0 transition-all duration-200 group-hover:ml-1.5 group-hover:mr-2.5 group-hover:max-w-20 group-hover:opacity-100">逻辑</span>
+        </div>
+        <div className="flex items-center">
+          <button title="图表" onClick={() => setChartOpen(true)} className="lift flex h-9 w-9 shrink-0 items-center justify-center rounded hover:bg-gray-100">{CHART_ICON}</button>
+          <span className="max-w-0 overflow-hidden whitespace-nowrap text-xs text-gray-600 opacity-0 transition-all duration-200 group-hover:ml-1.5 group-hover:mr-2.5 group-hover:max-w-20 group-hover:opacity-100">图表</span>
+        </div>
+        <div className="flex items-center">
+          <button title="图片" onClick={() => fileRef.current?.click()} className="lift flex h-9 w-9 shrink-0 items-center justify-center rounded hover:bg-gray-100">{IMPORT_ICON}</button>
+          <span className="max-w-0 overflow-hidden whitespace-nowrap text-xs text-gray-600 opacity-0 transition-all duration-200 group-hover:ml-1.5 group-hover:mr-2.5 group-hover:max-w-20 group-hover:opacity-100">图片</span>
+        </div>
       </div>
       {/* 隐藏文件选择：导入按钮触发；选择后立即清空 value 允许重复导入同一文件 */}
       <input
@@ -381,6 +458,8 @@ export default function Toolbar() {
         }}
       />
       <ChartDialog open={chartOpen} onClose={() => setChartOpen(false)} />
+      <FormulaDialog id={formulaOpen ? null : ""} onClose={() => setFormulaOpen(false)} />
+      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       {/* 标签右键菜单：重命名画布（顶部 ✎ 按钮已移除，右键标签呼出） */}
       {tabMenu && (
         <div

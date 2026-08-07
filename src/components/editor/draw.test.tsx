@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, fireEvent, act } from "@testing-library/react";
+import { ARROW_GESTURE } from "@smartupcorp/onedollar-unistroke-recognizer";
 import Canvas from "./Canvas";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { makeElement } from "@/lib/canvas/elements";
@@ -53,7 +54,7 @@ describe("绘制工具", () => {
     expect(e.height).toBe(80);
   });
 
-  it("文字工具拖拽创建文本框并进入编辑", () => {
+  it("文字工具拖拽创建文本框并立即进入编辑（可直接写字）", () => {
     useCanvasStore.getState().setTool("text");
     render(<Canvas viewportWidth={800} viewportHeight={600} />);
     const svg = document.querySelector("svg")!;
@@ -65,6 +66,23 @@ describe("绘制工具", () => {
     expect(e.y).toBe(100);
     expect(e.width).toBe(150);
     expect(e.height).toBe(80);
+    // 创建后立即进入编辑（黑色光标可直接写字）
+    expect(document.querySelector('[data-testid="text-editor"]')).toBeTruthy();
+  });
+
+  it("文字工具单击创建默认尺寸文本框并立即进入编辑", () => {
+    useCanvasStore.getState().setTool("text");
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const svg = document.querySelector("svg")!;
+    // 原地点击（无拖拽）：应创建默认 160×40 文本框并进入编辑
+    fireEvent.pointerDown(svg, { clientX: 120, clientY: 130, button: 0 });
+    fireEvent.pointerUp(svg, { clientX: 120, clientY: 130 });
+    const e = useCanvasStore.getState().doc.elements[0];
+    expect(e.type).toBe("text");
+    expect(e.x).toBe(120);
+    expect(e.y).toBe(130);
+    expect(e.width).toBe(160);
+    expect(e.height).toBe(40);
     expect(document.querySelector('[data-testid="text-editor"]')).toBeTruthy();
   });
 
@@ -198,6 +216,41 @@ describe("绘制工具", () => {
     fireEvent.doubleClick(svg, { clientX: 150, clientY: 125 });
     expect(useCanvasStore.getState().doc.elements.length).toBe(1);
     expect(document.querySelector('[data-testid="text-editor"]')).toBeTruthy();
+  });
+
+  it("画笔工具手绘直线：保留自由手写 pen 元素（不误判为箭头）", () => {
+    useCanvasStore.getState().setTool("pen");
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const svg = document.querySelector("svg")!;
+    drag(svg, { x: 100, y: 100 }, { x: 300, y: 100 });
+    const e = useCanvasStore.getState().doc.elements[0];
+    expect(e.type).toBe("pen");
+    // 直线保留手写笔迹：点列 ≥2，且不是规整箭头（无识别替换）
+    expect((e as any).points.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("画笔工具手绘箭头：识别替换为规整箭头，撤销一步复原手写", () => {
+    useCanvasStore.getState().setTool("pen");
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const svg = document.querySelector("svg")!;
+    // 用 $1 内置 arrow 模板点列整体平移，模拟用户手写的右向箭头（保证识别命中）
+    const path = ARROW_GESTURE.points.map((p) => ({ x: p.x + 100, y: p.y + 100 }));
+    fireEvent.pointerDown(svg, { clientX: path[0].x, clientY: path[0].y, button: 0 });
+    for (const p of path.slice(1)) {
+      fireEvent.pointerMove(svg, { clientX: p.x, clientY: p.y, buttons: 1 });
+    }
+    fireEvent.pointerUp(svg, { clientX: path[path.length - 1].x, clientY: path[path.length - 1].y });
+    const e = useCanvasStore.getState().doc.elements[0];
+    // 识别命中 → 元素变成规整箭头（同方向/大小）
+    expect(e.type).toBe("arrow");
+    if (e.type === "arrow") {
+      expect(e.width).toBeCloseTo(path[path.length - 1].x - path[0].x, 0);
+      expect(e.height).toBeCloseTo(path[path.length - 1].y - path[0].y, 0);
+    }
+    // 撤销一步 → 复原手写笔迹（pen）
+    useCanvasStore.getState().undo();
+    const restored = useCanvasStore.getState().doc.elements[0];
+    expect(restored.type).toBe("pen");
   });
 
   it("arrow 负向拖拽选中框正常", () => {

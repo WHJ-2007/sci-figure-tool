@@ -1,5 +1,6 @@
 import { CANVAS_WIDTH, CANVAS_HEIGHT, clampRect, shapeExitPoint, anchorToward, type Point } from "@/lib/canvas/geometry";
 import { makeElement, estimateTextSize, logicBoxSize } from "@/lib/canvas/elements";
+import { latexToUnicode } from "@/lib/canvas/formula";
 import { layoutGraph } from "@/lib/canvas/graphLayout";
 import { layoutMindMap } from "@/lib/canvas/mindMapLayout";
 import type { MindMapBranch } from "@/lib/canvas/mindMapLayout";
@@ -8,18 +9,19 @@ import type { ChartSpec } from "@/lib/canvas/chartLayout";
 import type { CanvasDocument, CanvasElement, ElementType } from "@/lib/canvas/types";
 
 // updateElement 只接受白名单内的属性键，防止绕过工具层 schema 直接注入任意属性
-const PATCH_KEYS = ["x", "y", "width", "height", "fill", "stroke", "strokeWidth", "rotation", "text", "body", "fontSize", "opacity", "bold", "italic", "align", "fontFamily", "curvature", "radius", "startAngle", "endAngle", "head", "zIndex", "fillOpacity", "strokeOpacity", "shadow"] as const;
+const PATCH_KEYS = ["x", "y", "width", "height", "fill", "stroke", "strokeWidth", "dash", "rotation", "rx", "text", "body", "fontSize", "opacity", "bold", "italic", "align", "fontFamily", "curvature", "radius", "startAngle", "endAngle", "head", "zIndex", "fillOpacity", "strokeOpacity", "shadow", "flipH", "flipV"] as const;
 
 // 属性键 → 人话名：活动文案不再暴露裸键（如 "fill"），直接说改了什么
 const PATCH_NAMES: Record<string, string> = {
   x: "位置", y: "位置", width: "宽度", height: "高度",
   fill: "填充色", stroke: "边框色", strokeWidth: "线宽",
-  rotation: "旋转", text: "文字内容", body: "正文", fontSize: "字号",
+  rotation: "旋转", rx: "圆角弧度", text: "文字内容", body: "正文", fontSize: "字号",
   opacity: "透明度", bold: "加粗", italic: "斜体", align: "对齐",
   fontFamily: "字体", curvature: "弯曲度", radius: "半径",
   startAngle: "起始角度", endAngle: "结束角度",
   head: "箭头样式", zIndex: "层级",
   fillOpacity: "填充透明度", strokeOpacity: "边框透明度", shadow: "阴影",
+  flipH: "水平镜像", flipV: "垂直镜像",
 };
 
 export interface PendingConfirm {
@@ -44,13 +46,19 @@ export interface CreateArgs {
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
+  dash?: number[];
+  fillOpacity?: number;
+  strokeOpacity?: number;
   rotation?: number;
+  rx?: number; // 圆角弧度（rect/rounded 用）
   fontSize?: number;
   bold?: boolean;
   italic?: boolean;
   align?: "left" | "center" | "right";
   fontFamily?: string;
   head?: "none" | "single" | "double";
+  midPoints?: { x: number; y: number; smooth?: boolean }[]; // 箭头折点（相对坐标）
+  points?: { x: number; y: number }[]; // polyline 点列（世界坐标）
 }
 
 export class DraftCanvas {
@@ -113,16 +121,16 @@ export class DraftCanvas {
   }
 
   createElement(args: CreateArgs): { ok: boolean; id?: string; error?: string } {
-    const allowed: ElementType[] = ["rect", "ellipse", "triangle", "diamond", "hexagon", "star", "cross", "donut", "half", "arrow", "polyline", "text", "logic"];
+    const allowed: ElementType[] = ["rect", "ellipse", "triangle", "diamond", "hexagon", "star", "cross", "donut", "half", "arrow", "polyline", "text", "logic", "formula", "pen"];
     if (!allowed.includes(args.type as ElementType)) return { ok: false, error: `未知元素类型: ${args.type}` };
     const w = Math.max(8, Number(args.width) || 8);
     const h = Math.max(8, Number(args.height) || 8);
     const r = clampRect({ x: args.x, y: args.y, width: w, height: h }, CANVAS_WIDTH, CANVAS_HEIGHT);
     const maxZ = this.elements.reduce((m, e) => Math.max(m, e.zIndex), 0);
     let el: CanvasElement;
-    if (args.type === "text" || args.type === "logic") {
-      el = makeElement(args.type as "text" | "logic", r.x, r.y, r.width, r.height, {
-        text: args.text === undefined ? (args.type === "logic" ? "逻辑" : "文字") : unescapeNewlines(args.text),
+    if (args.type === "text" || args.type === "logic" || args.type === "formula") {
+      el = makeElement(args.type as "text" | "logic" | "formula", r.x, r.y, r.width, r.height, {
+        text: args.text === undefined ? (args.type === "logic" ? "逻辑" : args.type === "formula" ? "x^2" : "文字") : unescapeNewlines(args.text),
         body: args.body === undefined ? undefined : unescapeNewlines(args.body),
         fill: args.fill ?? "#2f2f2f",
         fontSize: args.fontSize,
@@ -137,8 +145,14 @@ export class DraftCanvas {
         fill: args.fill,
         stroke: args.stroke,
         strokeWidth: args.strokeWidth,
+        dash: args.dash,
+        fillOpacity: args.fillOpacity,
+        strokeOpacity: args.strokeOpacity,
         rotation: args.rotation,
+        rx: args.rx,
         head: args.type === "arrow" ? args.head : undefined,
+        midPoints: args.type === "arrow" ? args.midPoints : undefined,
+        points: args.type === "polyline" || args.type === "pen" ? args.points : undefined,
         zIndex: maxZ + 1,
       });
     }
@@ -167,6 +181,11 @@ export class DraftCanvas {
     // 文字/逻辑节点内容变化自动重算尺寸：文字按内容重算宽高，逻辑节点标题变长时框宽随标题扩展（与客户端行为一致）
     if (next.type === "text" && ("text" in patch || "fontSize" in patch || "bold" in patch)) {
       const size = estimateTextSize(next.text, next.fontSize, next.bold);
+      next.width = size.width;
+      next.height = size.height;
+    }
+    if (next.type === "formula" && ("text" in patch || "fontSize" in patch || "bold" in patch)) {
+      const size = estimateTextSize(latexToUnicode(next.text), next.fontSize, next.bold);
       next.width = size.width;
       next.height = size.height;
     }
@@ -228,7 +247,7 @@ export class DraftCanvas {
   }
 
   // 自动连接：从源形状边缘精确指向目标形状边缘的箭头（AI 无需手算坐标）
-  connectElements(args: { sourceId: string; targetId: string; stroke?: string; strokeWidth?: number; head?: "none" | "single" | "double" }): { ok: boolean; id?: string; error?: string } {
+  connectElements(args: { sourceId: string; targetId: string; stroke?: string; strokeWidth?: number; dash?: number[]; head?: "none" | "single" | "double" }): { ok: boolean; id?: string; error?: string } {
     const s = this.elements.find((e) => e.id === args.sourceId);
     const t = this.elements.find((e) => e.id === args.targetId);
     if (!s) return { ok: false, error: `源元素不存在: ${args.sourceId}` };
@@ -247,6 +266,7 @@ export class DraftCanvas {
     const el = makeElement("arrow", p1.x, p1.y, p2.x - p1.x, p2.y - p1.y, {
       stroke: args.stroke ?? "#2f2f2f",
       strokeWidth: args.strokeWidth,
+      dash: args.dash,
       head: args.head,
       startId: s.id,
       endId: t.id,
@@ -266,12 +286,18 @@ export class DraftCanvas {
     nodes: { id: string; text: string; body?: string; fill?: string; width?: number; height?: number }[];
     edges: { from: string; to: string }[];
     direction?: "TB" | "LR";
+    zones?: { label?: string; nodeIds: string[]; fill?: string }[];
   }): { ok: boolean; error?: string } {
     if (args.nodes.length === 0) return { ok: false, error: "节点列表不能为空" };
     const ids = new Set(args.nodes.map((n) => n.id));
     for (const e of args.edges) {
       if (!ids.has(e.from)) return { ok: false, error: `边引用了不存在的节点: ${e.from}` };
       if (!ids.has(e.to)) return { ok: false, error: `边引用了不存在的节点: ${e.to}` };
+    }
+    for (const z of args.zones ?? []) {
+      for (const nid of z.nodeIds) {
+        if (!ids.has(nid)) return { ok: false, error: `分区引用了不存在的节点: ${nid}` };
+      }
     }
     const fontSize = 14;
     const sized = args.nodes.map((n) => {
@@ -292,6 +318,48 @@ export class DraftCanvas {
       args.direction ?? "TB",
       60
     );
+    // 分区容器（Zone 策略，NeurIPS 风格）：浅色虚线圆角框把一组节点封装为一个阶段/环境，
+    // 先画（zIndex 低、节点后画覆盖其上），标签放框内左上角
+    for (const z of args.zones ?? []) {
+      const members = z.nodeIds
+        .map((id) => {
+          const n = sized.find((s) => s.id === id);
+          const p = pos.get(id);
+          return n && p ? { x: p.x, y: p.y, width: n.width, height: n.height } : null;
+        })
+        .filter((m): m is { x: number; y: number; width: number; height: number } => m !== null);
+      if (members.length === 0) continue;
+      const minX = Math.min(...members.map((m) => m.x));
+      const minY = Math.min(...members.map((m) => m.y));
+      const maxX = Math.max(...members.map((m) => m.x + m.width));
+      const maxY = Math.max(...members.map((m) => m.y + m.height));
+      const pad = 24;
+      this.createElement({
+        type: "rect",
+        x: minX - pad,
+        y: minY - pad,
+        width: maxX - minX + pad * 2,
+        height: maxY - minY + pad * 2,
+        fill: z.fill ?? "#eef4ff",
+        fillOpacity: 0.5,
+        stroke: "#2f2f2f",
+        strokeWidth: 1.2,
+        dash: [6, 4],
+      });
+      if (z.label) {
+        this.createElement({
+          type: "text",
+          x: minX - pad + 8,
+          y: minY - pad + 6,
+          width: 8,
+          height: 8,
+          text: z.label,
+          fontSize: 13,
+          bold: true,
+          fill: "#2f2f2f",
+        });
+      }
+    }
     const idMap = new Map<string, string>();
     for (const n of sized) {
       const p = pos.get(n.id)!;
@@ -357,9 +425,19 @@ export class DraftCanvas {
     // 全零数据（如饼图）静默空成功：引擎按 total<=0 返回空图形，必须显式拒绝
     if (args.data.reduce((s, d) => s + d.value, 0) <= 0) return { ok: false, error: "数据总和必须大于 0" };
     const chartId = `c-${Math.random().toString(36).slice(2, 10)}`;
-    const els = layoutChart(args, chartId);
+    // 多图表平铺：画布已有图表时，新图表自动分配到网格空位（0.5 倍缩放，避免与旧图重叠错位）
+    let spec: ChartSpec = args;
+    if (!args.at) {
+      const existing = Object.keys(this.charts).length;
+      if (existing > 0) {
+        const col = existing % 2;
+        const row = Math.floor(existing / 2);
+        spec = { ...args, at: { x: col * 850, y: row * 520, scale: 0.5 } };
+      }
+    }
+    const els = layoutChart(spec, chartId);
     for (const el of els) this.pushElement(el);
-    this.charts[chartId] = structuredClone(args);
+    this.charts[chartId] = structuredClone(spec);
     this.activity.push(`图表已生成：${chartTypeName(args.type)}（${args.data.length} 项数据）`);
     return { ok: true };
   }
@@ -370,9 +448,14 @@ export class DraftCanvas {
       this.activity.push("画布已是空的");
       return { ok: true };
     }
-    // 清空 = 删除元素，不再挂起确认（仅画布级操作才需确认）
-    this.applyClear();
-    return { ok: true };
+    // 清空当前画布 = 破坏性操作：挂起确认，用户允许后才清空（与新建画布同级）
+    if (this.pendingConfirms.some((p) => p.id === "clear-canvas")) return { ok: true, note: "清空画布已在等待确认" };
+    this.pendingConfirms.push({
+      id: "clear-canvas",
+      description: "清空当前画布上的全部内容",
+      apply: () => this.applyClear(),
+    });
+    return { ok: true, note: "清空画布已挂起，等待用户确认" };
   }
 
   private applyClear() {
@@ -424,7 +507,7 @@ function typeName(t: string): string {
   const map: Record<string, string> = {
     rect: "矩形", ellipse: "椭圆", triangle: "三角形", diamond: "菱形",
     hexagon: "六边形", star: "五角星", cross: "十字", donut: "圆环", half: "半圆",
-    arrow: "箭头", polyline: "折线", text: "文字", logic: "逻辑节点",
+    arrow: "箭头", polyline: "折线", text: "文字", logic: "逻辑节点", formula: "公式",
     curve: "曲线", sector: "扇形",
   };
   return map[t] ?? t;

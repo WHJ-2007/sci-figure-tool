@@ -1,6 +1,7 @@
 import type { CanvasDocument, CanvasElement } from "./types";
 import { shapePoints, arrowHeadPoints, arrowHeadSize, curveControl, arrowPathD, arrowPoints } from "./geometry";
 import { contrastTextColor, elementTransform } from "./elements";
+import { latexToUnicode } from "./formula";
 
 const XML_ESCAPE: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" };
 
@@ -13,8 +14,9 @@ export function elementToSvg(e: CanvasElement): string {
   // 旧元素（无独立透明度）不输出 fill-opacity/stroke-opacity，保持导出文件兼容
   const fillOpacity = e.fillOpacity !== undefined ? ` fill-opacity="${e.opacity * e.fillOpacity}"` : "";
   const strokeOpacity = e.strokeOpacity !== undefined ? ` stroke-opacity="${e.opacity * e.strokeOpacity}"` : "";
+  const dash = e.dash ? ` stroke-dasharray="${e.dash.join(" ")}"` : "";
   const filter = e.shadow ? ` filter="url(#sh-${e.id})"` : "";
-  const attrs = `x="${e.x}" y="${e.y}" fill="${e.fill}" stroke="${e.stroke}" stroke-width="${e.strokeWidth}" opacity="${e.opacity}"${fillOpacity}${strokeOpacity}`;
+  const attrs = `x="${e.x}" y="${e.y}" fill="${e.fill}" stroke="${e.stroke}" stroke-width="${e.strokeWidth}"${dash}${dash} opacity="${e.opacity}"${fillOpacity}${strokeOpacity}`;
   const t = elementTransform(e);
   const rot = t ? ` transform="${t}"` : "";
   // 投影 filter 引用（defs 由 serializeSVG 输出），与渲染一致的 id
@@ -86,11 +88,11 @@ export function elementToSvg(e: CanvasElement): string {
         // 含平滑折点 → Catmull-Rom 曲线路径（与渲染一致）；全尖锐 → 折线
         const hasSmooth = e.midPoints!.some((m) => m.smooth);
         const line = hasSmooth
-          ? `<path d="${arrowPathD(pts)}" fill="none" stroke="${e.stroke}" stroke-width="${e.strokeWidth}" opacity="${e.opacity}"${lineO} stroke-linejoin="round"/>`
-          : `<polyline points="${pts.map((p) => `${p.x},${p.y}`).join(" ")}" fill="none" stroke="${e.stroke}" stroke-width="${e.strokeWidth}" opacity="${e.opacity}"${lineO}/>`;
+          ? `<path d="${arrowPathD(pts)}" fill="none" stroke="${e.stroke}" stroke-width="${e.strokeWidth}"${dash} opacity="${e.opacity}"${lineO} stroke-linejoin="round"/>`
+          : `<polyline points="${pts.map((p) => `${p.x},${p.y}`).join(" ")}" fill="none" stroke="${e.stroke}" stroke-width="${e.strokeWidth}"${dash} opacity="${e.opacity}"${lineO}/>`;
         return `<g${rot}${sh}>${line}${headPts(pts)}</g>`;
       }
-      return `<g${rot}${sh}><line x1="${e.x}" y1="${e.y}" x2="${x2}" y2="${y2}" stroke="${e.stroke}" stroke-width="${e.strokeWidth}" opacity="${e.opacity}"${lineO}/>${headPts([{ x: e.x, y: e.y }, { x: x2, y: y2 }])}</g>`;
+      return `<g${rot}${sh}><line x1="${e.x}" y1="${e.y}" x2="${x2}" y2="${y2}" stroke="${e.stroke}" stroke-width="${e.strokeWidth}"${dash} opacity="${e.opacity}"${lineO}/>${headPts([{ x: e.x, y: e.y }, { x: x2, y: y2 }])}</g>`;
     }
     case "polyline": {
       const pts = e.points.map((p) => `${p.x},${p.y}`).join(" ");
@@ -106,12 +108,18 @@ export function elementToSvg(e: CanvasElement): string {
             const headO = e.strokeOpacity !== undefined ? ` fill-opacity="${e.opacity * e.strokeOpacity}"` : "";
             return `<polygon points="${h}" fill="${e.stroke}"${headO}/>`;
           })();
-      return `<g${rot}${sh}><polyline points="${pts}" fill="none" stroke="${e.stroke}" stroke-width="${e.strokeWidth}" opacity="${e.opacity}"${lineO}/>${head}</g>`;
+      return `<g${rot}${sh}><polyline points="${pts}" fill="none" stroke="${e.stroke}" stroke-width="${e.strokeWidth}"${dash} opacity="${e.opacity}"${lineO}/>${head}</g>`;
+    }
+    case "pen": {
+      // 画笔手写笔迹：圆头圆角平滑描边（与画布渲染一致）
+      const pts = e.points.map((p) => `${p.x},${p.y}`).join(" ");
+      const lineO = e.strokeOpacity !== undefined ? ` stroke-opacity="${e.opacity * e.strokeOpacity}"` : "";
+      return `<g${rot}${sh}><polyline points="${pts}" fill="none" stroke="${e.stroke}" stroke-width="${e.strokeWidth}"${dash} opacity="${e.opacity}"${lineO} stroke-linecap="round" stroke-linejoin="round"/></g>`;
     }
     case "curve": {
       const c = curveControl(e);
       const lineO = e.strokeOpacity !== undefined ? ` stroke-opacity="${e.opacity * e.strokeOpacity}"` : "";
-      return `<path d="M ${e.x} ${e.y} Q ${c.x} ${c.y} ${e.x + e.width} ${e.y + e.height}" fill="none" stroke="${e.stroke}" stroke-width="${e.strokeWidth}" opacity="${e.opacity}"${lineO}${rot}${sh}/>`;
+      return `<path d="M ${e.x} ${e.y} Q ${c.x} ${c.y} ${e.x + e.width} ${e.y + e.height}" fill="none" stroke="${e.stroke}" stroke-width="${e.strokeWidth}"${dash} opacity="${e.opacity}"${lineO}${rot}${sh}/>`;
     }
     case "sector": {
       const r = e.radius;
@@ -123,6 +131,16 @@ export function elementToSvg(e: CanvasElement): string {
       // sweep 恒为 1（角度增大方向）：跨 0 回绕（endAngle < startAngle）时实际扫过 2π+d，
       // 大弧条件是 d > π（正扫）或 d ∈ (-π, 0)（回绕且缺口小于 π），与 angleInSector 语义一致
       const largeArc = d > Math.PI || (d < 0 && d > -Math.PI) ? 1 : 0;
+      // 空心扇形（饼图环形）：外弧 + 内孔弧反向闭合（与画布渲染一致）
+      if (e.innerRadius && e.innerRadius > 0) {
+        const ir = e.innerRadius;
+        const isx = e.x + ir * Math.cos(e.startAngle);
+        const isy = e.y + ir * Math.sin(e.startAngle);
+        const iex = e.x + ir * Math.cos(e.endAngle);
+        const iey = e.y + ir * Math.sin(e.endAngle);
+        const dd = `M ${sx} ${sy} A ${r} ${r} 0 ${largeArc} 1 ${ex} ${ey} L ${iex} ${iey} A ${ir} ${ir} 0 ${largeArc} 0 ${isx} ${isy} Z`;
+        return `<path ${attrs} d="${dd}"${rot}${sh}/>`;
+      }
       return `<path d="M ${e.x} ${e.y} L ${sx} ${sy} A ${r} ${r} 0 ${largeArc} 1 ${ex} ${ey} Z" ${attrs}${rot}/>`;
     }
     case "text": {
@@ -133,9 +151,18 @@ export function elementToSvg(e: CanvasElement): string {
       const textAttrs = `fill="${e.fill}" opacity="${e.opacity}"${fillOpacity}`;
       return `<text ${textAttrs} x="${tx}" y="${e.y + e.height / 2}" text-anchor="${anchor}" dominant-baseline="middle" font-size="${e.fontSize}" font-family="${e.fontFamily}"${weight}${style}${rot}${sh}>${esc(e.text)}</text>`;
     }
+    case "formula": {
+      // 公式元素：衬线斜体排版，渲染前把 LaTeX 源码转成 Unicode 数学符号（与画布渲染一致）
+      const anchor = e.align === "left" ? "start" : e.align === "right" ? "end" : "middle";
+      const tx = e.align === "left" ? e.x : e.align === "right" ? e.x + e.width : e.x + e.width / 2;
+      const weight = e.bold ? ' font-weight="bold"' : "";
+      const style = e.italic ? ' font-style="italic"' : "";
+      const textAttrs = `fill="${e.fill}" opacity="${e.opacity}"${fillOpacity}`;
+      return `<text ${textAttrs} x="${tx}" y="${e.y + e.height / 2}" text-anchor="${anchor}" dominant-baseline="middle" font-size="${e.fontSize}" font-family="${e.fontFamily}"${weight}${style}${rot}${sh}>${esc(latexToUnicode(e.text))}</text>`;
+    }
     case "image":
       // 位图图片：与画布渲染一致（拉伸填充 + 描边边框）
-      return `<g${rot}${sh}><image x="${e.x}" y="${e.y}" width="${e.width}" height="${e.height}" href="${esc(e.src)}" preserveAspectRatio="none" opacity="${e.opacity}"/><rect ${attrs} width="${e.width}" height="${e.height}" fill="none" stroke="${e.stroke}" stroke-width="${e.strokeWidth}" opacity="${e.opacity}"/></g>`;
+      return `<g${rot}${sh}><image x="${e.x}" y="${e.y}" width="${e.width}" height="${e.height}" href="${esc(e.src)}" preserveAspectRatio="none" opacity="${e.opacity}"/><rect ${attrs} width="${e.width}" height="${e.height}" fill="none" stroke="${e.stroke}" stroke-width="${e.strokeWidth}"${dash} opacity="${e.opacity}"/></g>`;
     case "logic": {
       // 逻辑节点：圆角矩形 + 标题（顶部）+ 多行正文（小 2 号），布局与 logicBoxSize 公式一致
       const weight = e.bold ? ' font-weight="bold"' : "";
@@ -151,7 +178,9 @@ export function elementToSvg(e: CanvasElement): string {
   }
 }
 
-export function serializeSVG(doc: CanvasDocument): string {
+// 序列化画布为 SVG 字符串。scale > 1 时放大输出尺寸（width/height × scale，
+// viewBox 不变 → 矢量内容等比放大），供 PNG 超采样导出：4x 下放大到最大也无锯齿
+export function serializeSVG(doc: CanvasDocument, scale = 1): string {
   const body = [...doc.elements]
     .sort((a, b) => a.zIndex - b.zIndex)
     .map(elementToSvg)
@@ -167,7 +196,9 @@ export function serializeSVG(doc: CanvasDocument): string {
         )
         .join("")}</defs>\n`
     : "";
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${doc.width}" height="${doc.height}" viewBox="0 0 ${doc.width} ${doc.height}">\n${defs}${body}\n</svg>`;
+  const w = Math.round(doc.width * scale);
+  const h = Math.round(doc.height * scale);
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${doc.width} ${doc.height}">\n${defs}${body}\n</svg>`;
 }
 
 export async function svgToPngDataUrl(svg: string, width: number, height: number): Promise<string> {
@@ -201,9 +232,12 @@ export function downloadDataUrl(dataUrl: string, filename: string) {
   a.click();
 }
 
+// PNG 导出超采样倍率：4x 超高清（6400×4000），矢量渲染放大到最大也无锯齿
+export const PNG_EXPORT_SCALE = 4;
+
 export async function exportPng(doc: CanvasDocument, filename = "figure.png") {
-  const svg = serializeSVG(doc);
-  const dataUrl = await svgToPngDataUrl(svg, doc.width, doc.height);
+  const svg = serializeSVG(doc, PNG_EXPORT_SCALE);
+  const dataUrl = await svgToPngDataUrl(svg, doc.width * PNG_EXPORT_SCALE, doc.height * PNG_EXPORT_SCALE);
   downloadDataUrl(dataUrl, filename);
 }
 

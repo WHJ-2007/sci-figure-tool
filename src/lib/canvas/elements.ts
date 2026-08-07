@@ -11,13 +11,16 @@ import type {
   DonutElement,
   HalfElement,
   TextElement,
+  FormulaElement,
   ArrowElement,
   PolylineElement,
+  PenElement,
   LogicElement,
   CurveElement,
   SectorElement,
   ImageElement,
 } from "./types";
+import { latexToUnicode } from "./formula";
 
 export function newId(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -94,8 +97,10 @@ export type ElementExtras = Partial<RectElement> &
   Partial<DonutElement> &
   Partial<HalfElement> &
   Partial<TextElement> &
+  Partial<FormulaElement> &
   Partial<ArrowElement> &
   Partial<PolylineElement> &
+  Partial<PenElement> &
   Partial<LogicElement> &
   Partial<CurveElement> &
   Partial<SectorElement> &
@@ -121,6 +126,7 @@ export function makeElement(
     fill: extra.fill ?? DEFAULT_FILL,
     stroke: extra.stroke ?? DEFAULT_STROKE,
     strokeWidth: extra.strokeWidth ?? 2,
+    ...(extra.dash !== undefined ? { dash: extra.dash } : {}),
     opacity: extra.opacity ?? 1,
     zIndex: extra.zIndex ?? 0,
     parentId: extra.parentId,
@@ -163,6 +169,17 @@ export function makeElement(
           ];
       return { ...base, type: "polyline", points, arrow: extra.arrow } as CanvasElement;
     }
+    case "pen": {
+      const pts = extra.points as { x: number; y: number }[] | undefined;
+      const points = pts?.length
+        ? pts
+        : [
+            { x, y },
+            { x: x + width, y: y + height },
+          ];
+      // 画笔默认黑色圆头（科研手写习惯），width/height 由点列包围盒兜底
+      return { ...base, type: "pen", points, stroke: extra.stroke ?? "#2f2f2f" } as CanvasElement;
+    }
     case "text": {
       const t = extra.text ?? "文字";
       const fontSize = extra.fontSize ?? 16;
@@ -172,9 +189,31 @@ export function makeElement(
         type: "text",
         text: t,
         fontSize,
+        // 文本默认黑色（fill 即文字颜色；新建文本若默认白色在白画布上看不见）
+        fill: extra.fill ?? "#2f2f2f",
         fontFamily: extra.fontFamily ?? "Arial, Microsoft YaHei, sans-serif",
         bold: extra.bold ?? false,
         italic: extra.italic ?? false,
+        align: extra.align ?? "center",
+        width: size.width,
+        height: size.height,
+      } as CanvasElement;
+    }
+    case "formula": {
+      // 公式元素：衬线斜体排版模拟论文公式（源码支持 LaTeX/Unicode，渲染前 latexToUnicode 转换）
+      const t = extra.text ?? "x^2";
+      const fontSize = extra.fontSize ?? 20;
+      const size = estimateTextSize(latexToUnicode(t), fontSize, extra.bold ?? false);
+      return {
+        ...base,
+        type: "formula",
+        text: t,
+        fontSize,
+        // 公式同样默认黑色文字
+        fill: extra.fill ?? "#2f2f2f",
+        fontFamily: extra.fontFamily ?? "Times New Roman, Cambria Math, serif",
+        bold: extra.bold ?? false,
+        italic: extra.italic ?? true,
         align: extra.align ?? "center",
         width: size.width,
         height: size.height,
@@ -208,6 +247,7 @@ export function makeElement(
         radius: extra.radius ?? Math.max(width, height) / 2,
         startAngle: extra.startAngle ?? 0,
         endAngle: extra.endAngle ?? Math.PI * 2,
+        ...(extra.innerRadius !== undefined ? { innerRadius: extra.innerRadius } : {}),
       } as CanvasElement;
     case "image":
       return { ...base, type: "image", src: extra.src ?? "" } as CanvasElement;

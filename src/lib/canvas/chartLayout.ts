@@ -1,18 +1,29 @@
 import { makeElement, estimateTextSize } from "./elements";
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from "./geometry";
-import type { CanvasElement, ChartBind } from "./types";
+import type { CanvasElement, ChartBind, PolylineElement, ArrowElement } from "./types";
 
 export interface ChartDatum {
   label: string;
   value: number;
   series?: string;
+  color?: string; // 该条目的图例/图形颜色（缺省自动配色）
 }
 export interface ChartSpec {
   type: "bar" | "line" | "pie" | "scatter";
   title?: string;
   xLabel?: string;
   yLabel?: string;
+  // 数值单位（如 "万元"、"人"、"%"）：饼图标签显示为 "数值单位 (百分比)"，图例可读
+  unit?: string;
+  // 饼图标签：true = 显示具体数值（如 "50万元 (25%)"）；缺省 false = 只显示占比（如 "25%"）
+  showValues?: boolean;
   data: ChartDatum[];
+  // 图表变体：pie 支持 "hollow"（空心/圆环饼图），缺省实心
+  variant?: string;
+  // 饼图起始角度（弧度，缺省 -π/2 即 12 点方向）：拖动起始接缝时整体旋转用
+  pieStart?: number;
+  // 图表摆放位置（多图表平铺用）：scale 缩放整图、x/y 平移整图；缺省 = 默认 PLOT 区域
+  at?: { x?: number; y?: number; scale?: number };
 }
 
 export const CHART_PALETTE = ["#eef4ff", "#f0fff0", "#fff8e6", "#f3efff", "#ffeef0", "#ffffff"];
@@ -34,10 +45,30 @@ export function niceScale(maxV: number): { step: number; max: number } {
 }
 
 // 语义与布局分离：AI 只声明图表类型与数据，本模块产出全部元素（轴/刻度/图形/标签/图例）。
-// chartId 传入时为每个元素打上 chartId + bind（元素↔数据反向映射，供拖动联动/整图重排）
+// chartId 传入时为每个元素打上 chartId + bind（元素↔数据反向映射，供拖动联动/整图重排）。
+// spec.at 支持整图缩放+平移（多图表平铺：AI 一次画多张图时自动分配网格位置，避免全部叠在默认 PLOT 区域）。
 export function layoutChart(spec: ChartSpec, chartId?: string): CanvasElement[] {
-  if (spec.type === "pie") return pie(spec, chartId);
-  return cartesian(spec, chartId);
+  const els = spec.type === "pie" ? pie(spec, chartId) : cartesian(spec, chartId);
+  const at = spec.at;
+  if (!at) return els;
+  const k = at.scale ?? 1;
+  const dx = at.x ?? 0;
+  const dy = at.y ?? 0;
+  if (k === 1 && dx === 0 && dy === 0) return els;
+  return els.map((e) => {
+    const n = { ...e } as CanvasElement;
+    n.x = e.x * k + dx;
+    n.y = e.y * k + dy;
+    n.width = e.width * k;
+    n.height = e.height * k;
+    if ("fontSize" in n && n.fontSize !== undefined) n.fontSize = Math.max(8, Math.round(n.fontSize * k));
+    if ("radius" in n && n.radius !== undefined) n.radius = n.radius * k;
+    if (n.type === "polyline" && "points" in n) n.points = (n as PolylineElement).points.map((p) => ({ x: p.x * k + dx, y: p.y * k + dy }));
+    if (n.type === "arrow" && (n as ArrowElement).midPoints) {
+      (n as ArrowElement).midPoints = (n as ArrowElement).midPoints!.map((m) => ({ ...m, x: m.x * k, y: m.y * k }));
+    }
+    return n;
+  });
 }
 
 function textEl(
@@ -195,28 +226,35 @@ function pie(spec: ChartSpec, chartId?: string): CanvasElement[] {
   const out: CanvasElement[] = [];
   const total = spec.data.reduce((s, d) => s + d.value, 0);
   if (total <= 0) return out;
+  // 空心饼图（圆环）变体：扇形带内孔；每条目可用 color 自定义图例/扇区颜色
+  const hollow = spec.variant === "hollow";
+  const innerR = hollow ? 130 : 0;
   if (spec.title) out.push(textEl(spec.title, 22, 800, 52, { bold: true, fill: AXIS, chartId, bind: { chartId: chartId ?? "", role: "title" } }));
   const cx = 800;
   const cy = 500;
   const r = 280;
-  let angle = -Math.PI / 2;
+  let angle = spec.pieStart ?? -Math.PI / 2;
   spec.data.forEach((d, i) => {
     const sweep = (d.value / total) * Math.PI * 2;
     const start = angle;
     const end = angle + sweep;
     const sec = makeElement("sector", cx, cy, r * 2, r * 2, {
-      radius: r, startAngle: start, endAngle: end,
-      fill: CHART_PALETTE[i % CHART_PALETTE.length], stroke: AXIS, strokeWidth: 1, zIndex: 2,
+      radius: r, innerRadius: innerR || undefined, startAngle: start, endAngle: end,
+      fill: d.color ?? CHART_PALETTE[i % CHART_PALETTE.length], stroke: AXIS, strokeWidth: 1, zIndex: 2,
     });
     if (chartId) tag(sec, chartId, { chartId, role: "slice", index: i });
     out.push(sec);
     const mid = (start + end) / 2;
-    out.push(textEl(`${Math.round((d.value / total) * 100)}%`, 13, cx + Math.cos(mid) * r * 0.62, cy + Math.sin(mid) * r * 0.62, { fill: AXIS, chartId, bind: { chartId: chartId ?? "", role: "pie-label", index: i } }));
+    // 标签默认只显示占比（"25%"）；showValues 时按规范格式显示具体数值+单位+占比（"50万元 (25%)"）
+    const val = Number(d.value.toFixed(2));
+    const pct = Math.round((d.value / total) * 100);
+    const labelText = spec.showValues ? `${val}${spec.unit ?? ""} (${pct}%)` : `${pct}%`;
+    out.push(textEl(labelText, 13, cx + Math.cos(mid) * r * 0.62, cy + Math.sin(mid) * r * 0.62, { fill: AXIS, chartId, bind: { chartId: chartId ?? "", role: "pie-label", index: i } }));
     angle = end;
   });
   let ly = 200;
   spec.data.forEach((d, i) => {
-    const sw = makeElement("rect", 1350, ly, 14, 14, { fill: CHART_PALETTE[i % CHART_PALETTE.length], stroke: AXIS, strokeWidth: 1, zIndex: 2 });
+    const sw = makeElement("rect", 1350, ly, 14, 14, { fill: d.color ?? CHART_PALETTE[i % CHART_PALETTE.length], stroke: AXIS, strokeWidth: 1, zIndex: 2 });
     if (chartId) tag(sw, chartId, { chartId, role: "pie-legend", index: i });
     out.push(sw);
     out.push(textEl(d.label, 13, 1372, ly + 7, { align: "left", chartId, bind: { chartId: chartId ?? "", role: "pie-legend", index: i } }));

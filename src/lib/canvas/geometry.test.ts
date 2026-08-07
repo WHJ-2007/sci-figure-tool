@@ -6,6 +6,7 @@ import {
   alignOffsets,
   distributeOffsets,
   snapRect,
+  alignmentGuides,
   arrowHeadPoints,
   arrowHeadSize,
   arrowPathD,
@@ -176,6 +177,32 @@ describe("snapRect", () => {
     const a = makeElement("arrow", 50, 20, 200, 0, { midPoints: [{ x: 100, y: 40 }] }) as CanvasElement;
     const offs = snapRect({ x: 151, y: 62, width: 0, height: 0 }, [a]);
     expect(offs.dy).toBe(-2);
+  });
+});
+
+describe("alignmentGuides PPT 式对齐参考线", () => {
+  it("左边缘与目标左边缘对齐（5px 内）时返回垂直参考线", () => {
+    const A = makeElement("rect", 100, 0, 50, 50) as CanvasElement;
+    // 移动矩形宽 80 → 中心 x=135 距目标中心 125 有 10px（超阈值）；仅左-左（95→100）在 5px 内
+    const guides = alignmentGuides({ x: 95, y: 100, width: 80, height: 50 }, [A]);
+    expect(guides.x).toBe(100); // 左-左对齐：参考线在目标左边 x=100
+    expect(guides.y).toBeUndefined();
+  });
+  it("中心对齐时返回参考线（含垂直与水平）", () => {
+    const A = makeElement("rect", 100, 100, 50, 50) as CanvasElement;
+    // 移动矩形中心 (150, 150)，目标中心 (125, 125)——相距 25px 超出阈值，不命中
+    const far = alignmentGuides({ x: 125, y: 125, width: 50, height: 50 }, [A]);
+    expect(far.x).toBeUndefined();
+    expect(far.y).toBeUndefined();
+    // 移动矩形中心 (127, 127)（目标中心 125，差 2px 在阈值内）→ 垂直+水平参考线都在 125
+    const near = alignmentGuides({ x: 102, y: 102, width: 50, height: 50 }, [A]);
+    expect(near.x).toBe(125);
+    expect(near.y).toBe(125);
+  });
+  it("无目标时不返回参考线", () => {
+    const guides = alignmentGuides({ x: 50, y: 50, width: 50, height: 50 }, []);
+    expect(guides.x).toBeUndefined();
+    expect(guides.y).toBeUndefined();
   });
 });
 
