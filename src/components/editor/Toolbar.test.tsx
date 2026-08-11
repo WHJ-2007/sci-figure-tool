@@ -105,7 +105,7 @@ describe("Toolbar 悬浮坞", () => {
     expect(screen.queryByTitle("重命名画布")).toBeNull();
     const dock = screen.getByTitle("撤销").closest(".fixed")!;
     const titles = [...dock.querySelectorAll("button")].map((b) => b.getAttribute("title"));
-    expect(titles).toEqual(["撤销", "重做", "选择", "图形", "箭头", "画笔", "文本框", "公式", "逻辑", "图表", "图片"]);
+    expect(titles).toEqual(["撤销", "时间线", "重做", "选择", "图形", "箭头", "画笔", "文本框", "公式", "逻辑", "图表", "图片"]);
     // 子工具默认收在气泡里
     expect(screen.queryByTitle("矩形")).toBeNull();
   });
@@ -121,7 +121,7 @@ describe("Toolbar 悬浮坞", () => {
     expect(spy).toHaveBeenCalled();
   });
 
-  it("导出菜单：点导出图标弹 SVG/PNG 选项，选择后调用对应导出并关闭菜单", () => {
+  it("导出菜单：点导出图标弹 SVG/PNG 选项；SVG 直接导出，PNG 展开选项面板（含背景 + 分辨率）后导出并关闭菜单", () => {
     render(<Toolbar />);
     fireEvent.click(screen.getByTitle("导出"));
     expect(screen.getByTitle("导出 SVG")).toBeInTheDocument();
@@ -129,10 +129,13 @@ describe("Toolbar 悬浮坞", () => {
     fireEvent.click(screen.getByTitle("导出 SVG"));
     expect(exportSvgFile).toHaveBeenCalledTimes(1);
     expect(screen.queryByTitle("导出 SVG")).toBeNull();
-    // PNG：重新打开菜单选择
+    // PNG：重新打开菜单 → 点击 PNG 展开选项面板（含背景 + 分辨率）→ 点导出按钮执行
     fireEvent.click(screen.getByTitle("导出"));
     fireEvent.click(screen.getByTitle("导出 PNG"));
+    expect(screen.getByTestId("png-options")).toBeInTheDocument();
+    fireEvent.click(screen.getByTitle("导出 PNG 文件"));
     expect(exportPng).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTitle("导出 PNG 文件")).toBeNull();
   });
 
   it("导出菜单点击外部关闭", () => {

@@ -21,6 +21,16 @@ export default function AutoSave() {
         if (r === "denied" && (await ensureSavePermission())) {
           await saveProjectsToFile(json);
         }
+        // 长期存储兜底：同步落盘到项目 data/ 目录（清浏览器缓存/换浏览器也可找回）
+        try {
+          await fetch("/api/data", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ kind: "canvas", json }),
+          });
+        } catch {
+          // 落盘失败静默（localStorage 仍兜底）
+        }
       })();
     };
     const unsub = useCanvasStore.subscribe((s) => {

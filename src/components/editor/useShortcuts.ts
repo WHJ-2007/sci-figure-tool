@@ -64,9 +64,10 @@ export function useShortcuts() {
         }
         return;
       }
-      // 生成中 Delete/Backspace 放行：锁定的 AI 元素进不了选区，删的是用户自己的元素
+      // 生成中 Delete/Backspace 放行：锁定的 AI 元素进不了选区，删的是用户自己的元素。
+      // 不因 editingText 残留拦截删除：编辑框内按键已被上方 INPUT/TEXTAREA 检查放行（删字符），
+      // 焦点已离开编辑框时用户按 Delete 应删除选中的元素（曾出现"选中元素删不掉"的 bug）
       if (e.key === "Delete" || e.key === "Backspace") {
-        if (s.editingText) return;
         if (s.selection.length) {
           e.preventDefault();
           s.deleteElements(s.selection);

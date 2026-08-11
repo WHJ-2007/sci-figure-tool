@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { layoutChart, type ChartSpec, type ChartDatum } from "@/lib/canvas/chartLayout";
+import { layoutChart, CHART_PALETTE, CHART_STROKE_PALETTE, type ChartSpec, type ChartDatum } from "@/lib/canvas/chartLayout";
+import { elementBounds, VIEWPORT_WIDTH, VIEWPORT_HEIGHT } from "@/lib/canvas/geometry";
 import { elementToSvg } from "@/lib/canvas/exporter";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { newId } from "@/lib/canvas/elements";
@@ -12,7 +13,7 @@ interface Row { label: string; value: string; series: string; color: string }
 
 // 类型二级菜单（变体）：饼图支持 实心/空心（圆环）
 const TYPE_VARIANTS: { type: ChartSpec["type"]; options: { value?: string; label: string }[] }[] = [
-  { type: "bar", options: [{ label: "分组柱状" }, { label: "堆叠柱状" }] },
+  { type: "bar", options: [{ label: "分组柱状" }, { value: "stacked", label: "堆叠柱状" }] },
   { type: "pie", options: [{ label: "实心饼图" }, { value: "hollow", label: "空心饼图" }] },
 ];
 
@@ -91,8 +92,12 @@ export default function ChartDialog({
   const [yLabel, setYLabel] = useState("");
   const [unit, setUnit] = useState("");
   const [showValues, setShowValues] = useState(false);
+  const [xStep, setXStep] = useState<number | undefined>(undefined);
   const [rows, setRows] = useState<Row[]>(emptyRows());
   const [err, setErr] = useState("");
+  // 实时预览视口：拖拽平移（pan）+ 滚轮缩放（scale 联动，确定后图表即此大小）
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const dragRef = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -104,6 +109,7 @@ export default function ChartDialog({
       setYLabel(initial.yLabel ?? "");
       setUnit(initial.unit ?? "");
       setShowValues(initial.showValues ?? false);
+      setXStep(initial.xStep);
       setRows(initial.data.map((d) => ({ label: d.label, value: String(d.value), series: d.series ?? "", color: d.color ?? "" })));
     } else {
       setType("bar");
@@ -113,6 +119,7 @@ export default function ChartDialog({
       setYLabel("");
       setUnit("");
       setShowValues(false);
+      setXStep(undefined);
       setRows(emptyRows());
     }
     setErr("");
@@ -123,6 +130,20 @@ export default function ChartDialog({
 
   const setRow = (i: number, k: keyof Row, v: string) => {
     setRows((rs) => rs.map((r, j) => (j === i ? { ...r, [k]: v } : r)));
+  };
+
+  // 自动配色：与 layoutChart 完全一致——折线/散点用深描边色板，其余用浅填充色板。
+  // 饼图按行序轮换（每个数据项一个色）；直角坐标系按系列分配（同一系列共用色）；
+  // 全部行都未填系列时按行序轮换（默认两行颜色不同，生成时行色生效）
+  const autoColor = (rowIdx: number) => {
+    const useStroke = type === "line" || type === "scatter";
+    const palette = useStroke ? CHART_STROKE_PALETTE : CHART_PALETTE;
+    if (isPie) return palette[rowIdx % palette.length];
+    const hasSeries = rows.some((r) => r.series.trim() !== "");
+    if (!hasSeries) return palette[rowIdx % palette.length];
+    const seriesNames = Array.from(new Set(rows.map((r) => r.series.trim() || "默认")));
+    const si = Math.max(0, seriesNames.indexOf((rows[rowIdx]?.series ?? "").trim() || "默认"));
+    return palette[si % palette.length];
   };
 
   // 实时预览：用当前表单状态构建 spec，layoutChart 生成元素后渲染迷你 SVG（所见即所得）
@@ -144,8 +165,9 @@ export default function ChartDialog({
         title: title.trim() || undefined,
         xLabel: isPie ? undefined : xLabel.trim() || undefined,
         yLabel: isPie ? undefined : yLabel.trim() || undefined,
-        // 预览带缩放（尺寸滑块），与最终生成一致
-        at: { scale },
+        xStep,
+        // 预览不缩放元素（缩放交给 CSS transform，避免放大后超出 viewBox 被裁剪）；
+        // 最终生成仍用 at.scale，视觉大小与预览一致
       };
       const els = layoutChart(spec, "preview");
       return els.map((e) => elementToSvg(e)).join("\n");
@@ -170,11 +192,14 @@ export default function ChartDialog({
       data.push({ label, value: v, series: isPie ? undefined : r.series.trim() || undefined, color: r.color.trim() || undefined });
     }
     if (data.length < 1) { setErr("至少 1 行数据"); return; }
-    if (data.length > 12) { setErr("最多 12 行数据"); return; }
+    if (data.length > 60) { setErr("最多 60 行数据"); return; }
     if (data.reduce((s, d) => s + d.value, 0) <= 0) { setErr("数据总和必须大于 0"); return; }
-    // 尺寸滑块：合并进 at.scale（保留已有位置偏移）
+    // 尺寸滑块：合并进 at.scale（保留已有位置偏移）；新建时把图表几何中心对准当前视口中心
     const prevAt = chartId ? useCanvasStore.getState().doc.charts?.[chartId]?.at : undefined;
-    const spec: ChartSpec = {
+    const id = chartId ?? newId();
+    // 图表声明主体（不含 at）：居中计算与最终布局必须用同一份字段（xLabel/yLabel/unit 等会改变
+    // 包围盒中心——此前 base 只带部分字段导致中心算偏，图表落点偏离视口中心）
+    const baseSpec: ChartSpec = {
       type,
       variant,
       data,
@@ -183,11 +208,27 @@ export default function ChartDialog({
       yLabel: isPie ? undefined : yLabel.trim() || undefined,
       unit: unit.trim() || undefined,
       showValues: showValues || undefined,
-      at: { ...(prevAt ?? {}), scale },
+      xStep,
+    };
+    let at: ChartSpec["at"] = { ...(prevAt ?? {}), scale };
+    if (!chartId) {
+      // 新建图表：先以完整声明布局算出图表包围盒中心，再整体平移到视口中心（世界坐标）
+      const base = layoutChart(baseSpec, id);
+      const bs = base.map(elementBounds);
+      const cx = (Math.min(...bs.map((b) => b.x)) + Math.max(...bs.map((b) => b.x + b.width))) / 2;
+      const cy = (Math.min(...bs.map((b) => b.y)) + Math.max(...bs.map((b) => b.y + b.height))) / 2;
+      const v = useCanvasStore.getState().view;
+      const vcx = (VIEWPORT_WIDTH / 2 - v.ox) / v.scale;
+      const vcy = (VIEWPORT_HEIGHT / 2 - v.oy) / v.scale;
+      // layoutChart 的 at 位移是加在缩放后坐标上的平移量：中心 = cx*scale + x，令其等于视口中心
+      at = { scale, x: vcx - cx * scale, y: vcy - cy * scale };
+    }
+    const spec: ChartSpec = {
+      ...baseSpec,
+      at,
       // 编辑已有图表时携带当前 pieStart（旋转过接缝后重排不跳回原位）
       ...(chartId ? { pieStart: useCanvasStore.getState().doc.charts?.[chartId]?.pieStart } : {}),
     };
-    const id = chartId ?? newId();
     const elements: CanvasElement[] = layoutChart(spec, id);
     const replaceIds = chartId
       ? useCanvasStore.getState().doc.elements.filter((e) => e.chartId === chartId).map((e) => e.id)
@@ -219,10 +260,15 @@ export default function ChartDialog({
                   title={label}
                   aria-pressed={active}
                   onClick={() => {
-                    setType(t);
-                    setVariant(undefined);
-                    // 有变体的类型点击卡片展开/收起二级菜单
-                    setOpenMenu(menuOpen || variants.length === 0 ? null : t);
+                    if (type !== t) {
+                      // 切换到其他类型：重置变体（柱→饼的 hollow 不适用），有变体则展开二级菜单
+                      setType(t);
+                      setVariant(undefined);
+                      setOpenMenu(variants.length > 0 ? t : null);
+                    } else {
+                      // 点击当前类型卡片：只切换二级菜单开合，保留已选变体（不再重置）
+                      setOpenMenu(menuOpen || variants.length === 0 ? null : t);
+                    }
                   }}
                   className={`lift flex w-full flex-col items-center gap-1 rounded-xl border py-2 transition-colors ${
                     active || menuOpen ? "border-blue-400 bg-blue-50 shadow-sm" : "border-white/60 bg-white/70 hover:bg-white/90"
@@ -238,7 +284,7 @@ export default function ChartDialog({
                 </button>
                 {/* 二级菜单：从卡片下方展开变体选项（如饼图 实心/空心） */}
                 {menuOpen && variants.length > 0 && (
-                  <div className="absolute left-0 top-full z-20 mt-1 w-full min-w-[6.5rem] overflow-hidden rounded-lg border border-white/60 bg-white/90 shadow-lg backdrop-blur-md">
+                  <div className="absolute left-0 top-full z-20 mt-1 w-full min-w-[6.5rem] overflow-hidden rounded-lg border border-white/60 bg-white/90 shadow-lg backdrop-blur-xl">
                     {variants.map((opt) => {
                       const optActive = (opt.value ?? undefined) === variant;
                       return (
@@ -299,7 +345,7 @@ export default function ChartDialog({
         <div className="mb-1 flex gap-2 text-[10px] font-medium uppercase tracking-wide text-gray-400">
           <span className="flex-1">标签</span>
           <span className="w-16 text-right">数值</span>
-          {!isPie && <span className="w-24 text-right">系列（可选）</span>}
+          {!isPie && <span className="w-24 text-right">分组（可选）</span>}
           <span className="w-14 text-right">颜色</span>
           {/* 与输入行删除按钮等宽的占位，保证颜色列头对齐 */}
           <span className="w-6 shrink-0" />
@@ -310,11 +356,11 @@ export default function ChartDialog({
               <input aria-label={`标签 ${i + 1}`} value={r.label} onChange={(e) => setRow(i, "label", e.target.value)} className={`h-7 min-w-0 flex-1 ${inputCls}`} />
               <input aria-label={`数值 ${i + 1}`} value={r.value} onChange={(e) => setRow(i, "value", e.target.value)} className={`h-7 w-16 text-right ${inputCls}`} />
               {!isPie && (
-                <input aria-label={`系列 ${i + 1}`} value={r.series} onChange={(e) => setRow(i, "series", e.target.value)} className={`h-7 w-24 ${inputCls}`} />
+                <input aria-label={`分组 ${i + 1}`} value={r.series} onChange={(e) => setRow(i, "series", e.target.value)} className={`h-7 w-24 ${inputCls}`} />
               )}
-              {/* 图例颜色：色块 + 输入框（空 = 自动配色） */}
-              <label aria-label={`颜色 ${i + 1}`} className="flex h-7 w-14 shrink-0 items-center gap-1 rounded-lg border border-white/60 bg-white/70 px-1" style={{ backgroundColor: r.color || undefined }}>
-                <input type="color" value={r.color || "#eef4ff"} onChange={(e) => setRow(i, "color", e.target.value)} className="h-5 w-5 shrink-0 cursor-pointer border-0 bg-transparent p-0" />
+              {/* 图例颜色：整块为色块 + 隐藏的取色器输入（透明铺满，点击任意处打开取色器，无小方块残留） */}
+              <label aria-label={`颜色 ${i + 1}`} className="relative flex h-7 w-14 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-lg border border-white/60 bg-white/70" style={{ backgroundColor: r.color || autoColor(i) }}>
+                <input type="color" value={r.color || autoColor(i)} onChange={(e) => setRow(i, "color", e.target.value)} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
               </label>
               <button
                 onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))}
@@ -327,7 +373,14 @@ export default function ChartDialog({
             </div>
           ))}
         </div>
-        <button onClick={() => setRows((rs) => [...rs, { label: "", value: "", series: "", color: "" }])} disabled={rows.length >= 12} className="mt-2 lift rounded-lg border border-white/60 bg-white/70 px-2 py-0.5 text-xs text-gray-600 disabled:opacity-40">+ 添加行</button>
+        {/* 添加行：自动预填下一个自动配色（新建标签自动换好颜色） */}
+        <button
+          onClick={() => setRows((rs) => [...rs, { label: "", value: "", series: "", color: autoColor(rs.length) }])}
+          disabled={rows.length >= 60}
+          className="mt-2 lift rounded-lg border border-white/60 bg-white/70 px-2 py-0.5 text-xs text-gray-600 disabled:opacity-40"
+        >
+          + 添加行
+        </button>
 
         {err && <div className="mt-2 rounded-lg border border-red-200/60 bg-red-100/40 px-2 py-1 text-xs text-red-700">{err}</div>}
         <div className="mt-4 flex justify-end gap-2">
@@ -338,12 +391,36 @@ export default function ChartDialog({
           {/* 右：实时预览 + 尺寸 */}
           <div className="w-72 shrink-0 space-y-3">
             <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-gray-400">实时预览</div>
-            <div className="rounded-xl border border-white/60 bg-white/70 p-2 shadow-inner">
+            {/* 预览视口平移（拖拽）+ 滚轮缩放（联动 scale，确定后图表即此大小） */}
+            <div
+              className="relative cursor-grab touch-none select-none overflow-hidden rounded-xl border border-white/60 bg-white/70 p-2 shadow-inner active:cursor-grabbing"
+              onWheel={(e) => {
+                e.preventDefault();
+                const factor = e.deltaY < 0 ? 1.1 : 0.9;
+                setScale((s) => Math.min(2, Math.max(0.3, +(s * factor).toFixed(2))));
+              }}
+              onPointerDown={(e) => {
+                const el = e.currentTarget;
+                el.setPointerCapture(e.pointerId);
+                dragRef.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y };
+              }}
+              onPointerMove={(e) => {
+                if (!dragRef.current) return;
+                const d = dragRef.current;
+                setPan({ x: d.px + (e.clientX - d.x), y: d.py + (e.clientY - d.y) });
+              }}
+              onPointerUp={() => { dragRef.current = null; }}
+              onPointerCancel={() => { dragRef.current = null; }}
+            >
               {previewSvg ? (
-                <svg viewBox="0 0 1600 1000" className="h-56 w-full" dangerouslySetInnerHTML={{ __html: previewSvg }} />
+                // 缩放用 CSS transform（内容不放大出 viewBox，不会被裁剪）；transform-origin 0 0 保证
+                // 滚轮缩放以左上角为基准整体放大缩小，拖动平移可查看全部内容
+                <svg viewBox="0 0 1600 1000" className="h-56 w-full" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`, transformOrigin: "0 0" }} dangerouslySetInnerHTML={{ __html: previewSvg }} />
               ) : (
                 <div className="flex h-56 items-center justify-center text-xs text-gray-400">填写数据后实时预览</div>
               )}
+              {/* 拖拽/缩放提示 */}
+              <span className="pointer-events-none absolute bottom-1 right-1 rounded bg-white/70 px-1 text-[9px] text-gray-400">拖拽平移 · 滚轮缩放</span>
             </div>
             {/* 尺寸滑块：缩放整图（预览同步） */}
             <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-gray-400">尺寸</div>

@@ -3,19 +3,22 @@
 import { useCanvasStore } from "@/lib/canvas/store";
 
 // 元素右键菜单状态：命中折点 → 删除折点；命中线段 → 新建平滑/尖锐折点；
-// 命中任意元素 → 删除元素；三种菜单底部都带红色"删除元素"
+// 命中任意元素 → 删除元素；命中图表元素 → 编辑图表数据 / 删除图表
 export type ArrowMenuState =
   | { kind: "midpoint"; x: number; y: number; midIndex: number }
   | { kind: "segment"; x: number; y: number; insertAt: number; point: { x: number; y: number } }
   | { kind: "element"; x: number; y: number }
+  | { kind: "chart"; chartId: string; x: number; y: number }
   | null;
 
 export default function ArrowContextMenu({
   menu,
   onClose,
+  onEditChart,
 }: {
   menu: Exclude<ArrowMenuState, null>;
   onClose: () => void;
+  onEditChart?: (chartId: string) => void;
 }) {
   const updateElement = useCanvasStore((s) => s.updateElement);
 
@@ -34,11 +37,32 @@ export default function ArrowContextMenu({
   return (
     <div
       data-testid="arrow-context-menu"
-      className="fixed z-50 w-40 rounded-xl border border-white/50 bg-white/85 p-1 shadow-xl backdrop-blur-md"
+      className="fixed z-50 w-44 rounded-xl border border-white/50 bg-white/85 p-1 shadow-xl backdrop-blur-xl"
       style={{ left: menu.x, top: menu.y }}
       onClick={(e) => e.stopPropagation()}
     >
-      {menu.kind === "element" ? (
+      {menu.kind === "chart" ? (
+        <>
+          <button
+            data-testid="edit-chart"
+            className="lift block w-full rounded-lg px-3 py-1.5 text-left text-[13px] text-blue-600"
+            onClick={() => {
+              onEditChart?.(menu.chartId);
+              onClose();
+            }}
+          >
+            编辑图表数据
+          </button>
+          <div className="my-1 border-t border-white/60" />
+          <button
+            data-testid="delete-element"
+            className="lift block w-full rounded-lg px-3 py-1.5 text-left text-[13px] text-red-500"
+            onClick={deleteSelected}
+          >
+            删除图表
+          </button>
+        </>
+      ) : menu.kind === "element" ? (
         <button
           data-testid="delete-element"
           className="lift block w-full rounded-lg px-3 py-1.5 text-left text-[13px] text-red-500"
@@ -87,24 +111,56 @@ export default function ArrowContextMenu({
           </button>
         </>
       ) : (
-        <button
-          data-testid="delete-midpoint"
-          className="lift block w-full rounded-lg px-3 py-1.5 text-left text-[13px] text-red-500"
-          onClick={() =>
-            act(() => {
-              const s = useCanvasStore.getState();
-              if (s.selection.length !== 1) return;
-              const sel = s.doc.elements.find((x) => x.id === s.selection[0]);
-              if (sel?.type !== "arrow") return;
-              const mid = sel.midPoints ?? [];
-              if (menu.midIndex < mid.length) {
-                s.updateElement(sel.id, { midPoints: mid.filter((_, j) => j !== menu.midIndex) });
-              }
-            })
-          }
-        >
-          删除折点
-        </button>
+        <>
+          {/* 切换折点类型：当前尖锐 → 可切为平滑；当前平滑 → 可切回尖锐（任一折点均可切换） */}
+          {(() => {
+            const s = useCanvasStore.getState();
+            const sel = s.selection.length === 1 ? s.doc.elements.find((x) => x.id === s.selection[0]) : null;
+            const cur = sel?.type === "arrow" ? sel.midPoints?.[menu.midIndex] : null;
+            const isSmooth = !!cur?.smooth;
+            return (
+              <button
+                data-testid="toggle-midpoint-smooth"
+                className="lift block w-full rounded-lg px-3 py-1.5 text-left text-[13px] text-gray-700"
+                onClick={() =>
+                  act(() => {
+                    const st = useCanvasStore.getState();
+                    if (st.selection.length !== 1) return;
+                    const target = st.doc.elements.find((x) => x.id === st.selection[0]);
+                    if (target?.type !== "arrow") return;
+                    const mid = target.midPoints ?? [];
+                    if (menu.midIndex >= mid.length) return;
+                    // 平滑 ↔ 尖锐：平滑折点写 smooth:true，尖锐折点缺省（不带 smooth）
+                    const next = mid.map((m, j) =>
+                      j === menu.midIndex ? (isSmooth ? { x: m.x, y: m.y } : { ...m, smooth: true }) : m
+                    );
+                    st.updateElement(target.id, { midPoints: next });
+                  })
+                }
+              >
+                {isSmooth ? "切换为尖锐折点" : "切换为平滑折点"}
+              </button>
+            );
+          })()}
+          <button
+            data-testid="delete-midpoint"
+            className="lift block w-full rounded-lg px-3 py-1.5 text-left text-[13px] text-red-500"
+            onClick={() =>
+              act(() => {
+                const s = useCanvasStore.getState();
+                if (s.selection.length !== 1) return;
+                const sel = s.doc.elements.find((x) => x.id === s.selection[0]);
+                if (sel?.type !== "arrow") return;
+                const mid = sel.midPoints ?? [];
+                if (menu.midIndex < mid.length) {
+                  s.updateElement(sel.id, { midPoints: mid.filter((_, j) => j !== menu.midIndex) });
+                }
+              })
+            }
+          >
+            删除折点
+          </button>
+        </>
       )}
       {menu.kind !== "element" && (
         <>

@@ -35,7 +35,7 @@ describe("POST /api/chat/confirm", () => {
     (d as unknown as { pendingConfirms: { id: string; description: string; apply: () => void }[] }).pendingConfirms.push({ id, description, apply });
   }
 
-  it("多挂起项分两批确认：首批确认后会话保留，次批补全后会话删除", async () => {
+  it("多挂起项分两批确认：首批确认后会话保留，次批补全后会话不再删除（幂等由已执行标记保证，残留由 TTL 兜底清理）", async () => {
     const elA = makeElement("rect", 0, 0, 100, 60, { id: "a1" });
     const elB = makeElement("ellipse", 200, 200, 40, 40, { id: "b1" });
     const d = new DraftCanvas([elA, elB]);
@@ -44,7 +44,7 @@ describe("POST /api/chat/confirm", () => {
     expect(d.pending.length).toBe(2);
     const sid = crypto.randomUUID();
     setConfirmSession(sid, d);
-    // 首批：确认 newCanvas，取消 b1（取消也算表态，但本批有新表态 → 完成批不删会话）
+    // 首批：确认 newCanvas，取消 b1（取消也算表态）
     const res1 = await POST(
       mockReq({ sessionId: sid, approvals: [{ id: "new-canvas", approved: true }, { id: "b1", approved: false }] })
     );
@@ -60,8 +60,8 @@ describe("POST /api/chat/confirm", () => {
     const ev2 = await readEvents(res2);
     expect(ev2.some((e) => e.type === "snapshot" && e.canvas.elements.length === 0)).toBe(true);
     expect(ev2.some((e) => e.type === "confirm-done")).toBe(true);
-    // 全部表态且本批无新表态 → 会话删除
-    expect(getConfirmSession(sid)).toBeUndefined();
+    // 全部表态后会话不再删除（避免后续确认请求 404「确认会话已失效」），由 TTL sweep 兜底清理
+    expect(getConfirmSession(sid)).toBeDefined();
   });
 
   it("重复提交同一批次幂等：不重复应用", async () => {

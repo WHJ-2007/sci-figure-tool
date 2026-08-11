@@ -60,17 +60,17 @@ describe("ChartDialog", () => {
     expect(screen.getByRole("button", { name: "柱状图" })).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("饼图隐藏无意义字段：无 X/Y 轴输入、无系列列", () => {
+  it("饼图隐藏无意义字段：无 X/Y 轴输入、无分组列", () => {
     render(<ChartDialog open={true} onClose={() => {}} />);
-    // 默认柱状图显示坐标轴与系列
+    // 默认柱状图显示坐标轴与分组
     expect(screen.getByLabelText("X 轴名")).toBeInTheDocument();
     expect(screen.getByLabelText("Y 轴名")).toBeInTheDocument();
-    expect(screen.getAllByLabelText(/系列 \d+/).length).toBe(2);
-    // 切到饼图：轴与系列全部隐藏，数据行只剩标签/数值
+    expect(screen.getAllByLabelText(/分组 \d+/).length).toBe(2);
+    // 切到饼图：轴与分组全部隐藏，数据行只剩标签/数值
     fireEvent.click(screen.getByRole("button", { name: "饼图" }));
     expect(screen.queryByLabelText("X 轴名")).toBeNull();
     expect(screen.queryByLabelText("Y 轴名")).toBeNull();
-    expect(screen.queryByLabelText(/系列 \d+/)).toBeNull();
+    expect(screen.queryByLabelText(/分组 \d+/)).toBeNull();
     expect(screen.getAllByLabelText(/标签 \d+/).length).toBe(2);
     expect(screen.getAllByLabelText(/数值 \d+/).length).toBe(2);
   });
@@ -87,10 +87,10 @@ describe("ChartDialog", () => {
     expect(screen.getByLabelText("数值 1")).toHaveValue("42");
   });
 
-  it("饼图生成时丢弃系列与坐标轴名：spec 不含 xLabel/yLabel/series", () => {
+  it("饼图生成时丢弃分组与坐标轴名：spec 不含 xLabel/yLabel/series", () => {
     render(<ChartDialog open={true} onClose={() => {}} />);
-    // 柱状图下先填好系列，再切饼图生成——系列不应进入 spec
-    fireEvent.change(screen.getByLabelText("系列 1"), { target: { value: "S1" } });
+    // 柱状图下先填好分组，再切饼图生成——分组不应进入 spec
+    fireEvent.change(screen.getByLabelText("分组 1"), { target: { value: "S1" } });
     fireEvent.change(screen.getByLabelText("X 轴名"), { target: { value: "季度" } });
     fireEvent.click(screen.getByRole("button", { name: "饼图" }));
     // 默认 2 行：先添加第 3 行再填 3 个数据点

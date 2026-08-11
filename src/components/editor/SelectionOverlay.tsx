@@ -62,6 +62,21 @@ export default function SelectionOverlay({
     return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
   })();
 
+  // 图表整体选中：任一选中元素属于图表（chartId 或 bind）→ 计算整图全部元素的合并包围盒，
+  // 在最外侧画大框 + 8 向缩放手柄，可整体缩放整个图表（scaleChart 写回 spec，编辑数据不还原）
+  const chartId = sel.map((e) => e.chartId || e.bind?.chartId).find(Boolean) as string | undefined;
+  const chartBox = (() => {
+    if (!chartId) return null;
+    const members = doc.elements.filter((e) => e.chartId === chartId || e.bind?.chartId === chartId);
+    if (!members.length) return null;
+    const bs = members.map((e) => elementBounds(e));
+    const minX = Math.min(...bs.map((b) => b.x));
+    const minY = Math.min(...bs.map((b) => b.y));
+    const maxX = Math.max(...bs.map((b) => b.x + b.width));
+    const maxY = Math.max(...bs.map((b) => b.y + b.height));
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+  })();
+
   return (
     <>
       {/* 缩放预览框：蓝色虚线框提示"松手后的落点"（与移动预览同风格，本体保持原位不动） */}
@@ -301,8 +316,91 @@ export default function SelectionOverlay({
           />
         </g>
       )}
+      {/* 图表整体框：最外侧大框 + 8 向缩放手柄，绕图表包围盒中心整体缩放（scaleChart 写回 spec） */}
+      {chartBox && (
+        <g pointerEvents="none">
+          <rect
+            data-testid="chart-overlay-box"
+            x={chartBox.x}
+            y={chartBox.y}
+            width={chartBox.width}
+            height={chartBox.height}
+            fill="none"
+            stroke="#7c3aed"
+            strokeWidth={2 / scale}
+            strokeDasharray={8 / scale}
+            rx={6 / scale}
+          />
+          <text x={chartBox.x} y={chartBox.y - 6 / scale} textAnchor="start" fontSize={11 / scale} fill="#7c3aed" fontWeight="bold">
+            图表
+          </text>
+          {HANDLES.map((h) => {
+            const p = HANDLE_POS[h];
+            const hx = chartBox.x + p.x * chartBox.width;
+            const hy = chartBox.y + p.y * chartBox.height;
+            return (
+              <rect
+                key={h}
+                data-chart-handle={h}
+                x={hx - H / 2}
+                y={hy - H / 2}
+                width={H}
+                height={H}
+                rx={2 / scale}
+                fill="#ffffff"
+                stroke="#7c3aed"
+                strokeWidth={2 / scale}
+                style={{ cursor: "nwse-resize", pointerEvents: "all" }}
+                onPointerDown={(ev) => {
+                  ev.stopPropagation();
+                  chartScaleDown(ev, chartId!, chartBox, h, setResizePreview);
+                }}
+              />
+            );
+          })}
+        </g>
+      )}
     </>
   );
+}
+
+// 图表整体缩放：以图表包围盒中心为锚点等比缩放（拖动任意手柄 → 计算比例 → scaleChart 整图重排）
+function chartScaleDown(
+  ev: React.PointerEvent,
+  chartId: string,
+  box: { x: number; y: number; width: number; height: number },
+  handle: (typeof HANDLES)[number],
+  setPreview: (r: { x: number; y: number; width: number; height: number } | null) => void
+) {
+  const s = useCanvasStore.getState();
+  s.commitHistory(); // 缩放前提交快照，一次缩放 = 一步撤销
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  const hw = box.width / 2;
+  const hh = box.height / 2;
+  const svg = (ev.target as Element).closest("svg")!;
+  let factor = 1;
+  const onMove = (me: PointerEvent) => {
+    const wx = worldOf(svg, me.clientX, "x");
+    const wy = worldOf(svg, me.clientY, "y");
+    // 角点：取横纵比例较大者（等比缩放）；边中点：只按对应轴比例
+    const fx = Math.abs(wx - cx) / hw;
+    const fy = Math.abs(wy - cy) / hh;
+    factor = Math.max(
+      0.2,
+      handle === "n" || handle === "s" ? fy :
+      handle === "e" || handle === "w" ? fx :
+      Math.max(fx, fy)
+    );
+    const nw = hw * 2 * factor;
+    const nh = hh * 2 * factor;
+    setPreview({ x: cx - nw / 2, y: cy - nh / 2, width: nw, height: nh });
+  };
+  const onUp = () => {
+    setPreview(null);
+    useCanvasStore.getState().scaleChart(chartId, factor);
+  };
+  addWindowListeners(onMove, onUp);
 }
 
 function handleDown(

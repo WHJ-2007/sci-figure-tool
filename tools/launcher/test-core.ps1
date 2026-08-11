@@ -27,8 +27,8 @@ foreach ($name in @('launcher-core.ps1', 'test-core.ps1', 'check-launcher.ps1'))
 # 路径推导（工具目录 tools/launcher → 项目根）
 $expectRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 Assert-True "项目根目录推导" ((Get-ProjectRoot) -eq $expectRoot)
-Assert-True "端口为 3001" ((Get-Port) -eq 3001)
-Assert-True "服务器地址" ((Get-ServerUrl) -eq "http://localhost:3001")
+Assert-True "端口为 8081" ((Get-Port) -eq 8081)
+Assert-True "服务器地址" ((Get-ServerUrl) -eq "http://localhost:8081")
 
 # 运行时目录
 $rt = Get-RuntimeDir
@@ -43,8 +43,8 @@ Assert-True "PID 写入读取" ((Load-PidFile) -eq $pidValue)
 Remove-PidFile
 Assert-True "PID 文件删除" (-not (Test-Path (Get-PidFilePath)))
 
-# 端口检查（3001 不应被占用）
+# 端口检查（8081 不应被占用）
 $used = Get-PortInUse
-Assert-False "端口 3001 未被占用" $used
+Assert-False "端口 8081 未被占用" $used
 
 Test-Done

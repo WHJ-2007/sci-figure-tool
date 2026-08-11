@@ -164,7 +164,7 @@ export function elementToSvg(e: CanvasElement): string {
       // 位图图片：与画布渲染一致（拉伸填充 + 描边边框）
       return `<g${rot}${sh}><image x="${e.x}" y="${e.y}" width="${e.width}" height="${e.height}" href="${esc(e.src)}" preserveAspectRatio="none" opacity="${e.opacity}"/><rect ${attrs} width="${e.width}" height="${e.height}" fill="none" stroke="${e.stroke}" stroke-width="${e.strokeWidth}"${dash} opacity="${e.opacity}"/></g>`;
     case "logic": {
-      // 逻辑节点：圆角矩形 + 标题（顶部）+ 多行正文（小 2 号），布局与 logicBoxSize 公式一致
+      // 逻辑节点：可多种外形（矩形/平行四边形/菱形）+ 标题（顶部）+ 多行正文（小 2 号），布局与 logicBoxSize 公式一致
       const weight = e.bold ? ' font-weight="bold"' : "";
       const titleColor = contrastTextColor(e.fill);
       const bodyFontSize = Math.max(10, e.fontSize - 2);
@@ -173,19 +173,36 @@ export function elementToSvg(e: CanvasElement): string {
         .filter((l) => l !== "")
         .map((l, i) => `<text x="${e.x + e.width / 2}" y="${e.y + 5 + e.fontSize * 1.4 + i * lineH + lineH / 2}" text-anchor="middle" dominant-baseline="middle" font-size="${bodyFontSize}" font-family="${e.fontFamily}" fill="${titleColor}" opacity="${Math.max(0.75, e.opacity * (e.fillOpacity ?? 1))}">${esc(l)}</text>`)
         .join("");
-      return `<g${rot}${sh}><rect ${attrs} width="${e.width}" height="${e.height}" rx="${e.rx}"/><text x="${e.x + e.width / 2}" y="${e.y + 5 + (e.fontSize * 1.4) / 2}" text-anchor="middle" dominant-baseline="middle" font-size="${e.fontSize}" font-family="${e.fontFamily}"${weight} fill="${titleColor}" opacity="${e.opacity}"${fillOpacity}>${esc(e.text)}</text>${body}</g>`;
+      const shape = e.shape ?? "rect";
+      // 平行四边形：上下边各向左右倾斜（offset = 宽/6）；菱形：四顶点取中点
+      const off = shape === "parallelogram" ? e.width / 6 : 0;
+      const shapeEl = shape === "diamond"
+        ? `<polygon points="${e.x + e.width / 2},${e.y} ${e.x + e.width},${e.y + e.height / 2} ${e.x + e.width / 2},${e.y + e.height} ${e.x},${e.y + e.height / 2}" ${attrs} stroke-linejoin="round"/>`
+        : shape === "parallelogram"
+          ? `<polygon points="${e.x + off},${e.y} ${e.x + e.width + off},${e.y} ${e.x + e.width - off},${e.y + e.height} ${e.x - off},${e.y + e.height}" ${attrs} stroke-linejoin="round"/>`
+          : `<rect ${attrs} width="${e.width}" height="${e.height}" rx="${e.rx}"/>`;
+      return `<g${rot}${sh}>${shapeEl}<text x="${e.x + e.width / 2}" y="${e.y + 5 + (e.fontSize * 1.4) / 2}" text-anchor="middle" dominant-baseline="middle" font-size="${e.fontSize}" font-family="${e.fontFamily}"${weight} fill="${titleColor}" opacity="${e.opacity}"${fillOpacity}>${esc(e.text)}</text>${body}</g>`;
     }
   }
 }
 
 // 序列化画布为 SVG 字符串。scale > 1 时放大输出尺寸（width/height × scale，
-// viewBox 不变 → 矢量内容等比放大），供 PNG 超采样导出：4x 下放大到最大也无锯齿
-export function serializeSVG(doc: CanvasDocument, scale = 1): string {
+// viewBox 不变 → 矢量内容等比放大），供 PNG 超采样导出：4x 下放大到最大也无锯齿。
+// includeBackground=true 时输出画布背景（纯色/渐变），缺省 false 保持导出透明背景（贴论文/幻灯片用）。
+// crop 指定世界坐标导出区域（框选/对象导出）：输出尺寸 = crop 尺寸，元素整体平移使区域落在原点。
+// tile 指定世界坐标渲染窗口（分块导出用）：viewBox = 窗口、元素不整体平移（窗口即裁剪），
+// 每块独立小 SVG 矢量渲染再拼合，突破浏览器对超大 SVG 整幅光栅化的尺寸上限（糊/锯齿的根因）。
+export function serializeSVG(doc: CanvasDocument, scale = 1, includeBackground = false, crop?: { x: number; y: number; width: number; height: number }, tile?: { x: number; y: number; width: number; height: number }): string {
+  const vx = crop?.x ?? 0;
+  const vy = crop?.y ?? 0;
+  const vw = tile?.width ?? crop?.width ?? doc.width;
+  const vh = tile?.height ?? crop?.height ?? doc.height;
   const body = [...doc.elements]
     .sort((a, b) => a.zIndex - b.zIndex)
     .map(elementToSvg)
     .join("\n");
-  // 导出图片不带画布背景：背景属于编辑态样式，用户要求导出完全透明
+  // 分块（tile）时元素保持世界坐标，窗口由 viewBox 裁剪；整体 crop 时平移使区域落原点
+  const wrapped = !tile && crop ? `<g transform="translate(${-crop.x} ${-crop.y})">\n${body}\n</g>` : body;
   // 投影 filter defs：与画布渲染一致的 id（sh-{id}），无阴影元素时省略 defs 保持旧导出兼容
   const shadows = doc.elements.filter((e) => e.shadow);
   const defs = shadows.length
@@ -196,9 +213,26 @@ export function serializeSVG(doc: CanvasDocument, scale = 1): string {
         )
         .join("")}</defs>\n`
     : "";
-  const w = Math.round(doc.width * scale);
-  const h = Math.round(doc.height * scale);
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${doc.width} ${doc.height}">\n${defs}${body}\n</svg>`;
+  const w = Math.round(vw * scale);
+  const h = Math.round(vh * scale);
+  // 含背景：纯色直出 rect，渐变输出 linearGradient defs + 引用 rect；"none" 不输出（透明）。
+  // 关键：画布渲染时 background 缺省（undefined）按白色处理（backgroundFill 默认 #ffffff），
+  // 导出勾选"包含背景色"也必须一致——此前只判断 doc.background 真值，缺省时被跳过导致白底画布导出成透明
+  const rawBg = includeBackground ? (doc.background ?? "#ffffff") : undefined;
+  const bg = rawBg && rawBg !== "none" ? rawBg : undefined;
+  let bgBody = "";
+  let bgDefs = "";
+  if (bg) {
+    if (bg.startsWith("linear:")) {
+      const [c1, c2] = bg.slice(7).split(",");
+      bgDefs = `<defs><linearGradient id="export-bg-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient></defs>\n`;
+      bgBody = `<rect x="${tile ? 0 : -vx}" y="${tile ? 0 : -vy}" width="${doc.width}" height="${doc.height}" fill="url(#export-bg-grad)"/>\n`;
+    } else {
+      bgBody = `<rect x="${tile ? 0 : -vx}" y="${tile ? 0 : -vy}" width="${doc.width}" height="${doc.height}" fill="${bg}"/>\n`;
+    }
+  }
+  const viewBox = tile ? `${tile.x} ${tile.y} ${tile.width} ${tile.height}` : `0 0 ${vw} ${vh}`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="${viewBox}">\n${bgDefs}${defs}${bgBody}${wrapped}\n</svg>`;
 }
 
 export async function svgToPngDataUrl(svg: string, width: number, height: number): Promise<string> {
@@ -235,14 +269,90 @@ export function downloadDataUrl(dataUrl: string, filename: string) {
 // PNG 导出超采样倍率：4x 超高清（6400×4000），矢量渲染放大到最大也无锯齿
 export const PNG_EXPORT_SCALE = 4;
 
-export async function exportPng(doc: CanvasDocument, filename = "figure.png") {
-  const svg = serializeSVG(doc, PNG_EXPORT_SCALE);
-  const dataUrl = await svgToPngDataUrl(svg, doc.width * PNG_EXPORT_SCALE, doc.height * PNG_EXPORT_SCALE);
-  downloadDataUrl(dataUrl, filename);
+export interface PngExportOptions {
+  scale?: number; // 超采样倍率（分辨率），缺省 4x
+  includeBackground?: boolean; // 含画布背景色，缺省 false（透明背景）
+  crop?: { x: number; y: number; width: number; height: number }; // 世界坐标导出区域（框选/对象导出）
 }
 
-export function exportSvgFile(doc: CanvasDocument, filename = "figure.svg") {
-  const blob = new Blob([serializeSVG(doc)], { type: "image/svg+xml" });
+// 浏览器 canvas 真实上限：单边 32767px、总面积约 268M 像素（16384×16384）。
+// 之前保守限制 16384 单边导致 64X 大图被过度降倍率（"选了最高分辨率还是一堆锯齿"）。
+const CANVAS_DIM_MAX = 32767;
+const CANVAS_AREA_MAX = 268_435_456;
+// 分块渲染的每块像素边长：远小于浏览器对 SVG 图片整幅光栅化的降采样阈值（约 16384px），
+// 每块独立小 SVG 矢量渲染后拼合，保证任意超大输出都真实清晰（无降采样糊边）
+const TILE_PX = 4096;
+
+// 把 SVG 字符串加载为 Image（blob URL 方式，与 svgToPngDataUrl 同一加载路径）
+async function loadSvgImage(svg: string): Promise<HTMLImageElement> {
+  const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = new Image();
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error("SVG 图片加载失败"));
+      img.src = url;
+    });
+    return img;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+export async function exportPng(doc: CanvasDocument, filename = "figure.png", opts: PngExportOptions = {}) {
+  const crop = opts.crop;
+  const vw = crop?.width ?? doc.width;
+  const vh = crop?.height ?? doc.height;
+  const scale = opts.scale ?? PNG_EXPORT_SCALE;
+  // 输出像素尺寸必须取整（canvas.width/height 只接受整数，小数会被截断导致与 SVG 尺寸不一致）
+  const outW = Math.max(1, Math.round(vw * scale));
+  const outH = Math.max(1, Math.round(vh * scale));
+  // 超浏览器 canvas 上限：按比例降倍率（保持宽高比，绝不产出空/失败的 PNG）；
+  // 放宽到真实上限后，常见框选区域（如 400×300 世界坐标 × 64X = 25600×19200）不再被 16384 卡住
+  const limit = Math.min(1, CANVAS_DIM_MAX / outW, CANVAS_DIM_MAX / outH, Math.sqrt(CANVAS_AREA_MAX / (outW * outH)));
+  const w = Math.max(1, Math.round(outW * limit));
+  const h = Math.max(1, Math.round(outH * limit));
+  const effScale = w / Math.max(1, vw);
+  const includeBg = opts.includeBackground ?? false;
+  // 小图（≤4096px 单边）：整幅 SVG 直接渲染
+  if (w <= TILE_PX && h <= TILE_PX) {
+    const svg = serializeSVG(doc, effScale, includeBg, crop);
+    const dataUrl = await svgToPngDataUrl(svg, w, h);
+    downloadDataUrl(dataUrl, filename);
+    return;
+  }
+  // 大图：分块渲染——每块独立小 SVG（tile 窗口 = 世界坐标子区域）矢量渲染，再拼合到最终 canvas。
+  // 避免浏览器把超大 SVG 整幅降采样到 ~16384 再放大（这正是高倍率导出"还是一堆锯齿"的根因）
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("无法创建画布上下文");
+  const ox = crop?.x ?? 0;
+  const oy = crop?.y ?? 0;
+  for (let ty = 0; ty < h; ty += TILE_PX) {
+    for (let tx = 0; tx < w; tx += TILE_PX) {
+      const tw = Math.min(TILE_PX, w - tx);
+      const th = Math.min(TILE_PX, h - ty);
+      // 该块像素区域对应的世界坐标窗口
+      const tile = {
+        x: ox + tx / effScale,
+        y: oy + ty / effScale,
+        width: tw / effScale,
+        height: th / effScale,
+      };
+      const tileSvg = serializeSVG(doc, effScale, includeBg, crop, tile);
+      const img = await loadSvgImage(tileSvg);
+      ctx.drawImage(img, tx, ty);
+    }
+  }
+  downloadDataUrl(canvas.toDataURL("image/png"), filename);
+}
+
+export function exportSvgFile(doc: CanvasDocument, filename = "figure.svg", crop?: { x: number; y: number; width: number; height: number }, includeBackground = false) {
+  // includeBackground 默认 false 保持旧行为（透明背景贴论文）；勾选"包含背景色"后 SVG 也带画布背景
+  const blob = new Blob([serializeSVG(doc, 1, includeBackground, crop)], { type: "image/svg+xml" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

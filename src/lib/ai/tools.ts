@@ -48,7 +48,7 @@ export function buildTools(
         "arrow 类型：x/y 是起点，必须落在源形状的边缘上；width/height 是终点相对偏移，终点必须精确落在目标形状的边缘上，箭头尖端贴住目标边框，不能悬空、不能插入太深；head 控制箭头头部样式（single 单箭头=默认 / double 两端箭头 / none 无箭头纯线），strokeWidth 粗细会同时放大箭头头（默认线宽 2 → 头约 10px）。" +
         "dash 虚线描边（任意类型可用）：dash:[8,4] 表示实线 8px 虚线 4px。科研图中虚线有固定语义——辅助流/跳连/梯度回传/可选路径/逻辑阶段范围（如 skip connection、loss 回传、可选分支），与实线（主数据流）区分；带折点的虚线箭头同样适用。" +
         "纯线/折线轮廓（简笔画用）：arrow + head:\"none\" 即无箭头纯线，需要拐弯时用 midPoints 折点（相对坐标，相对起点偏移）；多条纯线可拼出图案。" +
-        "logic 类型：流程/结构图语义模块（圆角框 + 内置居中标题 + 自带上下左右 4 个箭头锚点），必须提供 text 标题（简洁语义名词，建议 ≤8 字、不加标点）；正文按语义判断——标题已完整表达语义的概念型节点（如\"注意力\"\"损失函数\"）可不写 body，过程/说明型节点用 body 写 2~4 行要点（多行用 \\n 分隔，每行一个要点 ≤12 字），禁止标题和正文都没有的空白空盒子；width/height 无需精确指定，系统按标题+正文自动扩框；语义模块一律用 logic，禁止 rect+文字两件套。text 类型必须提供 text 内容。" +
+        "logic 类型：流程/结构图语义模块（圆角框 + 内置居中标题 + 自带上下左右 4 个箭头锚点），必须提供 text 标题（简洁语义名词，建议 ≤8 字、不加标点）；正文按语义判断——标题已完整表达语义的概念型节点（如\"注意力\"\"损失函数\"）可不写 body，过程/说明型节点用 body 写 2~4 行要点（多行用 \\n 分隔，每行一个要点 ≤12 字），禁止标题和正文都没有的空白空盒子；width/height 无需精确指定，系统按标题+正文自动扩框；语义模块一律用 logic，禁止 rect+文字两件套。shape 可选外形：rect 矩形（默认）/ parallelogram 平行四边形 / diamond 菱形；正方形、长方形都是矩形——正方形用 width=height 表示，长方形 width≠height，平行四边形（斜框，表示并行/过程流）与菱形（决策/判断节点）语义不同，按图意选择。" +
         "formula 类型（数学/物理/化学公式）：text 填公式源码，支持 LaTeX 记法（\\frac{a}{b}、\\alpha、x^2、H_2O、\\sum_{i=1}^{n}）与 Unicode 数学符号（α、β、√、∑、∫），系统自动把 LaTeX 转成 Unicode 衬线斜体渲染；科研图里出现公式（损失函数、算法复杂度、化学式、物理定律）时用它，不要用普通 text 手打公式。" +
         "文字尺寸公式（text/logic 由系统按字号自动计算宽高，不必手算）：中文每字 1×字号，英文大写 0.68×字号、小写 0.55×字号、数字 0.6×字号、空格 0.32×字号，加粗再 ×1.06，行高 1.4×字号。" +
         "text/logic 的 width/height 会被系统重算并自动扩框容纳文字，无需精确指定；框要容纳文字时按此公式估算并左右各留 ≥12px 内边距。",
@@ -71,6 +71,7 @@ export function buildTools(
         italic: z.boolean().optional().describe("是否斜体（text 类型用）"),
         align: z.enum(["left", "center", "right"]).optional().describe("文字对齐（text 类型用，默认 center）"),
         fontFamily: z.string().optional().describe("字体（text 类型用，默认 Arial, Microsoft YaHei, sans-serif）"),
+        shape: z.enum(["rect", "parallelogram", "diamond"]).optional().describe("逻辑节点外形（type=logic 用）：rect 矩形（默认，正方形用 width=height、长方形 width≠height）/ parallelogram 平行四边形（并行/过程流）/ diamond 菱形（决策/判断）"),
         head: z.enum(["none", "single", "double"]).optional().describe("箭头头部样式（type=arrow 时用：single 单箭头=默认 / double 两端箭头 / none 无箭头纯线）"),
         midPoints: z.array(z.object({ x: z.number(), y: z.number(), smooth: z.boolean().optional() })).optional().describe("箭头折点（type=arrow 用，相对起点偏移；smooth=true 平滑曲线折点，科研图折线箭头/辅助流用）"),
         points: z.array(z.object({ x: z.number(), y: z.number() })).optional().describe("点列（type=polyline 折线用世界坐标；type=pen 画笔手绘用连续点列，可自由画出符号/复杂结构图标，如 σ、∫、卷积核、残差块手绘示意；缺省为起点→终点两点）"),
@@ -123,8 +124,9 @@ export function buildTools(
     applyChart: tool({
       description:
         "声明式一键绘制数据图表（柱状图/折线图/饼图/散点图）：只需声明类型/标题/坐标轴名/数据，系统自动计算坐标轴、刻度（自动取整）、柱形/折线/扇形、数据标签与图例。" +
-        "数据必须是用户给出的原值，或常识范围内的合理数值（如“中国 GDP 2023 约 126 万亿元”），1~12 项，禁止编造离谱数据。" +
-        "饼图数据项不宜超过 8 项；多系列（series 字段）用于柱状分组/折线多线对比；" +
+        "数据必须是用户给出的原值，或常识范围内的合理数值（如“中国 GDP 2023 约 126 万亿元”），1~60 项，禁止编造离谱数据。" +
+        "饼图数据项不宜超过 12 项；多系列（series 字段）用于柱状分组/折线多线对比；" +
+        "折线/散点图数据点多时（如横坐标 30 个点）可传 xStep 控制 x 轴刻度标签间隔（如每 5 个分类标一个刻度，用户要求“每 N 年一个刻度”时传 N），系统自动稀疏化避免标签拥挤；" +
         "饼图可用 variant:\"hollow\" 生成空心（圆环）饼图；每条数据可用 color 指定图例/图形颜色（可省略自动配色）。" +
         "数据图表（含通用图示以外的数据可视化需求）一律优先用本工具。",
       inputSchema: z.object({
@@ -135,6 +137,7 @@ export function buildTools(
         unit: z.string().optional().describe("数值单位（如“万元”“人”“%”）：饼图/柱状图等数据有明确单位时必须给出，显示在数值标签上（如 50万元 (25%)）"),
         showValues: z.boolean().optional().describe("饼图标签是否显示具体数值：缺省 false 只显示占比（如 25%）；true 时按规范格式显示数值+单位+占比（如 50万元 (25%)）。用户要求“只显示占比/比例”时保持缺省，要求“显示具体数据/数值”时传 true"),
         variant: z.string().optional().describe("图表变体：pie 支持 hollow（空心/圆环饼图），缺省实心"),
+        xStep: z.number().optional().describe("x 轴刻度标签间隔：每隔几个分类显示一个刻度标签（如 5 = 每 5 个分类标一个，折线/散点数据点多或用户要求“每 N 年一个刻度”时用）"),
         data: z.array(
           z.object({
             label: z.string().describe("分类标签（x 轴类别，如“Q1”“2021”）"),
@@ -142,7 +145,7 @@ export function buildTools(
             series: z.string().optional().describe("系列名（多系列对比时用，如“本店”“他店”）"),
             color: z.string().optional().describe("该条目的图例/图形颜色（如 #eef4ff，可省略自动配色）"),
           })
-        ).describe("数据（1~12 项）"),
+        ).describe("数据（1~60 项）"),
       }),
       execute: (args) => draft.applyChart(args),
     }),
@@ -199,7 +202,8 @@ export function buildTools(
       execute: (args) => draft.deleteElement(args),
     }),
     listElements: tool({
-      description: "查看当前画布上所有元素（id、类型、位置、文字）。动手前先调用。",
+      description:
+        "查看当前画布全貌：返回画布总览（现有内容范围 + 建议的空白起始位置）+ 全部元素明细（id、类型、位置、文字）。动手前必先调用——先纵观全画布，新增内容放在总览建议的空白区域，不要总从同一位置开始。",
       inputSchema: z.object({}),
       execute: () => draft.listElements(),
     }),
@@ -251,7 +255,7 @@ export function buildTools(
       },
     }),
     clearCanvas: tool({
-      description: "清空当前画布上的全部内容（在同一张画布上重画）。仅当用户明确要求清空画布或重画时才使用；会弹确认框，用户允许后才执行。注意：AI 不会切换/新建画布（画布与 AI 隔离），用户要求\"新建画布/新开一张/换一张\"时告知用户通过界面左上角的新建画布按钮操作，AI 在当前画布继续。",
+      description: "清空当前画布上的全部内容（在同一张画布上重画）。仅当用户明确要求清空画布或重画时才使用；会弹确认框，用户允许后才执行；调用后本轮停止绘制，等用户确认清空后再继续画新内容。注意：AI 不会切换/新建画布（画布与 AI 隔离），用户要求\"新建画布/新开一张/换一张\"时告知用户通过界面左上角的新建画布按钮操作，AI 在当前画布继续。",
       inputSchema: z.object({}),
       execute: () => draft.clear(),
     }),

@@ -1,7 +1,7 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { makeElement } from "@/lib/canvas/elements";
-import { recognizeArrow } from "@/lib/canvas/handwriting";
+import { recognizeShape } from "@/lib/canvas/handwriting";
 import { snapRect, nearestAnchor, hitTestElement, elementBounds, alignmentGuides, distToSegment, logicAnchors, type AlignGuides } from "@/lib/canvas/geometry";
 import { niceScale, PLOT } from "@/lib/canvas/chartLayout";
 import type { CanvasDocument, CanvasElement, ShapeType } from "@/lib/canvas/types";
@@ -37,6 +37,9 @@ type Mode =
 export type DrawPreview =
   | { type: ShapeType | "rounded" | "logic" | "text"; x: number; y: number; width: number; height: number }
   | { type: "arrow" | "polyline" | "line"; points: { x: number; y: number }[] }
+  | { type: "bent-arrow"; points: { x: number; y: number }[]; midPoints: { x: number; y: number }[] }
+  // 折线（无箭头）/平滑折线：拐点可多个，smooth=true 的拐点为平滑折点（Catmull-Rom 平滑穿过）
+  | { type: "bent-line"; points: { x: number; y: number }[]; midPoints: { x: number; y: number; smooth?: boolean }[] }
   | { type: "pen"; points: { x: number; y: number }[] };
 
 // 图表关键节点命中：饼图 = 扇形起始角半径线（接缝），柱状图 = 柱顶边缘。
@@ -77,6 +80,22 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
   // 右键手势跟踪：右键空白按下即记（rubber 起点），拖拽过则标记 dragged——
   // Canvas 的 contextmenu 据此区分「右键点击弹画布样式菜单」与「右键拖拽多选后不弹」
   const lastRightClickRef = useRef<{ x: number; y: number; dragged: boolean } | null>(null);
+  // 画笔顿笔预览计时器：350ms 无新点 → 识别当前笔迹，命中箭头则显示替代图形预览；
+  // 用户继续写则收回预览重新计时，松手时按识别结果替换
+  const penHintTimerRef = useRef<number | null>(null);
+  // 顿笔预测是否已显示过（用户看到"如果松手会变成什么"的预测后才松手 → 才真正识别成规整图形；
+  // 未停顿显示预测就松手 → 保留手写笔迹，不"乱识别成箭头"）
+  const penHintShownRef = useRef(false);
+
+  // 组件卸载 / 工具切换时清理顿笔计时器
+  useEffect(() => {
+    return () => {
+      if (penHintTimerRef.current != null) {
+        window.clearTimeout(penHintTimerRef.current);
+        penHintTimerRef.current = null;
+      }
+    };
+  }, []);
 
   // 切走箭头/线条工具时取消待定起点（否则残留预览会跟着别的工具）
   useEffect(() => {
@@ -168,6 +187,41 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
         if (Math.hypot(wx - last.x, wy - last.y) >= 2) {
           m.points.push({ x: wx, y: wy });
           setPreview({ type: "pen", points: [...m.points] });
+          // 用户继续写：替代预览已收回（回到手写预览），同步复位"看过预测"标记——
+          // 只有松手那一刻预览还显示着替代图形，才允许真正替换（否则就是正常松手，保留手写笔迹）
+          penHintShownRef.current = false;
+          // 顿笔预览：350ms 无新点 → 识别当前笔迹，命中箭头则显示替代图形预览（松手即替换）；
+          // 用户继续写时新点会走到这里，收回替代预览并重新计时
+          if (penHintTimerRef.current != null) window.clearTimeout(penHintTimerRef.current);
+          penHintTimerRef.current = window.setTimeout(() => {
+            penHintTimerRef.current = null;
+            const mm = modeRef.current;
+            if (mm.kind !== "draw-pen" || mm.points.length < 3) return;
+            // 顿笔预览用更严格阈值（0.6，松手成图仍用 0.5 宽松识别）：避免"画到一半就被预测成箭头"的过度预测；
+            // 预览类型跟随识别结果，与松手成图完全一致（圆形→椭圆、方形→矩形、直线→无头箭头、
+            // 折点箭头→折线箭头而非直箭头、箭头→箭头）
+            const shape = recognizeShape(mm.points, 0.6);
+            if (shape) {
+              // 预测已显示：用户看到"如果松手会变成什么"（松手时才真正识别替换）
+              penHintShownRef.current = true;
+              if (shape.type === "circle" || shape.type === "ellipse") {
+                setPreview({ type: "ellipse", x: shape.x, y: shape.y, width: shape.width, height: shape.height });
+              } else if (shape.type === "square") {
+                setPreview({ type: "rect", x: shape.x, y: shape.y, width: shape.width, height: shape.height });
+              } else if (shape.type === "line") {
+                setPreview({ type: "line", points: [...mm.points] });
+              } else if (shape.type === "bent-arrow") {
+                // 折点箭头：预览也带折点（与松手成图的 midPoints 一致），不再显示成直箭头
+                setPreview({ type: "bent-arrow", points: [...mm.points], midPoints: shape.midPoints ?? [] });
+              } else if (shape.type === "bent-line" || shape.type === "smooth-bent") {
+                // 折线（无箭头）/平滑折线：预览带全部拐点（smooth 折点 → Catmull-Rom 平滑穿过），
+                // 与松手成图一致（head:none + midPoints），不再显示成直箭头
+                setPreview({ type: "bent-line", points: [...mm.points], midPoints: shape.midPoints ?? [] });
+              } else {
+                setPreview({ type: "arrow", points: [...mm.points] });
+              }
+            }
+          }, 350);
         }
       } else if (m.kind === "draw-shape") {
         m.x = wx;
@@ -299,30 +353,54 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
         setAlignGuides(null);
       } else if (m.kind === "draw-pen") {
         // 松手：创建画笔笔迹 → $1 识别命中箭头则替换为规整箭头（同方向/大小/粗细），
-        // 一步撤销复原手写；未命中保留自由手绘
+        // 一步撤销复原手写；未命中保留自由手绘；先清理顿笔预览计时器
+        if (penHintTimerRef.current != null) {
+          window.clearTimeout(penHintTimerRef.current);
+          penHintTimerRef.current = null;
+        }
         const st = useCanvasStore.getState();
         const pts = m.points;
         if (pts.length >= 2) {
           const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
           const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+          // 笔类型 → 虚线模式（中性笔实线；虚线笔常规虚线；铅笔颗粒感短虚线）
+          const dash = st.penStyle === "solid" ? undefined : st.penStyle === "dashed" ? [8, 4] : [2, 3];
           const pen = makeElement("pen", minX, minY, Math.max(maxX - minX, 1), Math.max(maxY - minY, 1), {
             points: pts,
-            strokeWidth: 3,
-            stroke: "#2f2f2f",
+            strokeWidth: st.penWidth,
+            stroke: st.penColor,
+            ...(dash ? { dash } : {}),
           });
           st.addElement(pen);
-          const arrow = recognizeArrow(pts);
-          if (arrow) {
-            // 替换为规整箭头：保留手写笔迹在历史中（一步撤销回到手写）
-            const el = makeElement("arrow", arrow.x, arrow.y, arrow.width, arrow.height, {
-              strokeWidth: arrow.strokeWidth,
-              stroke: "#2f2f2f",
-            });
+          // 仅在"顿笔预测已显示过"（用户看到松手会变成什么）后才真正识别替换；
+          // 未停顿显示预测就松手 → 保留手写笔迹，不再"乱识别成箭头"
+          const shape = penHintShownRef.current ? recognizeShape(pts) : null;
+          if (shape) {
+            // 替换为规整形状：保留手写笔迹在历史中（一步撤销回到手写），颜色/粗细沿用画笔设置；
+            // 封闭图形（圆/椭圆/方形）填充透明（与顿笔预览一致，此前默认白色填充成实心）
+            const common = { strokeWidth: st.penWidth, stroke: st.penColor } as const;
+            let el: CanvasElement;
+            if (shape.type === "circle" || shape.type === "ellipse") {
+              el = makeElement("ellipse", shape.x, shape.y, shape.width, shape.height, { ...common, fill: "none" });
+            } else if (shape.type === "square") {
+              el = makeElement("rect", shape.x, shape.y, shape.width, shape.height, { ...common, fill: "none" });
+            } else if (shape.type === "line") {
+              el = makeElement("arrow", shape.x, shape.y, shape.width, shape.height, { ...common, head: "none" });
+            } else if (shape.type === "bent-arrow") {
+              el = makeElement("arrow", shape.x, shape.y, shape.width, shape.height, { ...common, midPoints: shape.midPoints });
+            } else if (shape.type === "bent-line" || shape.type === "smooth-bent") {
+              // 折线（无箭头）/平滑折线：arrow + head:"none" + 全部拐点（smooth 折点 → Catmull-Rom 平滑穿过）
+              el = makeElement("arrow", shape.x, shape.y, shape.width, shape.height, { ...common, head: "none", midPoints: shape.midPoints });
+            } else {
+              el = makeElement("arrow", shape.x, shape.y, shape.width, shape.height, common);
+            }
             st.replaceElement(pen.id, el);
           }
           st.setSelection([pen.id]);
         }
         setPreview(null);
+        // 松手恢复画笔选色面板
+        useCanvasStore.getState().setPenDrawing(false);
       } else if (m.kind === "draw-line") {
         const st = useCanvasStore.getState();
         const p0 = m.points[0];
@@ -452,7 +530,11 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
         // 文字工具：拖动出文本框（拖出足够大的框才创建并进入编辑），不再点击即建
         if (s.tool === "text" && s.editingText) return; // 编辑中再点击不放新字（否则双击会堆叠创建两个空文字）
         if (s.tool === "pen") {
-          // 画笔：进入自由手绘模式，连续采样点列；松手创建 pen 元素并 $1 识别箭头
+          // 画笔：进入自由手绘模式，连续采样点列；松手创建 pen 元素并 $1 识别箭头。
+          // 绘制中隐藏选色面板（避免遮挡画布），松手后恢复
+          useCanvasStore.getState().setPenDrawing(true);
+          // 新笔画：重置"预测已显示"状态——没停顿看过预测就松手 → 不识别（保留手写）
+          penHintShownRef.current = false;
           modeRef.current = { kind: "draw-pen", points: [{ x: wx, y: wy }] };
           setPreview({ type: "pen", points: [{ x: wx, y: wy }] });
           startDrag();
@@ -472,8 +554,11 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
           // C 图表联动：命中关键节点（饼图接缝 / 柱顶）进入 chart-edit——拖比例改数据；
           // 拖图表本体（非接缝处）= 整体移动（默认拖动整图，悬浮接缝才改比例）
           const b = el.bind;
-          if (b && (b.role === "slice" || b.role === "bar") && s.doc.charts?.[b.chartId]) {
-            if (isChartSeam(el, wx, wy)) {
+          // 图表整图选择：任一绑定元素（柱/折线/散点/图例/轴/标题/标签）点击都整体选中整张图表——
+          // 折线图/散点图的折线、图例、坐标轴等 role 不是 slice/bar，此前被排除导致只能选中单个元素
+          if (b && s.doc.charts?.[b.chartId]) {
+            // 仅 slice/bar 有关键节点（饼图接缝/柱顶）可拖比例改数据；其他 role 一律整图移动
+            if ((b.role === "slice" || b.role === "bar") && isChartSeam(el, wx, wy)) {
               const spec = s.doc.charts![b.chartId];
               const isSlice = b.role === "slice" && el.type === "sector";
               const cx = isSlice ? el.x : 0;
@@ -496,7 +581,7 @@ export function usePointerInteraction(worldX: (c: number) => number, worldY: (c:
               startDrag();
               return;
             }
-            // 非接缝：整体移动整张图表——选中该图表全部元素并进入 move 模式
+            // 整图移动：选中该图表全部元素并进入 move 模式
             const chartIds = s.doc.elements.filter((x) => x.chartId === b.chartId).map((x) => x.id);
             if (!s.selection.includes(id)) s.setSelection(chartIds);
             const start = new Map<string, { x: number; y: number }>();

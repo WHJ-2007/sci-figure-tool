@@ -220,8 +220,8 @@ export function makeElement(
       } as CanvasElement;
     }
     case "logic": {
-      // 逻辑节点：圆角矩形 + 内置居中标题 + 多行正文；尺寸不足时扩展以容纳标题与正文
-      const t = extra.text ?? "逻辑";
+      // 逻辑节点：多种外形（矩形/平行四边形/菱形）+ 内置居中标题 + 多行正文；尺寸不足时扩展以容纳标题与正文
+      const t = extra.text ?? "";
       const b = extra.body as string | undefined;
       const fontSize = extra.fontSize ?? 14;
       const size = logicBoxSize(t, b, fontSize, extra.bold ?? false);
@@ -234,6 +234,7 @@ export function makeElement(
         fontSize,
         fontFamily: extra.fontFamily ?? "Arial, Microsoft YaHei, sans-serif",
         bold: extra.bold ?? false,
+        ...(extra.shape ? { shape: extra.shape } : {}),
         width: Math.max(width, size.width),
         height: Math.max(height, size.height),
       } as CanvasElement;

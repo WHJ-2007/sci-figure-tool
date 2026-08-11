@@ -46,7 +46,7 @@ export default function GenerationToast() {
           setExpanded((x) => !x);
         }
       }}
-      className={`w-full max-w-sm cursor-pointer rounded-2xl border border-white/50 bg-white/80 p-3 shadow-xl backdrop-blur-md transition-all duration-200 ${
+      className={`w-full max-w-sm cursor-pointer rounded-2xl border border-white/50 bg-white/80 p-3 shadow-xl backdrop-blur-xl transition-all duration-200 ${
         visible ? "translate-y-0 scale-100 opacity-100" : "translate-y-2 scale-95 opacity-0"
       }`}
     >
@@ -56,7 +56,8 @@ export default function GenerationToast() {
         <span className="shrink-0 text-xs text-gray-400">{expanded ? "▾ 收起" : "▸ 展开"}</span>
       </div>
       {expanded && (
-        <div className="mt-2 border-t border-white/60 pt-2">
+        // 操作清单可滚动：展开后固定最大高度，步骤多时滚动查看（不撑爆聊天面板）
+        <div className="mt-2 max-h-40 overflow-y-auto border-t border-white/60 pt-2">
           {shown.slice(0, -1).map((a, i) => (
             <div key={`${i}-${a}`} className="flex gap-2 py-0.5 text-xs text-gray-500">
               <span className="shrink-0 text-emerald-500">✓</span>

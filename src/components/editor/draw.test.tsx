@@ -218,18 +218,38 @@ describe("绘制工具", () => {
     expect(document.querySelector('[data-testid="text-editor"]')).toBeTruthy();
   });
 
-  it("画笔工具手绘直线：保留自由手写 pen 元素（不误判为箭头）", () => {
+  it("画笔工具手绘直线：停顿看到预测后松手，识别替换为规整线条（arrow head:none）", async () => {
     useCanvasStore.getState().setTool("pen");
     render(<Canvas viewportWidth={800} viewportHeight={600} />);
     const svg = document.querySelector("svg")!;
-    drag(svg, { x: 100, y: 100 }, { x: 300, y: 100 });
+    // 画直线：拖动到终点后停顿（>350ms 顿笔预测显示"如果松手会变成什么"），再松手 → 才识别替换
+    fireEvent.pointerDown(svg, { clientX: 100, clientY: 100, button: 0 });
+    fireEvent.pointerMove(svg, { clientX: 200, clientY: 100, buttons: 1 });
+    fireEvent.pointerMove(svg, { clientX: 300, clientY: 100, buttons: 1 });
+    // 等待顿笔预测触发（350ms 定时器）
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 420));
+    });
+    fireEvent.pointerUp(svg, { clientX: 300, clientY: 100 });
     const e = useCanvasStore.getState().doc.elements[0];
-    expect(e.type).toBe("pen");
-    // 直线保留手写笔迹：点列 ≥2，且不是规整箭头（无识别替换）
-    expect((e as any).points.length).toBeGreaterThanOrEqual(2);
+    // 停顿看过预测后松手 → 直线被识别为规整线条（无头箭头），而非保留手写笔迹
+    expect(e.type).toBe("arrow");
+    expect((e as any).head).toBe("none");
   });
 
-  it("画笔工具手绘箭头：识别替换为规整箭头，撤销一步复原手写", () => {
+  it("画笔工具未停顿直接松手：不识别（保留手写笔迹）", () => {
+    useCanvasStore.getState().setTool("pen");
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const svg = document.querySelector("svg")!;
+    // 快速画直线后立即松手（未停顿显示预测）→ 不识别，保留手写
+    fireEvent.pointerDown(svg, { clientX: 100, clientY: 100, button: 0 });
+    fireEvent.pointerMove(svg, { clientX: 300, clientY: 100, buttons: 1 });
+    fireEvent.pointerUp(svg, { clientX: 300, clientY: 100 });
+    const e = useCanvasStore.getState().doc.elements[0];
+    expect(e.type).toBe("pen");
+  });
+
+  it("画笔工具手绘箭头：停顿看到预测后松手，识别替换为规整箭头，撤销一步复原手写", async () => {
     useCanvasStore.getState().setTool("pen");
     render(<Canvas viewportWidth={800} viewportHeight={600} />);
     const svg = document.querySelector("svg")!;
@@ -239,6 +259,10 @@ describe("绘制工具", () => {
     for (const p of path.slice(1)) {
       fireEvent.pointerMove(svg, { clientX: p.x, clientY: p.y, buttons: 1 });
     }
+    // 停顿 >350ms：顿笔预测显示"松手会变成箭头"，再松手 → 识别替换
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 420));
+    });
     fireEvent.pointerUp(svg, { clientX: path[path.length - 1].x, clientY: path[path.length - 1].y });
     const e = useCanvasStore.getState().doc.elements[0];
     // 识别命中 → 元素变成规整箭头（同方向/大小）

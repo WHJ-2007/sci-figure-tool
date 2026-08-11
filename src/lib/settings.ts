@@ -7,7 +7,7 @@ export interface AppSettings {
 
 export const DEFAULT_SETTINGS: AppSettings = {
   apiKey: "",
-  model: "deepseek-chat",
+  model: "deepseek-v4-flash",
   baseURL: "https://api.deepseek.com",
 };
 

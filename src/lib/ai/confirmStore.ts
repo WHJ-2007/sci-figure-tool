@@ -50,15 +50,12 @@ export function isApplied(sessionId: string, id: string): boolean {
   return sessions.get(sessionId)?.applied.has(id) ?? false;
 }
 
-// 全部挂起项都已表态（含取消）→ 删除会话并返回 true；未表态的残留项由 TTL sweep 15 分钟兜底作废。
-// newlyResolved：本批新表态数（markResolved 返回值）。全部表态但本批全是重复表态（newlyResolved=0）时
-// 才删除——完成全部表态的那一批自身保留会话，保证网络重发同一批次时仍能幂等应答（isApplied 跳过而非 404）。
+// 全部挂起项都已表态（含取消）→ 会话已不再需要，返回 true 供调用方感知。
+// 注意：这里**不再删除会话**——重复提交/重试同一批次时，isApplied 已保证幂等跳过执行；
+// 若在此删除，任何后续（含前端自动续跑）对同一 sessionId 的确认请求都会 404「确认会话已失效」。
+// 残留会话由 TTL sweep 15 分钟兜底清理，不删除更稳（幂等 + 防 404 双保险）。
 export function isSessionComplete(sessionId: string, pendingCount: number, newlyResolved = 0): boolean {
   const s = sessions.get(sessionId);
   if (!s) return true;
-  if (s.resolved.size >= pendingCount && newlyResolved === 0) {
-    sessions.delete(sessionId);
-    return true;
-  }
-  return false;
+  return s.resolved.size >= pendingCount;
 }

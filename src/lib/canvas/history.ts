@@ -6,7 +6,8 @@ export interface HistoryState {
   limit: number;
 }
 
-export const HISTORY_LIMIT = 50;
+// 无限撤销：不丢弃最旧快照，可一直撤销到最初状态
+export const HISTORY_LIMIT = Infinity;
 
 export function createHistory(limit = HISTORY_LIMIT): HistoryState {
   return { past: [], future: [], limit };

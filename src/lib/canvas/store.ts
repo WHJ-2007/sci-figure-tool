@@ -86,6 +86,47 @@ function rotateSelected(doc: CanvasDocument, selection: string[], deg: number): 
   return nextDoc;
 }
 
+// 把选中集视为一个整体刚性缩放：相对位置不变、绕几何中心（包围盒中心）；
+// 位置随缩放（世界坐标）、width/height 按比例缩放，polyline/pen 点列与箭头折点（相对坐标）同步缩放。
+// 与 rotateSelected 同基准（elementBounds 真实包围盒）。入历史与否由调用方决定。
+function scaleSelected(doc: CanvasDocument, selection: string[], factor: number): CanvasDocument | null {
+  if (selection.length < 2) return null;
+  const targets = doc.elements.filter((e) => selection.includes(e.id));
+  if (targets.length < 2) return null;
+  const bs = targets.map((e) => elementBounds(e));
+  const minX = Math.min(...bs.map((b) => b.x));
+  const maxX = Math.max(...bs.map((b) => b.x + b.width));
+  const minY = Math.min(...bs.map((b) => b.y));
+  const maxY = Math.max(...bs.map((b) => b.y + b.height));
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  const nextDoc = structuredClone(doc);
+  nextDoc.elements = nextDoc.elements.map((e) => {
+    if (!selection.includes(e.id)) return e;
+    const next = {
+      ...e,
+      x: cx + (e.x - cx) * factor,
+      y: cy + (e.y - cy) * factor,
+      width: e.width * factor,
+      height: e.height * factor,
+    } as CanvasElement;
+    // 字号/半径等尺寸字段随比例缩放
+    if ("fontSize" in next && next.fontSize !== undefined) next.fontSize = Math.max(6, Math.round(next.fontSize * factor));
+    if ("radius" in next && next.radius !== undefined) next.radius = next.radius * factor;
+    if ((e.type === "polyline" || e.type === "pen") && "points" in e) {
+      (next as PolylineElement | PenElement).points = e.points.map((p) => ({
+        x: cx + (p.x - cx) * factor,
+        y: cy + (p.y - cy) * factor,
+      }));
+    }
+    if (e.type === "arrow" && e.midPoints) {
+      (next as ArrowElement).midPoints = e.midPoints.map((m) => ({ ...m, x: m.x * factor, y: m.y * factor }));
+    }
+    return next;
+  });
+  return nextDoc;
+}
+
 // 删除的画布（撤销恢复用）：wasCurrent 记录删除时是否处于当前画布，
 // 恢复时若删除的是当前画布则切回（用户删除后被迫切走，undo 应把视野带回来）
 interface DeletedProject {
@@ -100,6 +141,17 @@ export interface CanvasStore {
   doc: CanvasDocument;
   selection: string[];
   tool: ToolType;
+  // 画笔设置：颜色 + 粗细（绘制/预览/箭头替换共用，默认深灰 3px）
+  penColor: string;
+  penWidth: number;
+  // 笔类型：solid 中性笔（实线）/ dashed 虚线笔 / pencil 铅笔（颗粒感短虚线）
+  penStyle: "solid" | "dashed" | "pencil";
+  // 画笔绘制中：true 时自动隐藏选色面板（避免遮挡画布），松手后恢复
+  penDrawing: boolean;
+  // 框选导出：用户拖矩形框选画布区域（世界坐标），导出时只导出框内内容
+  exportFrame: { x: number; y: number; width: number; height: number } | null;
+  // 框选导出模式：true 时画布上拖拽生成 exportFrame
+  framingExport: boolean;
   isGenerating: boolean;
   editingText: string | null;
   view: { scale: number; ox: number; oy: number };
@@ -124,12 +176,22 @@ export interface CanvasStore {
   reorderElements: (orderedIds: string[]) => void;
   rotateSelection: (deg: number) => void;
   rotateSelectionFast: (deg: number) => void;
+  // 多选/组合整体缩放：绕包围盒中心按比例放大/缩小，一步撤销（组合/图标/多选一起缩放）
+  scaleSelection: (factor: number) => void;
+  // 整图缩放：绕图表包围盒中心整体放大/缩小（更新 spec.at.scale，编辑数据重排后仍保持缩放）
+  scaleChart: (chartId: string, factor: number) => void;
   commitHistory: () => void;
   setSelection: (ids: string[]) => void;
   // 组合对象：把多个元素组合为整体（共享 groupId），或移除某组的组合标记
   groupElements: (ids: string[]) => void;
   ungroupElements: (groupId: string) => void;
   setTool: (t: ToolType) => void;
+  setPenColor: (c: string) => void;
+  setPenWidth: (w: number) => void;
+  setPenStyle: (s: "solid" | "dashed" | "pencil") => void;
+  setPenDrawing: (v: boolean) => void;
+  setExportFrame: (f: { x: number; y: number; width: number; height: number } | null) => void;
+  setFramingExport: (v: boolean) => void;
   setView: (v: { scale: number; ox: number; oy: number }) => void;
   setBackground: (bg: string | undefined) => void;
   setDoc: (doc: CanvasDocument) => void;
@@ -141,6 +203,9 @@ export interface CanvasStore {
   updateChartSeamDrag: (chartId: string, index: number, angle: number) => void;
   // baseline = 拖动前快照（交互层在指针按下时捕获）：入栈 baseline 使一步撤销回到拖动前
   recomputeChart: (chartId: string, baseline?: CanvasDocument) => void;
+  // 整图镜像（属性面板「操作」翻转图表）：toggle spec.flipH/flipV 并按新 spec 整图重排，
+  // 一步撤销；避免只翻转选中单个图表元素导致整图撕裂
+  flipChart: (chartId: string, axis: "h" | "v") => void;
   detachChart: (chartId: string) => void;
   applyAISnapshot: (doc: CanvasDocument) => void;
   applyAIResult: (doc: CanvasDocument, baseline: CanvasDocument) => void;
@@ -151,6 +216,8 @@ export interface CanvasStore {
   setActivity: (a: string[]) => void;
   undo: () => void;
   redo: () => void;
+  // 时间线跳转：index ∈ [0, 总步数]，0 = 最初、总步数 = 最新；拖动进度条快速撤销/重做到任意历史版本
+  jumpTo: (index: number) => void;
   createProject: () => string;
   renameProject: (id: string, name: string) => void;
   deleteProject: (id: string) => void;
@@ -168,6 +235,12 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => {
     doc: structuredClone(current.doc),
     selection: [],
     tool: "select",
+    penColor: "#2f2f2f",
+    penWidth: 3,
+    penStyle: "solid",
+    penDrawing: false,
+    exportFrame: null,
+    framingExport: false,
     isGenerating: false,
     editingText: null,
     // 刷新恢复：进入页面恢复上次离开该画布时的视口（缩放/平移，独立键存储）
@@ -360,9 +433,55 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => {
         if (!doc) return {};
         return { ...syncProject(s, doc, s.history) };
       }),
+    // 多选/组合整体缩放：绕包围盒中心按比例放大/缩小，一步撤销（组合/图标/多选一起缩放）
+    scaleSelection: (factor) =>
+      set((s) => {
+        if (s.selection.length < 2) return {};
+        const doc = scaleSelected(s.doc, s.selection, factor);
+        if (!doc) return {};
+        return { ...syncProject(s, doc, pushHistory(s.history, s.doc)) };
+      }),
+
+    // 整图缩放：绕图表包围盒中心整体放大/缩小（更新 spec.at.scale 并同步 at.x/at.y 保持中心不动），
+    // 一步撤销；图表是整体图对象，必须整图一起缩放，且缩放写进 spec 使编辑数据重排后仍保持
+    scaleChart: (chartId, factor) =>
+      set((s) => {
+        const spec = s.doc.charts?.[chartId];
+        if (!spec || !(factor > 0)) return {};
+        const doc = structuredClone(s.doc);
+        const sp = doc.charts?.[chartId];
+        if (!sp) return {};
+        const members = doc.elements.filter((e) => e.bind?.chartId === chartId || e.chartId === chartId);
+        if (!members.length) return {};
+        const bs = members.map((e) => elementBounds(e));
+        const cx = (Math.min(...bs.map((b) => b.x)) + Math.max(...bs.map((b) => b.x + b.width))) / 2;
+        const cy = (Math.min(...bs.map((b) => b.y)) + Math.max(...bs.map((b) => b.y + b.height))) / 2;
+        const at = sp.at ?? {};
+        const k0 = at.scale ?? 1;
+        const dx0 = at.x ?? 0;
+        const dy0 = at.y ?? 0;
+        // 保持中心不动：新 at 平移 = 旧中心 - 新缩放后基准中心的偏移
+        sp.at = { ...at, scale: k0 * factor, x: cx - (cx - dx0) * factor, y: cy - (cy - dy0) * factor };
+        const els = layoutChart(sp, chartId);
+        let z = maxZIndex(doc.elements);
+        const copies = els.map((e) => {
+          const c = structuredClone(e);
+          c.zIndex = ++z;
+          return c;
+        });
+        const replaceIds = doc.elements.filter((e) => e.bind?.chartId === chartId).map((e) => e.id);
+        doc.elements = [...doc.elements.filter((e) => !replaceIds.includes(e.id)), ...copies];
+        return { ...syncProject(s, doc, pushHistory(s.history, s.doc)), selection: s.selection };
+      }),
 
     setSelection: (ids) => set({ selection: [...ids] }),
     setTool: (t) => set({ tool: t }),
+    setPenColor: (c) => set({ penColor: c }),
+    setPenWidth: (w) => set({ penWidth: w }),
+    setPenStyle: (s) => set({ penStyle: s }),
+    setPenDrawing: (v) => set({ penDrawing: v }),
+    setExportFrame: (f) => set({ exportFrame: f }),
+    setFramingExport: (v) => set({ framingExport: v }),
     setActivity: (a) => set({ activity: [...a] }),
     setView: (v) => {
       // 视口记忆：写独立 localStorage 键（不写回 projects 引用——视口变化不触发画布内容瞬时保存）
@@ -497,6 +616,28 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => {
         doc.elements = [...doc.elements.filter((e) => !replaceIds.includes(e.id)), ...copies];
         return { ...syncProject(s, doc, pushHistory(s.history, baseline ?? s.doc)), selection: [] };
       }),
+    // 整图镜像：toggle spec.flipH/flipV 并按新 spec 整图重排（layoutChart 统一应用镜像），
+    // 一步撤销；图表是整体图对象，翻转必须整图一起翻，不能只翻选中的单个元素
+    flipChart: (chartId, axis) =>
+      set((s) => {
+        const spec = s.doc.charts?.[chartId];
+        if (!spec) return {};
+        const doc = structuredClone(s.doc);
+        const sp = doc.charts?.[chartId];
+        if (!sp) return {};
+        if (axis === "h") sp.flipH = !sp.flipH;
+        else sp.flipV = !sp.flipV;
+        const els = layoutChart(sp, chartId);
+        let z = maxZIndex(doc.elements);
+        const copies = els.map((e) => {
+          const c = structuredClone(e);
+          c.zIndex = ++z;
+          return c;
+        });
+        const replaceIds = doc.elements.filter((e) => e.bind?.chartId === chartId).map((e) => e.id);
+        doc.elements = [...doc.elements.filter((e) => !replaceIds.includes(e.id)), ...copies];
+        return { ...syncProject(s, doc, pushHistory(s.history, s.doc)), selection: [] };
+      }),
     // 解除图表关联：全部绑定元素移除 bind + chartId 变普通元素，charts 删除该图；
     // 单向操作不入撤销栈（规格明确不做撤销恢复关联）
     detachChart: (chartId) =>
@@ -602,6 +743,29 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => {
         }
         const rr = redoHistory(s.history, s.doc);
         return rr ? { ...syncProject(s, rr.doc, rr.history) } : {};
+      }),
+    // 时间线跳转：index ∈ [0, past+future 总步数]，0 = 最初、总步数 = 最新。
+    // 目标比当前旧 → 连续 undo（入 future 供 redo）；比当前新 → 连续 redo 补足。一步完成走 syncProject 写回
+    jumpTo: (index) =>
+      set((s) => {
+        const total = s.history.past.length + s.history.future.length;
+        const target = Math.max(0, Math.min(total, index));
+        let h: HistoryState = s.history;
+        let doc: CanvasDocument = s.doc;
+        while (h.past.length > target) {
+          const r = undoHistory(h, doc);
+          if (!r) break;
+          h = r.history;
+          doc = r.doc;
+        }
+        while (h.past.length < target) {
+          const r = redoHistory(h, doc);
+          if (!r) break;
+          h = r.history;
+          doc = r.doc;
+        }
+        if (doc === s.doc) return {};
+        return { ...syncProject(s, doc, h) };
       }),
 
     createProject: () => {

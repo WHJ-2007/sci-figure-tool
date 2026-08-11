@@ -547,6 +547,32 @@ describe("组合对象 groupElements/ungroupElements", () => {
     expect(after[1].groupId).toBeUndefined();
   });
 
+  it("设置组合可撤销/重做：undo 恢复独立元素，redo 恢复组合", () => {
+    useCanvasStore.getState().addElement(makeElement("rect", 0, 0, 100, 60));
+    useCanvasStore.getState().addElement(makeElement("ellipse", 200, 0, 60, 40));
+    const ids = useCanvasStore.getState().doc.elements.map((e) => e.id);
+    useCanvasStore.getState().groupElements(ids);
+    expect(useCanvasStore.getState().doc.elements.every((e) => !!e.groupId)).toBe(true);
+    useCanvasStore.getState().undo();
+    expect(useCanvasStore.getState().doc.elements.every((e) => !e.groupId)).toBe(true);
+    useCanvasStore.getState().redo();
+    expect(useCanvasStore.getState().doc.elements.every((e) => !!e.groupId)).toBe(true);
+  });
+
+  it("拆分组合可撤销/重做：undo 恢复组合，redo 恢复拆分", () => {
+    useCanvasStore.getState().addElement(makeElement("rect", 0, 0, 100, 60));
+    useCanvasStore.getState().addElement(makeElement("ellipse", 200, 0, 60, 40));
+    const ids = useCanvasStore.getState().doc.elements.map((e) => e.id);
+    useCanvasStore.getState().groupElements(ids);
+    const gid = useCanvasStore.getState().doc.elements[0].groupId!;
+    useCanvasStore.getState().ungroupElements(gid);
+    expect(useCanvasStore.getState().doc.elements.every((e) => !e.groupId)).toBe(true);
+    useCanvasStore.getState().undo();
+    expect(useCanvasStore.getState().doc.elements.every((e) => !!e.groupId)).toBe(true);
+    useCanvasStore.getState().redo();
+    expect(useCanvasStore.getState().doc.elements.every((e) => !e.groupId)).toBe(true);
+  });
+
   it("updateElements 多选同步编辑：一次历史应用到多个元素（text 重算宽高）", () => {
     useCanvasStore.getState().addElement(makeElement("rect", 0, 0, 100, 60));
     useCanvasStore.getState().addElement(makeElement("rect", 200, 0, 100, 60));

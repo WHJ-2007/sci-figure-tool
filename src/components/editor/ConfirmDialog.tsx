@@ -23,7 +23,7 @@ export default function ConfirmDialog({
         <p className="mb-4 text-xs text-gray-500">请逐条选择允许或不允许：</p>
         <div className="space-y-3">
           {pending.map((p) => (
-            <div key={p.id} className="rounded-xl border border-white/60 bg-white/60 px-3 py-2 shadow-sm">
+            <div key={p.id} className="rounded-xl border border-white/60 bg-white/60 px-3 py-2 shadow-sm backdrop-blur-xl">
               <div className="mb-2 text-sm text-gray-700">{p.description}</div>
               <div className="flex gap-2">
                 <button

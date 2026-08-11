@@ -130,7 +130,7 @@ export class DraftCanvas {
     let el: CanvasElement;
     if (args.type === "text" || args.type === "logic" || args.type === "formula") {
       el = makeElement(args.type as "text" | "logic" | "formula", r.x, r.y, r.width, r.height, {
-        text: args.text === undefined ? (args.type === "logic" ? "逻辑" : args.type === "formula" ? "x^2" : "文字") : unescapeNewlines(args.text),
+        text: args.text === undefined ? (args.type === "logic" ? "" : args.type === "formula" ? "x^2" : "文字") : unescapeNewlines(args.text),
         body: args.body === undefined ? undefined : unescapeNewlines(args.body),
         fill: args.fill ?? "#2f2f2f",
         fontSize: args.fontSize,
@@ -229,7 +229,8 @@ export class DraftCanvas {
   }
 
   listElements() {
-    return this.elements.map((e) => ({
+    // 元素明细
+    const items = this.elements.map((e) => ({
       id: e.id,
       type: e.type,
       x: Math.round(e.x),
@@ -244,6 +245,20 @@ export class DraftCanvas {
       head: e.type === "arrow" ? e.head : undefined,
       zIndex: e.zIndex,
     }));
+    // 画布总览：现有内容的外接范围 + 建议的空白起始位置，让 AI 纵观全画布再决定在哪里作图
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const e of this.elements) {
+      minX = Math.min(minX, e.x);
+      minY = Math.min(minY, e.y);
+      maxX = Math.max(maxX, e.x + e.width);
+      maxY = Math.max(maxY, e.y + e.height);
+    }
+    const empty = this.elements.length === 0;
+    const overview = empty
+      ? "当前画布为空，可从任意位置开始绘制（建议以画布中心 (800,500) 为起点布局）"
+      : `现有内容范围：x ${Math.round(minX)}~${Math.round(maxX)}，y ${Math.round(minY)}~${Math.round(maxY)}（画布 1600×1000）。` +
+        `已有内容集中在上述区域，新增内容请放在其右侧或下方（x ≥ ${Math.round(maxX) + 40} 或 y ≥ ${Math.round(maxY) + 40}）的空白区域，避免重叠。`;
+    return { overview, elements: items };
   }
 
   // 自动连接：从源形状边缘精确指向目标形状边缘的箭头（AI 无需手算坐标）
@@ -418,7 +433,7 @@ export class DraftCanvas {
     const types = ["bar", "line", "pie", "scatter"];
     if (!types.includes(args.type)) return { ok: false, error: `不支持的图表类型: ${args.type}` };
     if (!args.data || args.data.length === 0) return { ok: false, error: "数据不能为空" };
-    if (args.data.length > 12) return { ok: false, error: "数据项过多（最多 12 项）" };
+    if (args.data.length > 60) return { ok: false, error: "数据项过多（最多 60 项）" };
     if (args.data.some((d) => !Number.isFinite(d.value) || d.value < 0)) return { ok: false, error: "数值必须是非负数字" };
     // 空标签会在画布上产生空白刻度/图例（z.string() 接受 ""），与 applyMindMap 空关键词兜底精神一致
     if (args.data.some((d) => !d.label.trim())) return { ok: false, error: "分类标签不能为空" };
@@ -463,6 +478,7 @@ export class DraftCanvas {
     // 前端才把这些 id 加锁，mergePreserved 才不会被当作"用户本地新增"保留
     const removed = this.elements;
     this.elements = [];
+    this.charts = {}; // 图表声明一并清空：清空 = 全部内容消失，残留 charts 会让后续重排/导出异常
     for (const el of removed) this.touch(el.id);
     this.ensureTextOnTop();
     this.activity.push("清空画布");

@@ -10,3 +10,7 @@ tools/launcher/.runtime/
 # 本地 AtomCode 安装包（不应上传）
 atomcode-*.exe
 atomcode-*.exe.bak
+
+# 本地运行数据与 AtomCode 会话记忆（不应上传）
+data/
+.atomcode/

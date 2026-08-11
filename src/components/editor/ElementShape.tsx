@@ -3,13 +3,16 @@ import { shapePoints, arrowHeadPoints, arrowHeadSize, curveControl, arrowPathD, 
 import { contrastTextColor, elementTransform } from "@/lib/canvas/elements";
 import { latexToUnicode } from "@/lib/canvas/formula";
 
-export default function ElementShape({ e, locked = false, ghost = false }: { e: CanvasElement; locked?: boolean; ghost?: boolean }) {
+export default function ElementShape({ e, locked = false, ghost = false, plain = false }: { e: CanvasElement; locked?: boolean; ghost?: boolean; plain?: boolean }) {
   const t = elementTransform(e);
   // 悬浮动效包在变换组外层（CSS transform 会覆盖 transform 属性，不能共用同一 g）：
-  // 锁定元素（AI 编辑中）不参与悬浮动效；投影挂在最外层（filter 引用 Canvas 顶层 defs）
+  // 锁定元素（AI 编辑中）、拖动中（ghost，鼠标悬停在移动的元素上）与 plain（绘制中的画笔预览）
+  // 不参与悬浮动效——拖动中元素保持原尺寸，不因悬停放大
+  // 细线元素（箭头/折线/笔迹/曲线）自带透明加宽命中层（strokeWidth 12），hover 判定基于加宽区域，
+  // 放大 5% 的位移远小于命中层宽度 → 边界不再反复抖动，可安全恢复"放大 + 高亮"
   return (
     <g data-element-id={e.id} style={ghost ? { opacity: 0.4 } : undefined} filter={e.shadow ? `url(#sh-${e.id})` : undefined}>
-      <g className={locked ? undefined : "el-hover"}>
+      <g className={locked || plain || ghost ? undefined : "el-hover"}>
         <g transform={t}>{renderBody(e)}</g>
       </g>
     </g>
@@ -101,21 +104,25 @@ function renderBody(e: CanvasElement): React.ReactNode {
     case "polyline": {
       const last = e.points[e.points.length - 1];
       const prev = e.points[e.points.length - 2] ?? e.points[0];
+      const ptsStr = pointsToString(e.points);
       return (
         <g>
-          <polyline points={pointsToString(e.points)} fill="none" stroke={e.stroke} strokeWidth={e.strokeWidth} strokeDasharray={dashAttr} strokeOpacity={strokeOpacityAttr} />
+          <polyline points={ptsStr} fill="none" stroke={e.stroke} strokeWidth={e.strokeWidth} strokeDasharray={dashAttr} strokeOpacity={strokeOpacityAttr} />
           {e.arrow !== false && (
             <polygon points={pointsToString(arrowHeadPoints(prev.x, prev.y, last.x, last.y, arrowHeadSize(e.strokeWidth)))} fill={e.stroke} fillOpacity={strokeOpacityAttr} />
           )}
+          {/* 透明加宽命中层：细线难点，12px 宽透明描边扩大 hover/点击范围（防放大边缘抖动） */}
+          <polyline points={ptsStr} fill="none" stroke="transparent" strokeWidth={12} strokeLinecap="round" strokeLinejoin="round" pointerEvents="all" />
         </g>
       );
     }
     case "pen": {
       // 画笔手写笔迹：连续点列 → 圆头/圆角平滑描边（自由手绘质感）
+      const ptsStr = pointsToString(e.points);
       return (
         <g>
           <polyline
-            points={pointsToString(e.points)}
+            points={ptsStr}
             fill="none"
             stroke={e.stroke}
             strokeWidth={e.strokeWidth}
@@ -124,19 +131,20 @@ function renderBody(e: CanvasElement): React.ReactNode {
             strokeLinecap="round"
             strokeLinejoin="round"
           />
+          {/* 透明加宽命中层：细线难点，12px 宽透明描边扩大 hover/点击范围（防放大边缘抖动） */}
+          <polyline points={ptsStr} fill="none" stroke="transparent" strokeWidth={12} strokeLinecap="round" strokeLinejoin="round" pointerEvents="all" />
         </g>
       );
     }
     case "curve": {
       const c = curveControl(e);
+      const d = `M ${e.x} ${e.y} Q ${c.x} ${c.y} ${e.x + e.width} ${e.y + e.height}`;
       return (
-        <path
-          d={`M ${e.x} ${e.y} Q ${c.x} ${c.y} ${e.x + e.width} ${e.y + e.height}`}
-          fill="none"
-          stroke={e.stroke}
-          strokeWidth={e.strokeWidth} strokeDasharray={dashAttr}
-          strokeOpacity={strokeOpacityAttr}
-        />
+        <g>
+          <path d={d} fill="none" stroke={e.stroke} strokeWidth={e.strokeWidth} strokeDasharray={dashAttr} strokeOpacity={strokeOpacityAttr} />
+          {/* 透明加宽命中层：细线难点，12px 宽透明描边扩大 hover/点击范围（防放大边缘抖动） */}
+          <path d={d} fill="none" stroke="transparent" strokeWidth={12} strokeLinecap="round" pointerEvents="all" />
+        </g>
       );
     }
     case "sector": {
@@ -224,13 +232,23 @@ function renderBody(e: CanvasElement): React.ReactNode {
         </g>
       );
     case "logic": {
-      // 逻辑节点：圆角矩形 + 标题（顶部）+ 多行正文（小 2 号），布局与 logicBoxSize 公式一致
+      // 逻辑节点：可多种外形（矩形/平行四边形/菱形）+ 标题（顶部）+ 多行正文（小 2 号）
       const bodyFontSize = Math.max(10, e.fontSize - 2);
       const lineH = bodyFontSize * 1.4;
       const bodyLines = (e.body ?? "").split("\n");
+      const shape = e.shape ?? "rect";
+      // 平行四边形：上下边各向左右倾斜（offset = 宽/6）；菱形：四顶点取中点
+      const offset = shape === "parallelogram" ? e.width / 6 : 0;
+      const polygon = shape === "diamond"
+        ? `${e.x + e.width / 2},${e.y} ${e.x + e.width},${e.y + e.height / 2} ${e.x + e.width / 2},${e.y + e.height} ${e.x},${e.y + e.height / 2}`
+        : `${e.x + offset},${e.y} ${e.x + e.width + offset},${e.y} ${e.x + e.width - offset},${e.y + e.height} ${e.x - offset},${e.y + e.height}`;
       return (
         <g>
-          <rect x={e.x} y={e.y} width={e.width} height={e.height} rx={e.rx} fill={e.fill} fillOpacity={fillOpacityAttr} stroke={e.stroke} strokeOpacity={strokeOpacityAttr} strokeWidth={e.strokeWidth} strokeDasharray={dashAttr} />
+          {shape === "rect" ? (
+            <rect x={e.x} y={e.y} width={e.width} height={e.height} rx={e.rx} fill={e.fill} fillOpacity={fillOpacityAttr} stroke={e.stroke} strokeOpacity={strokeOpacityAttr} strokeWidth={e.strokeWidth} strokeDasharray={dashAttr} />
+          ) : (
+            <polygon points={polygon} fill={e.fill} fillOpacity={fillOpacityAttr} stroke={e.stroke} strokeOpacity={strokeOpacityAttr} strokeWidth={e.strokeWidth} strokeDasharray={dashAttr} strokeLinejoin="round" />
+          )}
           <text
             x={e.x + e.width / 2}
             y={e.y + 5 + (e.fontSize * 1.4) / 2}

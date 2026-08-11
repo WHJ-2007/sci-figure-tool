@@ -54,6 +54,31 @@ function ColorPicker({ value, onChange, ariaLabel }: { value: string; onChange: 
   );
 }
 
+// 颜色选择折叠区：默认收起，点击「选择颜色 + 当前色块」展开/收回选色器（grid-rows 动画，与更新日志折叠同款）
+function CollapsibleColor({ value, onChange, ariaLabel }: { value: string; onChange: (c: string) => void; ariaLabel: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="overflow-hidden rounded-lg border border-white/60 bg-white/50 backdrop-blur-xl">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        className="lift flex w-full items-center gap-2 px-2 py-1.5 text-left hover:bg-white/70"
+      >
+        <span className="text-xs text-gray-600">选择颜色</span>
+        <span className="ml-auto h-4 w-6 shrink-0 rounded border border-black/10" style={{ background: value }} />
+      </button>
+      <div className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
+        <div className="overflow-hidden">
+          <div className="border-t border-white/50 px-2 py-2">
+            <ColorPicker value={value} onChange={onChange} ariaLabel={ariaLabel} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const TYPE_NAMES: Record<ElementType | "rounded", string> = {
   rect: "矩形", rounded: "圆角矩形", ellipse: "椭圆", triangle: "三角形", diamond: "菱形",
   hexagon: "六边形", star: "五角星", cross: "十字", donut: "圆环", half: "半圆",
@@ -63,7 +88,7 @@ const TYPE_NAMES: Record<ElementType | "rounded", string> = {
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="rounded-xl border border-white/60 bg-white/55 p-3 shadow-sm backdrop-blur-md">
+    <section className="rounded-xl border border-white/60 bg-white/55 p-3 shadow-sm backdrop-blur-xl">
       <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-400">{title}</h3>
       <div className="space-y-2">{children}</div>
     </section>
@@ -90,10 +115,7 @@ function ShadowControls({ e, patch }: { e: CanvasElement; patch: (p: Partial<Can
       <SliderRow label="水平" ariaLabel="阴影水平偏移" value={sh.dx} min={-30} max={30} step={1} onChange={(v) => set({ dx: v })} />
       <SliderRow label="垂直" ariaLabel="阴影垂直偏移" value={sh.dy} min={-30} max={30} step={1} onChange={(v) => set({ dy: v })} />
       <SliderRow label="浓淡" ariaLabel="阴影浓度" value={sh.opacity} min={0} max={1} step={0.05} onChange={(v) => set({ opacity: v })} />
-      <div className="flex items-start gap-1.5">
-        <span className="w-8 shrink-0 pt-1 text-xs text-gray-500">颜色</span>
-        <ColorPicker value={sh.color} onChange={(c) => set({ color: c })} ariaLabel="阴影颜色" />
-      </div>
+      <CollapsibleColor value={sh.color} onChange={(c) => set({ color: c })} ariaLabel="阴影颜色" />
       <button
         onClick={() => patch({ shadow: undefined })}
         className="lift w-full rounded-lg border border-red-200/70 bg-red-50/70 px-2 py-1 text-xs text-red-500 shadow-sm hover:bg-red-100/80"
@@ -124,6 +146,7 @@ export default function PropertyPanel() {
   const updateElement = useCanvasStore((s) => s.updateElement);
   const deleteElements = useCanvasStore((s) => s.deleteElements);
   const setSelection = useCanvasStore((s) => s.setSelection);
+  const scaleSelection = useCanvasStore((s) => s.scaleSelection);
   const aiLockedIds = useCanvasStore((s) => s.aiLockedIds);
 
   // 钩子必须先于任何早退调用：空选区的早退返回不能改变钩子数量
@@ -165,11 +188,37 @@ export default function PropertyPanel() {
       {/* 混合类型多选：不展示单元素编辑卡片，改为组合入口（同类多选才进入共享编辑模式） */}
       {(!multi || sameType) && (
         <>
+      {/* 标题：逻辑节点标题或文字内容 + 字号样式（编辑面板第一位，优先于内部颜色等外观设置） */}
+      {isTextLike && (
+        <Section title="标题">
+          <label className="flex items-center gap-2">
+            <span className="w-8 shrink-0 text-xs text-gray-500">{one.type === "logic" ? "标题" : "内容"}</span>
+            <input aria-label={one.type === "logic" ? "标题" : "文字内容"} value={one.text} onChange={(e) => patch({ text: e.target.value })} className="h-7 flex-1 rounded-lg border border-white/60 bg-white/70 px-1.5 text-gray-700 shadow-sm outline-none focus:border-blue-300" />
+          </label>
+          <div className="flex items-center gap-2">
+            <span className="w-8 shrink-0 text-xs text-gray-500">字号</span>
+            <input type="number" aria-label="字号" value={one.fontSize} min={6} max={120} onChange={(e) => patch({ fontSize: Number(e.target.value) })} className="h-7 w-16 rounded-lg border border-white/60 bg-white/70 px-1.5 text-gray-700 shadow-sm outline-none focus:border-blue-300" />
+            <button onClick={() => patch({ bold: !one.bold })} className={`lift rounded-lg border px-2 py-0.5 ${one.bold ? "border-blue-300 bg-blue-100 text-blue-700" : "border-white/60 bg-white/70 text-gray-600 shadow-sm hover:bg-white/90"}`}>B</button>
+            {one.type === "text" && (
+              <button onClick={() => patch({ italic: !one.italic })} className={`lift rounded-lg border px-2 py-0.5 italic ${one.italic ? "border-blue-300 bg-blue-100 text-blue-700" : "border-white/60 bg-white/70 text-gray-600 shadow-sm hover:bg-white/90"}`}>I</button>
+            )}
+          </div>
+          {one.type === "text" && (
+            <div className="flex items-center gap-2">
+              <span className="w-8 shrink-0 text-xs text-gray-500">对齐</span>
+              {(["left", "center", "right"] as const).map((a) => (
+                <button key={a} onClick={() => patch({ align: a })} className={`lift rounded-lg border px-2 py-0.5 ${one.align === a ? "border-blue-300 bg-blue-100 text-blue-700" : "border-white/60 bg-white/70 text-gray-600 shadow-sm hover:bg-white/90"}`}>{a}</button>
+              ))}
+            </div>
+          )}
+        </Section>
+      )}
+
       {/* #87 三独立外观：内部（填充色/填充透明度/圆角）、边框（边框色/线宽/边框透明度/箭头样式）、
           整体（透明度/旋转/阴影）；无填充渲染的线条/位图省略内部卡，文字省略边框卡 */}
       {one.type !== "arrow" && one.type !== "polyline" && one.type !== "curve" && one.type !== "image" && (
         <Section title="内部">
-          <ColorPicker value={one.fill} onChange={(c) => patch({ fill: c })} ariaLabel="填充色" />
+          <CollapsibleColor value={one.fill} onChange={(c) => patch({ fill: c })} ariaLabel="填充色" />
           <SliderRow label="填充" ariaLabel="填充透明度" value={one.fillOpacity ?? 1} min={0} max={1} step={0.05} onChange={(v) => patch({ fillOpacity: v })} />
           {(one.type === "rect" || one.type === "logic") && (
             <SliderRow label="圆角" ariaLabel="圆角" value={one.rx} min={0} max={50} step={1} onChange={(v) => patch({ rx: v })} />
@@ -185,7 +234,7 @@ export default function PropertyPanel() {
 
       {one.type !== "text" && (
         <Section title="边框">
-          <ColorPicker value={one.stroke} onChange={(c) => patch({ stroke: c })} ariaLabel="边框色" />
+          <CollapsibleColor value={one.stroke} onChange={(c) => patch({ stroke: c })} ariaLabel="边框色" />
           <SliderRow label="粗细" ariaLabel="线宽" value={one.strokeWidth} min={0} max={20} step={1} onChange={(v) => patch({ strokeWidth: v })} />
           <SliderRow label="边框" ariaLabel="边框透明度" value={one.strokeOpacity ?? 1} min={0} max={1} step={0.05} onChange={(v) => patch({ strokeOpacity: v })} />
           {one.type === "arrow" && (
@@ -227,29 +276,38 @@ export default function PropertyPanel() {
         <ShadowControls e={one} patch={patch} />
       </Section>
 
-      {/* 标题：逻辑节点标题或文字内容 + 字号样式 */}
-      {isTextLike && (
-        <Section title="标题">
-          <label className="flex items-center gap-2">
-            <span className="w-8 shrink-0 text-xs text-gray-500">{one.type === "logic" ? "标题" : "内容"}</span>
-            <input aria-label={one.type === "logic" ? "标题" : "文字内容"} value={one.text} onChange={(e) => patch({ text: e.target.value })} className="h-7 flex-1 rounded-lg border border-white/60 bg-white/70 px-1.5 text-gray-700 shadow-sm outline-none focus:border-blue-300" />
-          </label>
-          <div className="flex items-center gap-2">
-            <span className="w-8 shrink-0 text-xs text-gray-500">字号</span>
-            <input type="number" aria-label="字号" value={one.fontSize} min={6} max={120} onChange={(e) => patch({ fontSize: Number(e.target.value) })} className="h-7 w-16 rounded-lg border border-white/60 bg-white/70 px-1.5 text-gray-700 shadow-sm outline-none focus:border-blue-300" />
-            <button onClick={() => patch({ bold: !one.bold })} className={`lift rounded-lg border px-2 py-0.5 ${one.bold ? "border-blue-300 bg-blue-100 text-blue-700" : "border-white/60 bg-white/70 text-gray-600 shadow-sm hover:bg-white/90"}`}>B</button>
-            {one.type === "text" && (
-              <button onClick={() => patch({ italic: !one.italic })} className={`lift rounded-lg border px-2 py-0.5 italic ${one.italic ? "border-blue-300 bg-blue-100 text-blue-700" : "border-white/60 bg-white/70 text-gray-600 shadow-sm hover:bg-white/90"}`}>I</button>
-            )}
+      {/* 外形：逻辑节点可选 矩形/正方形/长方形/平行四边形/菱形 */}
+      {one.type === "logic" && (
+        <Section title="外形">
+          <div className="grid grid-cols-5 gap-1">
+            {([
+              ["rect", "矩形"],
+              ["square", "正方形"],
+              ["long", "长方形"],
+              ["parallelogram", "平行四边形"],
+              ["diamond", "菱形"],
+            ] as const).map(([s, label]) => {
+              const active = one.shape === "parallelogram" ? s === "parallelogram" : one.shape === "diamond" ? s === "diamond" : s === "rect" || s === "square" || s === "long";
+              return (
+                <button
+                  key={s}
+                  type="button"
+                  aria-pressed={active}
+                  title={label}
+                  onClick={() => {
+                    if (s === "parallelogram") patch({ shape: "parallelogram" });
+                    else if (s === "diamond") patch({ shape: "diamond" });
+                    else if (s === "square") patch({ shape: undefined, width: Math.max(one.width, one.height), height: Math.max(one.width, one.height) });
+                    else if (s === "long") patch({ shape: undefined });
+                    else patch({ shape: undefined });
+                  }}
+                  className={`lift rounded-lg border px-1 py-0.5 text-[11px] ${active ? "border-blue-300 bg-blue-100 text-blue-700" : "border-white/60 bg-white/70 text-gray-600 shadow-sm hover:bg-white/90"}`}
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
-          {one.type === "text" && (
-            <div className="flex items-center gap-2">
-              <span className="w-8 shrink-0 text-xs text-gray-500">对齐</span>
-              {(["left", "center", "right"] as const).map((a) => (
-                <button key={a} onClick={() => patch({ align: a })} className={`lift rounded-lg border px-2 py-0.5 ${one.align === a ? "border-blue-300 bg-blue-100 text-blue-700" : "border-white/60 bg-white/70 text-gray-600 shadow-sm hover:bg-white/90"}`}>{a}</button>
-              ))}
-            </div>
-          )}
         </Section>
       )}
 
@@ -400,11 +458,11 @@ export default function PropertyPanel() {
       <Section title="操作">
         <div className="grid grid-cols-2 gap-1.5">
           <button
-            onClick={() => patch({ flipH: !one.flipH })}
+            onClick={() => (chartId ? useCanvasStore.getState().flipChart(chartId, "h") : patch({ flipH: !one.flipH }))}
             title="水平镜像"
-            aria-pressed={one.flipH}
+            aria-pressed={chartId ? !!doc.charts?.[chartId]?.flipH : !!one.flipH}
             className={`lift flex h-8 items-center justify-center gap-1.5 rounded-lg border text-xs font-medium transition-colors ${
-              one.flipH ? "border-blue-300 bg-blue-100 text-blue-700" : "border-white/60 bg-white/70 text-gray-600 shadow-sm hover:bg-white/90"
+              (chartId ? !!doc.charts?.[chartId]?.flipH : !!one.flipH) ? "border-blue-300 bg-blue-100 text-blue-700" : "border-white/60 bg-white/70 text-gray-600 shadow-sm hover:bg-white/90"
             }`}
           >
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -415,17 +473,18 @@ export default function PropertyPanel() {
             水平
           </button>
           <button
-            onClick={() => patch({ flipV: !one.flipV })}
+            onClick={() => (chartId ? useCanvasStore.getState().flipChart(chartId, "v") : patch({ flipV: !one.flipV }))}
             title="垂直镜像"
-            aria-pressed={one.flipV}
+            aria-pressed={chartId ? !!doc.charts?.[chartId]?.flipV : !!one.flipV}
             className={`lift flex h-8 items-center justify-center gap-1.5 rounded-lg border text-xs font-medium transition-colors ${
-              one.flipV ? "border-blue-300 bg-blue-100 text-blue-700" : "border-white/60 bg-white/70 text-gray-600 shadow-sm hover:bg-white/90"
+              (chartId ? !!doc.charts?.[chartId]?.flipV : !!one.flipV) ? "border-blue-300 bg-blue-100 text-blue-700" : "border-white/60 bg-white/70 text-gray-600 shadow-sm hover:bg-white/90"
             }`}
           >
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              {/* 垂直镜像：水平中线 + 上箭头朝上、下箭头朝下（表达上下翻转） */}
               <path d="M3 12h18" />
-              <path d="M8 5l-4 3 4 3" />
-              <path d="M16 5l4 3-4 3" />
+              <path d="M5 8l3-4 3 4" />
+              <path d="M5 16l3 4 3-4" />
             </svg>
             垂直
           </button>
@@ -452,6 +511,31 @@ export default function PropertyPanel() {
               <path d="M9 9l6 6M15 9l-6 6" />
             </svg>
             取消
+          </button>
+          {/* 多选/组合/图标整体缩放：绕包围盒中心放大/缩小，一步撤销 */}
+          <button
+            onClick={() => scaleSelection(1.1)}
+            title="放大选中（多选/组合整体）"
+            className="lift flex h-8 items-center justify-center gap-1.5 rounded-lg border border-white/60 bg-white/70 text-xs font-medium text-gray-600 shadow-sm transition-colors hover:bg-white/90"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="7" />
+              <path d="M21 21l-4.35-4.35" />
+              <path d="M11 8v6M8 11h6" />
+            </svg>
+            放大
+          </button>
+          <button
+            onClick={() => scaleSelection(0.9)}
+            title="缩小选中（多选/组合整体）"
+            className="lift flex h-8 items-center justify-center gap-1.5 rounded-lg border border-white/60 bg-white/70 text-xs font-medium text-gray-600 shadow-sm transition-colors hover:bg-white/90"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="7" />
+              <path d="M21 21l-4.35-4.35" />
+              <path d="M8 11h6" />
+            </svg>
+            缩小
           </button>
         </div>
       </Section>

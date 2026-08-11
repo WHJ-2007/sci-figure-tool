@@ -16,33 +16,38 @@ function mockStream(events: unknown[]) {
 }
 
 describe("ChatPanel", () => {
-  it("发送消息显示在对话中，生成完成后应用画布", async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(
-      mockStream([
-        { type: "progress", activity: ["创建矩形"] },
-        { type: "complete", canvas: { width: 1600, height: 1000, elements: [makeElement("rect", 10, 10, 100, 60)] }, summary: "画好了" },
-      ])
-    );
+  it("发送消息显示在对话中，生成中思考步骤出现，生成完成后应用画布", async () => {
+    let ctrl!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({ start(c) { ctrl = c; } });
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(stream, { headers: { "Content-Type": "application/x-ndjson" } }));
     render(<ChatPanel />);
     const input = screen.getByPlaceholderText(/描述你想画的图/);
     fireEvent.change(input, { target: { value: "画一个矩形" } });
     fireEvent.click(screen.getByText("一键生成"));
+    // 生成中：对话气泡内出现思考步骤（活动日志不再单独挂外部气泡）
+    await waitFor(() => expect(screen.getByTestId("ai-typing")).toBeInTheDocument());
+    const enc = new TextEncoder();
+    ctrl.enqueue(enc.encode(JSON.stringify({ type: "progress", activity: ["创建矩形"] }) + "\n"));
+    await waitFor(() => expect(screen.getByText("创建矩形")).toBeInTheDocument());
+    expect(screen.getByTestId("thinking-steps")).toBeInTheDocument();
+    // 生成完成
+    ctrl.enqueue(enc.encode(JSON.stringify({ type: "complete", canvas: { width: 1600, height: 1000, elements: [makeElement("rect", 10, 10, 100, 60)] }, summary: "画好了" }) + "\n"));
+    ctrl.close();
     await waitFor(() => expect(screen.getByText(/画好了/)).toBeInTheDocument());
     await waitFor(() => expect(useCanvasStore.getState().doc.elements).toHaveLength(1));
-    // 活动日志显示在输入框上方的气泡（GenerationToast）里，不再作为消息气泡出现在对话区
-    await waitFor(() => expect(screen.getByTestId("generation-toast")).toBeInTheDocument());
-    expect(screen.getByText(/创建矩形/)).toBeInTheDocument();
+    // 思考步骤随生成结束收起
+    await waitFor(() => expect(screen.queryByTestId("thinking-steps")).toBeNull());
   });
 
-  it("AI 执行时输入框上方显示活动气泡：最新步骤实时更新，结束收起", async () => {
+  it("AI 执行时对话气泡内显示思考步骤：最新步骤实时更新，结束收起", async () => {
     let ctrl!: ReadableStreamDefaultController<Uint8Array>;
     const stream = new ReadableStream<Uint8Array>({ start(c) { ctrl = c; } });
     vi.mocked(fetch).mockResolvedValueOnce(new Response(stream, { headers: { "Content-Type": "application/x-ndjson" } }));
     render(<ChatPanel />);
     fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "画一个流程" } });
     fireEvent.click(screen.getByText("一键生成"));
-    // 生成中：活动气泡（GenerationToast，位于输入框上方）出现，逐步推送最新步骤
-    await waitFor(() => expect(screen.getByTestId("generation-toast")).toBeInTheDocument());
+    // 生成中：对话气泡内出现思考步骤，逐步推送最新步骤
+    await waitFor(() => expect(screen.getByTestId("ai-typing")).toBeInTheDocument());
     const enc = new TextEncoder();
     ctrl.enqueue(enc.encode(JSON.stringify({ type: "progress", activity: ["创建矩形"] }) + "\n"));
     await waitFor(() => expect(screen.getByText("创建矩形")).toBeInTheDocument());
@@ -52,7 +57,7 @@ describe("ChatPanel", () => {
     // 生成结束气泡收起（动画后卸载）
     ctrl.enqueue(enc.encode(JSON.stringify({ type: "complete", canvas: { width: 1600, height: 1000, elements: [] }, summary: "画好了" }) + "\n"));
     ctrl.close();
-    await waitFor(() => expect(screen.queryByTestId("generation-toast")).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId("ai-typing")).toBeNull());
   });
 
   it("AI 提问带可点击选项：渲染选项按钮，点选即作为回答发送并继续生成", async () => {
@@ -278,68 +283,6 @@ describe("ChatPanel", () => {
     await waitFor(() => expect(screen.getByText(/生成中断/)).toBeInTheDocument());
   });
 
-  it("点击具体模式后请求体带 modes 数组且持久化；自动互斥", async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(mockStream([{ type: "complete", canvas: { width: 1600, height: 1000, elements: [] }, summary: "好" }]));
-    render(<ChatPanel />);
-    fireEvent.click(screen.getByText("思维导图"));
-    fireEvent.click(screen.getByText("图表制作"));
-    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "梳理概念" } });
-    fireEvent.click(screen.getByText("一键生成"));
-    await waitFor(() => expect(screen.getByText(/好/)).toBeInTheDocument());
-    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string);
-    expect(body.modes).toEqual(["mindmap", "chart"]);
-    expect(localStorage.getItem(`chartMode-${useCanvasStore.getState().currentProjectId}`)).toBe(JSON.stringify(["mindmap", "chart"]));
-  });
-
-  it("再点已选模式取消选中；点自动清空全部具体模式", async () => {
-    render(<ChatPanel />);
-    fireEvent.click(screen.getByText("思维导图"));
-    expect(screen.getByText("思维导图").closest("button")!).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(screen.getByText("思维导图"));
-    expect(screen.getByText("思维导图").closest("button")!).toHaveAttribute("aria-pressed", "false");
-    fireEvent.click(screen.getByText("图表制作"));
-    fireEvent.click(screen.getByText("自动"));
-    expect(screen.getByText("自动").closest("button")!).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText("图表制作").closest("button")!).toHaveAttribute("aria-pressed", "false");
-  });
-
-  it("刷新后从 localStorage 恢复模式选择", () => {
-    localStorage.setItem(`chartMode-${useCanvasStore.getState().currentProjectId}`, "chart");
-    render(<ChatPanel />);
-    expect(screen.getByText("图表制作").closest("button")!).toHaveAttribute("aria-pressed", "true");
-  });
-
-  it("恢复新格式 JSON 数组；非法数组与全部取消后回到自动", () => {
-    localStorage.setItem(`chartMode-${useCanvasStore.getState().currentProjectId}`, JSON.stringify(["mindmap", "chart"]));
-    const { unmount } = render(<ChatPanel />);
-    expect(screen.getByText("思维导图").closest("button")!).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText("图表制作").closest("button")!).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText("自动").closest("button")!).toHaveAttribute("aria-pressed", "false");
-    unmount();
-
-    // 全部具体模式取消 → 自动并持久化 "auto"
-    localStorage.setItem(`chartMode-${useCanvasStore.getState().currentProjectId}`, JSON.stringify(["mindmap", "chart"]));
-    const { unmount: unmount2 } = render(<ChatPanel />);
-    fireEvent.click(screen.getByText("思维导图"));
-    fireEvent.click(screen.getByText("图表制作"));
-    expect(screen.getByText("自动").closest("button")!).toHaveAttribute("aria-pressed", "true");
-    expect(localStorage.getItem(`chartMode-${useCanvasStore.getState().currentProjectId}`)).toBe("auto");
-    unmount2();
-
-    // 非法内容 → 默认自动
-    localStorage.setItem(`chartMode-${useCanvasStore.getState().currentProjectId}`, "garbage{");
-    render(<ChatPanel />);
-    expect(screen.getByText("自动").closest("button")!).toHaveAttribute("aria-pressed", "true");
-  });
-
-  it("模式按钮为纯文字无图标（SVG）", () => {
-    render(<ChatPanel />);
-    for (const label of ["自动", "科研绘图", "思维导图", "图表制作"]) {
-      const btn = screen.getByText(label).closest("button")!;
-      expect(btn.querySelector("svg")).toBeNull();
-    }
-  });
-
   it("生成中显示 AI 流式光标气泡", async () => {
     vi.mocked(fetch).mockReturnValue(new Promise<Response>(() => {}));
     render(<ChatPanel />);
@@ -431,7 +374,7 @@ describe("ChatPanel 画布级操作确认", () => {
     render(<ChatPanel />);
     fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "换个画布画" } });
     fireEvent.click(screen.getByText("一键生成"));
-    await waitFor(() => expect(screen.getByTestId("confirm-dialog")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId("confirm-inline")).toBeInTheDocument());
     expect(screen.getByText(/新建空白画布/)).toBeInTheDocument();
     fireEvent.click(screen.getByText("允许"));
     // new-canvas 事件触发 createProject：多出一张画布
@@ -455,7 +398,7 @@ describe("ChatPanel 画布级操作确认", () => {
     render(<ChatPanel />);
     fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "换个画布画" } });
     fireEvent.click(screen.getByText("一键生成"));
-    await waitFor(() => expect(screen.getByTestId("confirm-dialog")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId("confirm-inline")).toBeInTheDocument());
     fireEvent.click(screen.getByText("不允许"));
     await waitFor(() => expect(useCanvasStore.getState().projects).toHaveLength(1));
     await waitFor(() => expect(screen.getByText(/已取消：新建空白画布/)).toBeInTheDocument());
@@ -483,9 +426,9 @@ describe("ChatPanel 画布级操作确认", () => {
     render(<ChatPanel />);
     fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "换个画布画" } });
     fireEvent.click(screen.getByText("一键生成"));
-    await waitFor(() => expect(screen.getByTestId("confirm-dialog")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId("confirm-inline")).toBeInTheDocument());
     fireEvent.click(screen.getByText("允许"));
-    await waitFor(() => expect(screen.queryByTestId("confirm-dialog")).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId("confirm-inline")).toBeNull());
     // 再次生成：confirmReq 若残留真值，send() 守卫会永久 return，这里死锁
     fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "再来" } });
     fireEvent.click(screen.getByText("一键生成"));
@@ -505,10 +448,10 @@ describe("ChatPanel 画布级操作确认", () => {
     render(<ChatPanel />);
     fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "换个画布画" } });
     fireEvent.click(screen.getByText("一键生成"));
-    await waitFor(() => expect(screen.getByTestId("confirm-dialog")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId("confirm-inline")).toBeInTheDocument());
     fireEvent.click(screen.getByText("允许"));
     // 404：不新建画布、对话框必须关闭（否则用户永远卡在弹窗里）、显示错误
-    await waitFor(() => expect(screen.queryByTestId("confirm-dialog")).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId("confirm-inline")).toBeNull());
     expect(useCanvasStore.getState().projects).toHaveLength(1);
     expect(screen.getByText(/确认会话已过期/)).toBeInTheDocument();
   });
@@ -528,14 +471,14 @@ describe("ChatPanel 画布级操作确认", () => {
     render(<ChatPanel />);
     fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "换个画布画" } });
     fireEvent.click(screen.getByText("一键生成"));
-    await waitFor(() => expect(screen.getByTestId("confirm-dialog")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId("confirm-inline")).toBeInTheDocument());
     // 点遮罩弹窗不关闭：敏感操作不能跳过
-    fireEvent.click(screen.getByTestId("confirm-dialog"));
-    expect(screen.getByTestId("confirm-dialog")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("confirm-inline"));
+    expect(screen.getByTestId("confirm-inline")).toBeInTheDocument();
     expect(useCanvasStore.getState().projects).toHaveLength(1); // 未新建画布
     // 必须点允许才关闭
     fireEvent.click(screen.getByText("允许"));
-    await waitFor(() => expect(screen.queryByTestId("confirm-dialog")).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId("confirm-inline")).toBeNull());
   });
 });
 

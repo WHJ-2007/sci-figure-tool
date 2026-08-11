@@ -91,7 +91,9 @@ describe("DraftCanvas", () => {
     const d = new DraftCanvas([]);
     d.createElement({ type: "text", x: 0, y: 0, width: 50, height: 20, text: "Encoder" });
     const list = d.listElements();
-    expect(list[0]).toMatchObject({ type: "text", text: "Encoder" });
+    expect(list.elements[0]).toMatchObject({ type: "text", text: "Encoder" });
+    // 含画布总览（现有内容范围 + 建议空白起始位置）
+    expect(list.overview).toContain("现有内容范围");
     expect(JSON.stringify(list)).toContain("Encoder");
   });
 
@@ -223,8 +225,8 @@ describe("DraftCanvas", () => {
     const l = d.createElement({ type: "logic", x: 10, y: 10, width: 100, height: 60, text: "编码", body: "要点" });
     const a = d.createElement({ type: "arrow", x: 10, y: 30, width: 200, height: 0, head: "double" });
     const summary = d.listElements();
-    expect(summary.find((e) => e.id === l.id)?.body).toBe("要点");
-    const arrow = summary.find((e) => e.id === a.id);
+    expect(summary.elements.find((e) => e.id === l.id)?.body).toBe("要点");
+    const arrow = summary.elements.find((e) => e.id === a.id);
     expect(arrow?.head).toBe("double");
     expect(typeof arrow?.zIndex).toBe("number");
   });
@@ -549,7 +551,7 @@ describe("DraftCanvas", () => {
     const d = new DraftCanvas([]);
     expect(d.applyChart({ type: "bar", data: [] }).ok).toBe(false);
     expect(d.applyChart({ type: "bar", data: [{ label: "a", value: -1 }] }).ok).toBe(false);
-    expect(d.applyChart({ type: "bar", data: Array.from({ length: 13 }, (_, i) => ({ label: `d${i}`, value: i })) }).ok).toBe(false);
+    expect(d.applyChart({ type: "bar", data: Array.from({ length: 61 }, (_, i) => ({ label: `d${i}`, value: i })) }).ok).toBe(false);
     expect(d.applyChart({ type: "weird" as never, data: [{ label: "a", value: 1 }] }).ok).toBe(false);
     expect(d.serialize().elements).toHaveLength(0);
   });

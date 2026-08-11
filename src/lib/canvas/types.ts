@@ -113,7 +113,8 @@ export interface PenElement extends BaseElement {
   points: { x: number; y: number }[];
 }
 
-// 逻辑节点：流程/结构图节点，圆角矩形 + 内置居中标题 + 多行正文（body，\n 分隔），自带上下左右 4 个箭头锚点
+// 逻辑节点：流程/结构图节点，可多种外形（rect 圆角矩形 / parallelogram 平行四边形 / diamond 菱形），
+// 内置居中标题 + 多行正文（body，\n 分隔），自带上下左右 4 个箭头锚点
 export interface LogicElement extends BaseElement {
   type: "logic";
   rx: number;
@@ -122,6 +123,8 @@ export interface LogicElement extends BaseElement {
   fontSize: number;
   fontFamily: string;
   bold: boolean;
+  // 外形：缺省 rect（圆角矩形）；parallelogram 平行四边形（左右倾斜）；diamond 菱形
+  shape?: "rect" | "parallelogram" | "diamond";
 }
 
 // 贝塞尔曲线分支线（AI 生成专用）：x/y=起点，width/height=终点相对偏移，

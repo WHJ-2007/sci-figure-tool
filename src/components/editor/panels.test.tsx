@@ -58,10 +58,11 @@ describe("PropertyPanel", () => {
     // 箭头无填充渲染：不显示"内部"卡片（填充色对箭头无意义）
     expect(screen.queryByText("内部")).toBeNull();
     const card = [...document.querySelectorAll("section")].find((s) => s.querySelector("h3")?.textContent === "边框")!;
-    // 色板按钮不计入编辑顺序（色板固定在卡片首部）
+    // 色板按钮不计入编辑顺序（色板固定在卡片首部）；折叠按钮「选择颜色」是展开/收回入口，也不计入
     const seq = [...card.querySelectorAll("[aria-label],button")]
       .map((el) => el.getAttribute("aria-label") ?? el.textContent!.trim())
-      .filter((l) => !l.startsWith("预设色"));
+      .filter((l) => !l.startsWith("预设色"))
+      .filter((l) => !l.includes("选择颜色"));
     // 编辑顺序：边框色 → 线宽 → 边框透明度 → 箭头样式（无/单/双）
     expect(seq).toEqual(["边框色", "线宽", "线宽 数值", "边框透明度", "边框透明度 数值", "无箭头", "单箭头", "双箭头"]);
   });

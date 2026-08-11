@@ -61,10 +61,10 @@ describe("Canvas", () => {
     expect(view.ox).toBeCloseTo(-10, 5);
     expect(view.oy).toBeCloseTo(-10, 5);
 
-    act(() => useCanvasStore.getState().setView({ scale: 4, ox: 0, oy: 0 }));
+    act(() => useCanvasStore.getState().setView({ scale: 16, ox: 0, oy: 0 }));
     fireEvent.wheel(document.querySelector("div.relative")!, { clientX: 100, clientY: 100, deltaY: -100 });
     view = useCanvasStore.getState().view;
-    expect(view.scale).toBe(4);
+    expect(view.scale).toBe(16);
   });
 
   it("旋转元素内层 g 带旋转 transform", () => {

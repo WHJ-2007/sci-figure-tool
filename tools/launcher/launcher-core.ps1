@@ -3,7 +3,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $script:CoreDir = $PSScriptRoot
-$script:Port = 3001
+$script:Port = 8081
 
 function Get-LauncherDir { return $script:CoreDir }
 

@@ -76,6 +76,17 @@ describe("快捷键", () => {
     document.body.removeChild(ta);
   });
 
+  it("editingText 残留（焦点已离开编辑框）时 Delete 仍删除选中元素", () => {
+    const a = makeElement("rect", 0, 0, 50, 50);
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().setSelection([a.id]);
+    // 模拟文本编辑状态残留（editingText 非空但焦点不在编辑框）
+    useCanvasStore.getState().setEditingText("some-text-id");
+    render(<EditorHost />);
+    fireEvent.keyDown(window, { key: "Delete" });
+    expect(useCanvasStore.getState().doc.elements).toHaveLength(0);
+  });
+
   it("生成中 Delete 可删除用户自己的元素（锁定元素不可选，选区不含锁定）", () => {
     const mine = makeElement("rect", 0, 0, 50, 30);
     const aiEl = makeElement("ellipse", 100, 100, 40, 40);

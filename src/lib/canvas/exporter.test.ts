@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { serializeSVG, elementToSvg } from "./exporter";
+import { describe, it, expect, afterEach } from "vitest";
+import { serializeSVG, elementToSvg, exportSvgFile } from "./exporter";
 import { makeElement } from "./elements";
 import type { CanvasElement } from "./types";
 
@@ -297,5 +297,108 @@ describe("exporter", () => {
     const t = makeElement("text", 0, 0, 50, 20, { text: "hi", shadow: { color: "#111111", blur: 4, dx: 0, dy: 0, opacity: 0.5 } });
     const out = elementToSvg(t);
     expect(out).toContain('filter="url(#sh-');
+  });
+
+  it("crop+scale：输出尺寸取整且 = 裁剪区尺寸 × 倍率（宽高必须为整数，canvas 只接受整数）", () => {
+    const doc = { width: 1600, height: 1000, elements: [makeElement("rect", 100, 100, 120, 80)] };
+    // 组合/对象导出：crop 为选中元素包围盒（世界坐标可为小数），scale 4x
+    const crop = { x: 100.5, y: 100.25, width: 119.75, height: 79.5 };
+    const svg = serializeSVG(doc, 4, false, crop);
+    const w = svg.match(/width="(\d+)"/)![1];
+    const h = svg.match(/height="(\d+)"/)![1];
+    expect(Number(w)).toBe(Math.round(119.75 * 4)); // 479
+    expect(Number(h)).toBe(Math.round(79.5 * 4)); // 318
+    expect(Number(w) % 1).toBe(0);
+    expect(Number(h) % 1).toBe(0);
+    // viewBox 用裁剪区原始尺寸（小数 OK），元素整体平移使区域落在原点
+    expect(svg).toContain('viewBox="0 0 119.75 79.5"');
+    expect(svg).toContain('translate(-100.5 -100.25)');
+  });
+
+  it("crop 导出：区域外元素被 viewBox 裁剪，区域内元素可见（组合整体导出不空）", () => {
+    const inside = makeElement("rect", 100, 100, 120, 80);
+    const outside = makeElement("text", 500, 500, 100, 24, { text: "外面" });
+    const doc = { width: 1600, height: 1000, elements: [inside, outside] };
+    // 只选中组合成员（inside）→ crop = 其包围盒
+    const crop = { x: 100, y: 100, width: 120, height: 80 };
+    const svg = serializeSVG(doc, 1, false, crop);
+    expect(svg).toContain("<rect"); // 组内元素存在
+    expect(svg).toContain("translate(-100 -100)"); // 平移使 crop 落原点
+    expect(svg).toContain('viewBox="0 0 120 80"');
+    // 区域外文字仍在 SVG 中（被 viewBox 裁剪），但内容不缺失
+    expect(svg).toContain("外面");
+  });
+
+  it("包含背景色：默认画布（background 缺省）勾选后导出白色背景（与画布渲染一致）", () => {
+    const doc = { width: 1600, height: 1000, elements: [makeElement("rect", 10, 10, 100, 60)] };
+    // 缺省 background（undefined，渲染默认白底）→ includeBackground=true 必须输出铺满画布的白色背景 rect
+    const svg = serializeSVG(doc, 1, true);
+    expect(svg).toContain('<rect x="0" y="0" width="1600" height="1000" fill="#ffffff"/>');
+    // 不勾选仍透明（无铺满画布的背景 rect）
+    const noBg = serializeSVG(doc, 1, false);
+    expect(noBg).not.toContain('<rect x="0" y="0" width="1600" height="1000"');
+  });
+
+  it("包含背景色：显式纯色 / none 透明 / 渐变 均正确", () => {
+    const el = makeElement("rect", 10, 10, 100, 60);
+    const solid = serializeSVG({ width: 100, height: 100, background: "#ff0000", elements: [el] }, 1, true);
+    expect(solid).toContain('fill="#ff0000"');
+    const none = serializeSVG({ width: 100, height: 100, background: "none", elements: [el] }, 1, true);
+    expect(none).not.toContain('<rect x="0" y="0"');
+    const grad = serializeSVG({ width: 100, height: 100, background: "linear:#fff,#000", elements: [el] }, 1, true);
+    expect(grad).toContain("<linearGradient");
+    expect(grad).toContain('fill="url(#export-bg-grad)"');
+  });
+
+  it("分块导出窗口：tile 指定世界坐标窗口，viewBox = 窗口、元素不整体平移（背景 rect 从原点铺满）", () => {
+    const el = makeElement("rect", 100, 100, 120, 80);
+    const doc = { width: 1600, height: 1000, elements: [el] };
+    const crop = { x: 100, y: 100, width: 120, height: 80 };
+    // 分块窗口 = 世界坐标子区域（如左上块）
+    const tile = { x: 100, y: 100, width: 60, height: 40 };
+    const svg = serializeSVG(doc, 1, false, crop, tile);
+    expect(svg).toContain('viewBox="100 100 60 40"');
+    // 分块时不整体平移（元素保持世界坐标，窗口即裁剪）
+    expect(svg).not.toContain('translate(-100 -100)');
+    // 元素仍以世界坐标输出
+    expect(svg).toContain('x="100"');
+  });
+
+  it("exportSvgFile：勾选包含背景色后 SVG 带画布背景（默认缺省白底 → 白色 rect）", async () => {
+    // jsdom 未实现 URL.createObjectURL / revokeObjectURL / anchor.click / Blob.text：stub 捕获 blob，
+    // 用 FileReader（jsdom 已实现）读内容
+    let captured: Blob | null = null;
+    const origCreate = URL.createObjectURL;
+    const origRevoke = URL.revokeObjectURL;
+    const origClick = HTMLAnchorElement.prototype.click;
+    URL.createObjectURL = (blob: Blob) => {
+      captured = blob;
+      return "blob:mock";
+    };
+    URL.revokeObjectURL = () => {};
+    HTMLAnchorElement.prototype.click = () => {};
+    afterEach(() => {
+      URL.createObjectURL = origCreate;
+      URL.revokeObjectURL = origRevoke;
+      HTMLAnchorElement.prototype.click = origClick;
+    });
+    const blobText = (b: Blob) =>
+      new Promise<string>((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result));
+        r.onerror = () => reject(new Error("read blob failed"));
+        r.readAsText(b);
+      });
+    const doc = { width: 1600, height: 1000, elements: [makeElement("rect", 10, 10, 100, 60)] };
+    // 勾选包含背景色：SVG 内容必须含铺满画布的白色背景 rect（与 PNG 导出一致）
+    exportSvgFile(doc, "figure.svg", undefined, true);
+    expect(captured).not.toBeNull();
+    const text = await blobText(captured!);
+    expect(text).toContain('<rect x="0" y="0" width="1600" height="1000" fill="#ffffff"/>');
+    // 不勾选：仍透明（无铺满画布的背景 rect）
+    exportSvgFile(doc, "figure.svg", undefined, false);
+    expect(captured).not.toBeNull();
+    const text2 = await blobText(captured!);
+    expect(text2).not.toContain('<rect x="0" y="0" width="1600" height="1000"');
   });
 });

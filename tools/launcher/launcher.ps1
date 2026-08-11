@@ -80,7 +80,7 @@ $timer.Start()
 
 $btnStart.Add_Click({
     if (Get-PortInUse) {
-        $lblStatus.Text = "端口 3001 已被占用，无法启动"
+        $lblStatus.Text = "端口 8081 已被占用，无法启动"
         $lblStatus.ForeColor = [System.Drawing.Color]::FromArgb(220, 38, 38)
         return
     }

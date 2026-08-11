@@ -8,6 +8,10 @@ export interface Point { x: number; y: number }
 
 export const CANVAS_WIDTH = 1600;
 export const CANVAS_HEIGHT = 1000;
+// 画布视口尺寸（与 page.tsx 传给 Canvas 的 props 一致）：图片粘贴/导入、图表生成
+// 落点计算（视口中心的世界坐标）共用，保证"放到当前查看范围正中心"
+export const VIEWPORT_WIDTH = 1200;
+export const VIEWPORT_HEIGHT = 800;
 export const SNAP_THRESHOLD = 6;
 export const HIT_TOLERANCE = 4;
 
@@ -345,8 +349,9 @@ export function hitTestElement(e: CanvasElement, p: Point, tolerance = HIT_TOLER
     return e.points.some((pt, i) => i > 0 && distToSegment(p, e.points[i - 1], pt) <= tolerance);
   }
   if (e.type === "pen") {
-    // 手写笔迹是细线，命中范围放宽（与箭头同为逐段测距，但容差更大便于点选）
-    return e.points.some((pt, i) => i > 0 && distToSegment(p, e.points[i - 1], pt) <= tolerance + 6);
+    // 手写笔迹是细线，命中范围放宽（与箭头同为逐段测距，但容差更大便于点选）：
+    // 基础容差 +10（共 14px，与箭头右键菜单命中容差一致），细笔迹也容易点到
+    return e.points.some((pt, i) => i > 0 && distToSegment(p, e.points[i - 1], pt) <= tolerance + 10);
   }
   if (e.type === "curve") {
     const c = curveControl(e);

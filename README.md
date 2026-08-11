@@ -17,8 +17,8 @@ AI 辅助的科研示意图编辑器：一键生成 AI 算法架构图、大数�
 
 ## 🚀 使用
 
-1. 双击 `启动器.bat`（或 `npm run dev`，端口 3001）
-2. 打开 http://localhost:3001
+1. 双击 `启动器.bat`（或 `npm run dev`，端口 8081）
+2. 打开 http://localhost:8081
 3. 齿轮图标 → 设置 → 填写 DeepSeek API Key（可自定义模型与 Base URL）→ 测试连接
 4. 回到画布：手动画图，或在 AI 助手输入描述一键生成
 

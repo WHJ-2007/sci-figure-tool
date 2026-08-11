@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { loadSettings, saveSettings, DEFAULT_SETTINGS } from "@/lib/settings";
 import {
@@ -10,10 +10,11 @@ import {
   clearSaveDirectory,
 } from "@/lib/canvas/saveTarget";
 import { APP_NAME, APP_VERSION, AUTHOR, AUTHOR_EMAIL } from "@/lib/changelog";
+import { initLogCapture, getLogs, getLogCount } from "@/lib/log";
 import ChangelogDialog from "./ChangelogDialog";
 
 // 常用模型预设：可切换到任意 OpenAI 兼容服务（Base URL 自定义）；不在列表内选「自定义…」手动填
-const MODEL_PRESETS = ["deepseek-chat", "deepseek-reasoner", "deepseek-v3", "deepseek-r1", "gpt-4o-mini", "gpt-4o", "qwen-max", "glm-4.6"];
+const MODEL_PRESETS = ["deepseek-v4-flash", "deepseek-chat", "deepseek-reasoner", "deepseek-v3", "deepseek-r1", "gpt-4o-mini", "gpt-4o", "qwen-max", "glm-4.6"];
 
 // 文件位置条目：展示某类数据的保存位置，可复制路径，本地路径可尝试打开资源管理器
 function LocationRow({ label, path, copy, openable = false }: { label: string; path: string; copy: string; openable?: boolean }) {
@@ -24,10 +25,19 @@ function LocationRow({ label, path, copy, openable = false }: { label: string; p
       // 剪贴板不可用时静默
     }
   };
-  const openDir = () => {
-    // 浏览器安全限制：file:// 直接打开可能被拦截，失败时提示复制路径
+  const openDir = async () => {
+    // 浏览器安全限制禁止 file:// 直开，改由服务端进程打开（/api/open-path，~ 展开为主目录）
     const p = copy.startsWith("localStorage:") ? "" : copy;
-    if (p) window.open(`file:///${p.replace(/\\/g, "/").replace(/^~/, "")}`, "_blank");
+    if (!p) return;
+    try {
+      await fetch("/api/open-path", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: p }),
+      });
+    } catch {
+      // 打开失败时静默（用户可复制路径自行打开）
+    }
   };
   return (
     <div className="flex items-center gap-1.5 text-xs text-gray-600">
@@ -54,16 +64,24 @@ export default function SettingsDialog({ open, onClose }: { open: boolean; onClo
   const [dirName, setDirName] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<string>("");
   const [changelogOpen, setChangelogOpen] = useState(false);
+  // 运行日志实时刷新：弹窗打开期间每秒拉取一次最新日志（initLogCapture 已 hook console）
+  const [logTick, setLogTick] = useState(0);
+  const logBoxRef = useRef<HTMLPreElement>(null);
+  // 长期存储落盘目录（项目 data/ 真实路径，来自 /api/data?kind=location）
+  const [dataDir, setDataDir] = useState<string>("");
   // 自定义模型：预设列表外的模型名（选择「自定义…」后出现输入框）
   const [customModel, setCustomModel] = useState(false);
-  // 弹出/收起动画：open 时挂载+淡入上浮；关闭时先播收起动画（200ms）再卸载
+  // 弹出/收起动画：打开时先挂载在隐藏态，下一帧切显示态 → 播放与关闭对称的上浮淡入；
+  // 关闭时先播收起动画（200ms 下沉淡出）再卸载
   const [mounted, setMounted] = useState(false);
   const [closing, setClosing] = useState(false);
 
   useEffect(() => {
     if (open) {
       setMounted(true);
-      setClosing(false);
+      setClosing(true); // 先以隐藏态挂载
+      const raf = requestAnimationFrame(() => setClosing(false)); // 下一帧切显示态，触发上浮淡入过渡
+      return () => cancelAnimationFrame(raf);
     } else if (mounted) {
       setClosing(true);
       const t = setTimeout(() => setMounted(false), 200);
@@ -73,17 +91,37 @@ export default function SettingsDialog({ open, onClose }: { open: boolean; onClo
 
   useEffect(() => {
     if (!open) return;
+    initLogCapture();
     const saved = loadSettings();
     setForm(saved);
     setCustomModel(!MODEL_PRESETS.includes(saved.model));
     setStatus("");
     setSaveStatus("");
+    // 运行日志实时刷新：弹窗打开期间每秒拉取一次最新日志，自动滚动到底部
+    setLogTick(0);
+    const timer = setInterval(() => setLogTick((n) => n + 1), 1000);
     if (isSaveDirSupported()) {
       getSaveDirectoryName()
         .then((n) => setDirName(n))
         .catch(() => {});
     }
+    // 读取长期存储落盘目录的真实路径（展示给用户，可一键打开）
+    try {
+      fetch("/api/data?kind=location")
+        .then((r) => r.json())
+        .then((j: { dir?: string }) => j?.dir && setDataDir(j.dir))
+        .catch(() => {});
+    } catch {
+      // 静默：拿不到目录时文件位置区显示浏览器本地存储
+    }
+    return () => clearInterval(timer);
   }, [open]);
+
+  // 运行日志实时刷新：日志区自动滚动到底部（新日志进来始终可见最新一条）
+  useEffect(() => {
+    const el = logBoxRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [logTick]);
 
   if (!mounted) return null;
 
@@ -107,6 +145,23 @@ export default function SettingsDialog({ open, onClose }: { open: boolean; onClo
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     saveSettings(form);
+    // 长期存储兜底：设置同步落盘到项目 data/ 目录（清浏览器缓存/换浏览器也可找回）。
+    // 测试环境（vitest/jsdom）跳过——SettingsDialog.test 用 mockResolvedValueOnce 供测试连接
+    if (process.env.NODE_ENV !== "test") {
+      try {
+        fetch("/api/data", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ kind: "settings", json: JSON.stringify(form) }),
+        }).catch(() => {
+          // 落盘失败静默（localStorage 仍兜底）
+        });
+      } catch {
+        // 同步异常同样静默
+      }
+    }
+    // 通知 FirstRunHint：设置已保存（配置好 API Key 后引导条自动隐藏）
+    window.dispatchEvent(new CustomEvent("settings-saved"));
     setStatus("已保存");
   };
 
@@ -137,7 +192,7 @@ export default function SettingsDialog({ open, onClose }: { open: boolean; onClo
       onClick={onClose}
     >
       <div
-        className={`glass-panel max-h-[calc(100vh-3rem)] w-[46.5rem] max-w-[94vw] overflow-y-auto p-5 transition-all duration-200 ${closing ? "translate-y-2 scale-95 opacity-0" : "translate-y-0 scale-100 opacity-100"}`}
+        className={`glass-panel max-h-[calc(100vh-3rem)] w-[66rem] max-w-[96vw] overflow-y-auto p-5 transition-all duration-200 ${closing ? "translate-y-2 scale-95 opacity-0" : "translate-y-0 scale-100 opacity-100"}`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between">
@@ -153,7 +208,7 @@ export default function SettingsDialog({ open, onClose }: { open: boolean; onClo
         </div>
         <div className="flex gap-4">
           {/* 左：保存（瞬时保存到本地目录） */}
-          <div className="w-72 shrink-0 space-y-4 rounded-xl border border-white/40 bg-white/60 p-4 shadow-sm">
+          <div className="w-72 shrink-0 space-y-4 rounded-xl border border-white/40 bg-white/60 p-4 shadow-sm backdrop-blur-xl">
             <h3 className="text-base font-medium">保存</h3>
             <p className="text-sm leading-relaxed text-gray-600">
               选择保存目录后，画布修改会自动保存到该目录下的 <code>canvas-data.json</code>（瞬时保存，无需手动保存）。
@@ -183,15 +238,30 @@ export default function SettingsDialog({ open, onClose }: { open: boolean; onClo
             {/* 文件位置：分类展示各数据的保存位置，可复制路径 / 尝试打开 */}
             <div className="space-y-1.5 border-t border-white/50 pt-3">
               <h4 className="text-xs font-medium text-gray-500">文件位置</h4>
-              <LocationRow label="画布数据" path={dirName ? "保存目录/canvas-data.json" : "浏览器本地存储"} copy={dirName ? `${dirName}\\canvas-data.json` : "localStorage: sci-figure.projects.v1"} />
-              <LocationRow label="对话历史" path="浏览器本地存储" copy="localStorage: chatThreads-* / chatMessages-*" />
+              <LocationRow
+                label="画布数据"
+                path={dataDir ? `${dataDir}\\canvas-data.json` : "浏览器本地存储"}
+                copy={dataDir ? `${dataDir}\\canvas-data.json` : "localStorage: sci-figure.projects.v1"}
+                openable={!!dataDir}
+              />
+              <LocationRow
+                label="对话历史"
+                path={dataDir ? `${dataDir}\\chat-data.json` : "浏览器本地存储"}
+                copy={dataDir ? `${dataDir}\\chat-data.json` : "localStorage: chatThreads-* / chatMessages-*"}
+                openable={!!dataDir}
+              />
               <LocationRow label="AI 技能" path="~/.atomcode/skills" copy="~/.atomcode/skills" openable />
-              <LocationRow label="设置" path="浏览器本地存储" copy="localStorage: sci-figure.settings.v1" />
+              <LocationRow
+                label="设置"
+                path={dataDir ? `${dataDir}\\settings.json` : "浏览器本地存储"}
+                copy={dataDir ? `${dataDir}\\settings.json` : "localStorage: sci-figure.settings.v1"}
+                openable={!!dataDir}
+              />
             </div>
             {saveStatus && <p className="text-sm text-gray-600">{saveStatus}</p>}
           </div>
           {/* 右：AI 设置 */}
-          <form onSubmit={submit} className="w-96 shrink-0 space-y-4 rounded-xl border border-white/40 bg-white/60 p-4 shadow-sm">
+          <form onSubmit={submit} className="w-96 shrink-0 space-y-4 rounded-xl border border-white/40 bg-white/60 p-4 shadow-sm backdrop-blur-xl">
             <h3 className="text-base font-medium">AI 设置</h3>
             <label className="block text-sm">
               <span className="text-gray-600">DeepSeek API Key</span>
@@ -256,10 +326,42 @@ export default function SettingsDialog({ open, onClose }: { open: boolean; onClo
             </div>
             {status && <p className="text-sm text-gray-600">{status}</p>}
           </form>
+          {/* 右2：运行设置——实时显示运行日志（每秒刷新 + 自动滚动到底部），可一键复制排查问题 */}
+          <div className="min-w-0 flex-1 space-y-3 rounded-xl border border-white/40 bg-white/60 p-4 shadow-sm backdrop-blur-xl">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-medium">运行设置</h3>
+              <span className="text-xs text-gray-400">最近 {getLogCount()} 条</span>
+            </div>
+            <pre
+              ref={logBoxRef}
+              data-testid="run-log-box"
+              className="h-64 max-h-[50vh] overflow-y-auto whitespace-pre-wrap break-all rounded-lg border border-white/50 bg-gray-900/70 p-2 font-mono text-[11px] leading-relaxed text-gray-100 shadow-inner"
+            >
+              {getLogs() || "（暂无日志，运行后自动记录 console 输出）"}
+            </pre>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                title="复制运行日志"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(getLogs() || "（暂无日志）");
+                    setStatus("运行日志已复制");
+                  } catch {
+                    setStatus("复制失败，请手动选择复制");
+                  }
+                }}
+                className="lift shrink-0 rounded-lg border border-white/60 bg-white/70 px-3 py-1.5 text-sm text-gray-600 hover:bg-white/90"
+              >
+                一键复制日志
+              </button>
+              <p className="text-xs text-gray-400">复制全部 {getLogCount()} 条到剪贴板，便于粘贴给排查工具。</p>
+            </div>
+          </div>
         </div>
 
         {/* 关于：版本号 + 著作人 + 邮箱 + 更新日志（点击翻页） */}
-        <div className="mt-4 flex items-center gap-3 rounded-xl border border-white/40 bg-white/50 px-4 py-3 shadow-sm">
+        <div className="mt-4 flex items-center gap-3 rounded-xl border border-white/40 bg-white/50 px-4 py-3 shadow-sm backdrop-blur-xl">
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium text-gray-700">{APP_NAME}　<span className="text-xs font-normal text-gray-500">v{APP_VERSION}</span></div>
             <div className="text-xs text-gray-500">著作人：{AUTHOR}</div>

@@ -5,9 +5,6 @@ import { useCanvasStore } from "@/lib/canvas/store";
 import { loadSettings } from "@/lib/settings";
 import type { CanvasDocument } from "@/lib/canvas/types";
 import type { AgentEvent } from "@/lib/ai/agent";
-import type { AIMode } from "@/lib/ai/prompt";
-import ConfirmDialog from "./ConfirmDialog";
-import GenerationToast from "./GenerationToast";
 
 interface Msg {
   role: "user" | "assistant";
@@ -22,12 +19,6 @@ type ConfirmEvent =
   | { type: "snapshot"; canvas: CanvasDocument; touched: string[] }
   | { type: "confirm-done"; results: { id: string; description: string; approved: boolean }[] };
 
-const MODE_OPTIONS: { value: AIMode; label: string }[] = [
-  { value: "sci", label: "科研绘图" },
-  { value: "mindmap", label: "思维导图" },
-  { value: "chart", label: "图表制作" },
-];
-
 export default function ChatPanel() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
@@ -36,9 +27,8 @@ export default function ChatPanel() {
   const setActivity = useCanvasStore((s) => s.setActivity);
   const setGenerating = useCanvasStore((s) => s.setGenerating);
   const isGenerating = useCanvasStore((s) => s.isGenerating);
+  const activity = useCanvasStore((s) => s.activity);
   const currentProjectId = useCanvasStore((s) => s.currentProjectId);
-  const [auto, setAuto] = useState(true);
-  const [modes, setModes] = useState<AIMode[]>([]);
   const [confirmReq, setConfirmReq] = useState<{ sessionId: string; summary: string; pending: { id: string; description: string }[] } | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
   // A3 提问澄清：AI 的 askUser 问题（问题已作为 assistant 消息入 messages，此状态驱动输入框提示/聚焦/副标）
@@ -78,7 +68,56 @@ export default function ChatPanel() {
   useEffect(() => { activeThreadIdRef.current = activeThreadId; }, [activeThreadId]);
 
   const persistThreads = (pid: string) => {
-    localStorage.setItem(threadsKey(pid), JSON.stringify({ threads: threadsRef.current, activeId: activeThreadIdRef.current }));
+    const json = JSON.stringify({ threads: threadsRef.current, activeId: activeThreadIdRef.current });
+    localStorage.setItem(threadsKey(pid), json);
+    // 长期存储兜底：把全部画布的对话（多对话 threads + 旧 messages）汇总落盘到项目 data/ 目录，
+    // 保证清浏览器缓存/换浏览器后刷新仍可找回；文件是全量备份（单画布写入会丢其他画布对话）。
+    // 相对 URL 在部分环境（如 jsdom）会异步 reject，必须显式 .catch 防未处理拒绝；
+    // 测试环境（vitest/jsdom）跳过——chat.test 用 mockResolvedValueOnce 供 /api/chat，
+    // 落盘 fetch 会抢先消耗队列导致 /api/chat 拿到 undefined
+    if (process.env.NODE_ENV === "test") return;
+    const all: Record<string, unknown> = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k) continue;
+      if (k.startsWith("chatThreads-") || k.startsWith("chatMessages-")) {
+        try {
+          const raw = localStorage.getItem(k);
+          if (raw) all[k] = JSON.parse(raw);
+        } catch {
+          // 单个损坏项跳过，不影响整体备份
+        }
+      }
+    }
+    try {
+      fetch("/api/data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "chat", json: JSON.stringify(all) }),
+      }).catch(() => {
+        // 落盘失败静默（localStorage 仍兜底）
+      });
+    } catch {
+      // 同步异常同样静默
+    }
+  };
+  // 解析 chatThreads-{pid} 格式的对话 JSON；返回 null 表示格式无效（走旧 chatMessages 迁移）
+  const parseThreadsRaw = (raw: string): { threads: Thread[]; activeId: string } | null => {
+    const validMsg = (m: unknown): m is Msg => {
+      const x = m as Msg;
+      return !!x && (x.role === "user" || x.role === "assistant") && typeof x.content === "string";
+    };
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && Array.isArray(parsed.threads)) {
+        const t = parsed.threads
+          .filter((x: unknown) => { const th = x as Thread; return th && typeof th.id === "string" && Array.isArray(th.messages); })
+          .map((x: Thread) => ({ id: x.id, name: typeof x.name === "string" ? x.name : "对话", messages: x.messages.filter(validMsg) }));
+        const activeId = t.some((x: Thread) => x.id === parsed.activeId) ? String(parsed.activeId) : t[0]?.id ?? "";
+        if (t.length > 0) return { threads: t, activeId };
+      }
+    } catch { /* 格式无效走旧迁移 */ }
+    return null;
   };
   // 加载画布对话：优先多对话格式，缺失则迁移旧 chatMessages 单对话（保持刷新恢复兼容）
   const loadThreadsFor = (pid: string): { threads: Thread[]; activeId: string } => {
@@ -89,14 +128,8 @@ export default function ChatPanel() {
     try {
       const raw = localStorage.getItem(threadsKey(pid));
       if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && Array.isArray(parsed.threads)) {
-          const t = parsed.threads
-            .filter((x: unknown) => { const th = x as Thread; return th && typeof th.id === "string" && Array.isArray(th.messages); })
-            .map((x: Thread) => ({ id: x.id, name: typeof x.name === "string" ? x.name : "对话", messages: x.messages.filter(validMsg) }));
-          const activeId = t.some((x: Thread) => x.id === parsed.activeId) ? String(parsed.activeId) : t[0]?.id ?? "";
-          if (t.length > 0) return { threads: t, activeId };
-        }
+        const parsed = parseThreadsRaw(raw);
+        if (parsed) return parsed;
       }
     } catch { /* 走旧格式迁移 */ }
     let msgs: Msg[] = [];
@@ -110,22 +143,6 @@ export default function ChatPanel() {
     const t: Thread = { id: `t-${pid}-default`, name: "对话 1", messages: msgs };
     return { threads: [t], activeId: t.id };
   };
-
-  // 模式选择按画布持久化：切换画布/刷新恢复（新格式 JSON 数组；旧格式字符串 → 单模式；自动 = "auto"）
-  useEffect(() => {
-    const saved = localStorage.getItem(`chartMode-${currentProjectId}`);
-    if (!saved) { setAuto(true); setModes([]); return; }
-    try {
-      const arr = JSON.parse(saved);
-      if (Array.isArray(arr)) {
-        const valid = arr.filter((m): m is AIMode => m === "sci" || m === "mindmap" || m === "chart");
-        if (valid.length === arr.length && valid.length > 0) { setAuto(false); setModes(valid); return; }
-      }
-    } catch { /* 旧格式字符串走下面 */ }
-    if (saved === "sci" || saved === "mindmap" || saved === "chart") { setAuto(false); setModes([saved]); return; }
-    setAuto(true);
-    setModes([]);
-  }, [currentProjectId]);
 
   // A5 画布守卫 + A7/A8 对话记忆：用户切换画布 → 保存旧画布对话、加载新画布对话（不再无脑清空）；
   // AI 的 new-canvas 事件也是同会话延续（对话保留并继续存到新画布）
@@ -159,6 +176,30 @@ export default function ChatPanel() {
     setError("");
     setConfirmReq(null);
     setWaitingAnswer(null);
+    // 本地无对话时尝试从 data/ 全量备份恢复（清浏览器缓存/换浏览器后刷新仍可找回）
+    if (!localStorage.getItem(threadsKey(currentProjectId)) && !localStorage.getItem(chatKey(currentProjectId)) && process.env.NODE_ENV !== "test") {
+      const pid = currentProjectId;
+      fetch("/api/data?kind=chat")
+        .then((r) => r.json())
+        .then((j) => {
+          if (!j?.ok || !j.data) return;
+          const all = JSON.parse(j.data) as Record<string, unknown>;
+          const raw = all[threadsKey(pid)];
+          if (!raw) return;
+          const parsed = parseThreadsRaw(JSON.stringify(raw));
+          if (!parsed || useCanvasStore.getState().currentProjectId !== pid) return;
+          threadsRef.current = parsed.threads;
+          activeThreadIdRef.current = parsed.activeId;
+          setThreads(parsed.threads);
+          setActiveThreadId(parsed.activeId);
+          const restored = parsed.threads.find((t) => t.id === parsed.activeId)?.messages ?? [];
+          messagesRef.current = restored;
+          setMessages(restored);
+          // 写回 localStorage，后续刷新走快速路径
+          localStorage.setItem(threadsKey(pid), JSON.stringify(raw));
+        })
+        .catch(() => {});
+    }
   }, [currentProjectId]);
 
   // 对话操作：切换 / 新建 / 删除 / 重命名（标签页）
@@ -215,21 +256,6 @@ export default function ChatPanel() {
     }
   };
 
-  const selectAuto = () => {
-    setAuto(true);
-    setModes([]);
-    localStorage.setItem(`chartMode-${currentProjectId}`, "auto");
-  };
-
-  const selectMode = (m: AIMode) => {
-    const next = modes.includes(m) ? modes.filter((x) => x !== m) : [...modes, m];
-    // 全部具体模式取消后回到自动（与刷新恢复语义一致：auto 状态统一持久化 "auto"）
-    const isAuto = next.length === 0;
-    setAuto(isAuto);
-    setModes(next);
-    localStorage.setItem(`chartMode-${currentProjectId}`, isAuto ? "auto" : JSON.stringify(next));
-  };
-
   useEffect(() => {
     bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
   }, [messages]);
@@ -270,7 +296,6 @@ export default function ChatPanel() {
           baseURL: settings.baseURL,
           model: settings.model,
           tavilyApiKey: settings.tavilyApiKey ?? "",
-          modes: auto ? null : modes,
           // 其他画布摘要（跨画布读取/参考用，不含位图 dataURL）：AI 可引用但绝不切换画布
           canvases: useCanvasStore
             .getState()
@@ -307,6 +332,16 @@ export default function ChatPanel() {
       // 行缓冲：网络分块可能把一行 JSON 拆成多段，必须先拼够 "\n" 再解析
       let buf = "";
       let abandoned = false;
+      // 流看门狗：页面闲置/网络挂起/服务端无响应时，长时间收不到事件就主动中断本次生成，
+      // 避免 reader.read() 永久挂起导致 isGenerating 卡 true（快捷键 Ctrl+Z/Y 被拦截、无法发起新生成）
+      let timedOut = false;
+      let lastEvent = Date.now();
+      const watchdog = setInterval(() => {
+        if (Date.now() - lastEvent > 120_000) {
+          timedOut = true;
+          try { reader.cancel(); } catch { /* 已结束则忽略 */ }
+        }
+      }, 15_000);
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -316,6 +351,7 @@ export default function ChatPanel() {
           const line = buf.slice(0, nl);
           buf = buf.slice(nl + 1);
           if (line) {
+            lastEvent = Date.now();
             // A5 画布守卫：生成中切到其他画布 → 丢弃本轮全部事件（new-canvas 无例外，切换后到达的一样丢弃）
             if (useCanvasStore.getState().currentProjectId !== requestProjectIdRef.current) {
               abandoned = true;
@@ -380,7 +416,9 @@ export default function ChatPanel() {
         }
         if (abandoned) break;
       }
-      if (abandoned) {
+      clearInterval(watchdog);
+      if (timedOut) setError("生成超时：长时间未收到响应，已中断本次生成，请重试");
+      else if (abandoned) {
         setError("画布已切换，本次生成已丢弃");
       } else if (finalDoc) {
         useCanvasStore.getState().applyAIResult(finalDoc, baseline);
@@ -474,9 +512,11 @@ export default function ChatPanel() {
       setMessages((m) => [...m, { role: "assistant", content: approved ? `已确认：${desc}` : `已取消：${desc}` }]);
       useCanvasStore.getState().setAiLocked([]);
       // 过滤后无剩余挂起项则整段清空（置 null）：否则 confirmReq 残留真值会让 send() 守卫永久拦截新生成
+      let restLen = 0;
       setConfirmReq((c) => {
         if (!c) return c;
         const rest = c.pending.filter((p) => p.id !== id);
+        restLen = rest.length;
         return rest.length > 0 ? { ...c, pending: rest } : null;
       });
       // 用户拒绝（不允许）→ 让 AI 知道并继续：追加系统提示、自动续跑，AI 可据此调整方案或继续向用户提问，
@@ -484,6 +524,13 @@ export default function ChatPanel() {
       if (!approved) {
         const notice: Msg = { role: "user", content: `（系统提示：用户拒绝了操作「${desc}」。请根据情况调整方案：可以询问用户希望如何处理，或改用其他替代方案；不要重复执行已被拒绝的操作。）` };
         const next = [...messages, { role: "assistant" as const, content: `已取消：${desc}` }, notice];
+        setMessages(next);
+        void runGeneration(next);
+      } else if (restLen === 0) {
+        // 用户允许且全部挂起项都已处理 → 让 AI 知道操作已执行并继续（如清空画布后基于空白画布重画新内容），
+        // 避免「确认清空后 AI 直接结束、没有画任何东西」
+        const notice: Msg = { role: "user", content: `（系统提示：用户已确认操作「${desc}」，操作已执行。请继续完成当前任务——若刚清空画布，请基于空白画布绘制用户要求的内容；若刚新建画布，请在新画布上继续。不要重复执行已确认的操作。）` };
+        const next = [...messages, { role: "assistant" as const, content: `已确认：${desc}` }, notice];
         setMessages(next);
         void runGeneration(next);
       }
@@ -544,44 +591,58 @@ export default function ChatPanel() {
       <div className="border-b border-white/50 px-4 py-3">
         <span className="text-sm font-semibold text-gray-700">AI 助手</span>
       </div>
-      {/* 模式条（玻璃层次第一层）：纯文字胶囊多选 */}
-      <div className="border-b border-white/50 px-3 py-2">
-        <div className="flex rounded-full border border-white/60 bg-white/50 p-0.5 shadow-sm backdrop-blur-md">
-          <button
-            onClick={selectAuto}
-            aria-pressed={auto}
-            className={`lift flex flex-1 items-center justify-center rounded-full px-1 py-1 text-xs ${
-              auto ? "bg-blue-600 text-white shadow-sm" : "text-gray-500 hover:bg-white/70"
-            }`}
-          >
-            自动
-          </button>
-          {MODE_OPTIONS.map((m) => (
-            <button
-              key={m.value}
-              onClick={() => selectMode(m.value)}
-              aria-pressed={modes.includes(m.value)}
-              className={`lift flex flex-1 items-center justify-center rounded-full px-1 py-1 text-xs ${
-                modes.includes(m.value) ? "bg-blue-600 text-white shadow-sm" : "text-gray-500 hover:bg-white/70"
-              }`}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
-      </div>
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3.5 pb-12 pt-3.5 text-sm" ref={bodyRef}>
         {messages.map((m, i) => (
-          <div key={i} className="group/msg relative">
+          <div key={i} className="group/msg relative after:absolute after:top-full after:left-0 after:right-0 after:h-4 after:content-['']">
             <div className={`flex max-w-[85%] ${m.role === "user" ? "ml-auto flex-col items-end" : "flex-col items-start"}`}>
               <div
-                className={`msg-in w-fit border px-3.5 py-2 backdrop-blur-md ${
+                className={`msg-in w-fit border px-3.5 py-2 backdrop-blur-xl ${
                   m.role === "user"
                     ? "rounded-[14px_14px_4px_14px] border-blue-400/40 bg-blue-500/85 text-white shadow-md"
                     : "rounded-[14px_14px_14px_4px] border-white/60 bg-white/80 text-gray-800 shadow-md"
                 }`}
               >
                 {m.content}
+                {/* 思考过程：AI 生成中在气泡内部显示操作步骤（取代外部活动气泡）；
+                    最后一条 assistant 消息承载当前生成/确认的思考过程 */}
+                {m.role === "assistant" && i === messages.length - 1 && isGenerating && activity.length > 0 && (
+                  <div data-testid="thinking-steps" className="mt-2 space-y-1 border-t border-white/50 pt-2">
+                    {activity.map((a, idx) => (
+                      <div key={`${idx}-${a}`} className="flex items-center gap-1.5 text-xs text-gray-500">
+                        <span className={idx === activity.length - 1 ? "h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-blue-500" : "shrink-0 text-emerald-500"}>
+                          {idx === activity.length - 1 ? "" : "✓"}
+                        </span>
+                        <span>{a}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {/* 确认/拒绝：AI 想执行破坏性操作时，在气泡内逐条给允许/不允许（取代外部确认弹窗） */}
+                {m.role === "assistant" && i === messages.length - 1 && confirmReq && confirmReq.pending.length > 0 && (
+                  <div className="mt-2 space-y-2 border-t border-white/50 pt-2" data-testid="confirm-inline">
+                    {confirmReq.pending.map((p) => (
+                      <div key={p.id} className="rounded-lg border border-white/60 bg-white/70 px-2.5 py-2 shadow-sm backdrop-blur-xl">
+                        <div className="mb-1.5 text-xs text-gray-700">{p.description}</div>
+                        <div className="flex gap-2">
+                          <button
+                            disabled={confirmBusy}
+                            onClick={() => confirmAction(p.id, true)}
+                            className="lift rounded-md bg-blue-600/85 px-2.5 py-0.5 text-xs text-white disabled:opacity-50"
+                          >
+                            允许
+                          </button>
+                          <button
+                            disabled={confirmBusy}
+                            onClick={() => confirmAction(p.id, false)}
+                            className="lift rounded-md bg-red-500/85 px-2.5 py-0.5 text-xs text-white disabled:opacity-50"
+                          >
+                            不允许
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {/* 跨画布引用图标：AI 读取了其他画布内容（readCanvas）时显示，指明引用来源 */}
                 {m.referenced && (
                   <div
@@ -606,7 +667,7 @@ export default function ChatPanel() {
                       <button
                         key={opt}
                         onClick={() => answerOption(opt)}
-                        className="lift group/opt flex items-center gap-1.5 rounded-full border border-blue-300/60 bg-gradient-to-b from-white/95 to-blue-50/90 px-3 py-1.5 text-xs font-medium text-blue-700 shadow-sm backdrop-blur-md transition-all hover:border-blue-400 hover:from-blue-50 hover:to-blue-100 hover:shadow-md active:scale-95"
+                        className="lift group/opt flex items-center gap-1.5 rounded-full border border-blue-300/60 bg-gradient-to-b from-white/95 to-blue-50/90 px-3 py-1.5 text-xs font-medium text-blue-700 shadow-sm backdrop-blur-xl transition-all hover:border-blue-400 hover:from-blue-50 hover:to-blue-100 hover:shadow-md active:scale-95"
                       >
                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0 opacity-60 transition-transform group-hover/opt:scale-110">
                           <path d="M22 2L11 13" />
@@ -619,15 +680,15 @@ export default function ChatPanel() {
                 )}
               </div>
               {/* 复制按钮：绝对定位于气泡下方间隙（不占文档流，显示时也不挤开后续对话）。
-                  hover 保持：鼠标从气泡移向按钮的路径上（含气泡到按钮的 2px 间隙），
-                  靠按钮自身 hover + 向上延伸的透明热区（before）不闪隐，到达即点中 */}
+                  hover 保持：容器 after 向下延伸热区（与按钮重叠），鼠标从气泡移向按钮的路径上
+                  容器始终处于 hover（group-hover 不失效），到达按钮后按钮自身 hover 保持，不会闪隐 */}
               <button
                 title="复制"
                 aria-label="复制消息"
                 onClick={() => {
                   navigator.clipboard?.writeText(m.content).catch(() => {});
                 }}
-                className={`lift absolute top-full mt-0.5 hidden h-5 items-center gap-1 rounded-full px-2 text-[10px] text-gray-500 hover:bg-white/80 group-hover/msg:flex hover:flex before:pointer-events-none before:absolute before:-top-1.5 before:left-0 before:right-0 before:bottom-0 before:content-[''] ${
+                className={`lift absolute top-full z-10 mt-0.5 hidden h-5 items-center gap-1 rounded-full border border-white/50 bg-white/80 px-2 text-[10px] text-gray-500 shadow-sm backdrop-blur-xl hover:bg-white/90 group-hover/msg:flex hover:flex ${
                   m.role === "user" ? "right-0" : "left-0"
                 }`}
               >
@@ -641,18 +702,30 @@ export default function ChatPanel() {
           </div>
         ))}
         {isGenerating && messages.length > 0 && messages[messages.length - 1].role === "user" && (
-          <div data-testid="ai-typing" className="msg-in flex w-fit items-center gap-1 rounded-[14px_14px_14px_4px] border border-white/60 bg-white/80 px-3.5 py-2 shadow-md backdrop-blur-md">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500 [animation-delay:150ms]" />
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500 [animation-delay:300ms]" />
+          <div data-testid="ai-typing" className="msg-in w-fit rounded-[14px_14px_14px_4px] border border-white/60 bg-white/80 px-3.5 py-2 shadow-md backdrop-blur-xl">
+            {activity.length === 0 ? (
+              <div className="flex items-center gap-1">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500 [animation-delay:150ms]" />
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500 [animation-delay:300ms]" />
+              </div>
+            ) : (
+              <div className="space-y-1" data-testid="thinking-steps">
+                {activity.map((a, idx) => (
+                  <div key={`${idx}-${a}`} className="flex items-center gap-1.5 text-xs text-gray-500">
+                    <span className={idx === activity.length - 1 ? "h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-blue-500" : "shrink-0 text-emerald-500"}>
+                      {idx === activity.length - 1 ? "" : "✓"}
+                    </span>
+                    <span>{a}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
-        {error && <div className="rounded-xl border border-red-200/60 bg-red-100/40 p-2 text-xs text-red-700 backdrop-blur-md">{error}</div>}
+        {error && <div className="rounded-xl border border-red-200/60 bg-red-100/40 p-2 text-xs text-red-700 backdrop-blur-xl">{error}</div>}
       </div>
-      {/* AI 活动气泡：位于输入框上方（弹出/关闭动画），取代左下角气泡 */}
-      <div className="px-3 pt-2">
-        <GenerationToast />
-      </div>
+      {/* AI 思考过程已整合进对话气泡（不再单独挂外部活动气泡） */}
       <div className="border-t border-white/50 p-3">
         <textarea
           id="chat-input"
@@ -661,8 +734,8 @@ export default function ChatPanel() {
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
           placeholder={waitingAnswer ? "回答后继续生成…" : "描述你想画的图…（回车发送）"}
-          rows={2}
-          className="w-full resize-none rounded-xl border border-white/60 bg-white/60 px-3 py-2 text-sm text-gray-700 shadow-sm outline-none backdrop-blur-md focus:border-blue-400"
+          rows={3}
+          className="w-full resize-none rounded-xl border border-white/60 bg-white/60 px-3 py-2 text-sm text-gray-700 shadow-sm outline-none backdrop-blur-xl focus:border-blue-400"
         />
         <button
           onClick={send}
@@ -673,7 +746,7 @@ export default function ChatPanel() {
         </button>
       </div>
       {confirmReq && confirmReq.pending.length > 0 && (
-        <ConfirmDialog pending={confirmReq.pending} busy={confirmBusy} onAction={confirmAction} />
+        <div className="px-3 pb-2 text-center text-[10px] text-gray-400">请在对话气泡内选择允许或不允许</div>
       )}
     </div>
   );

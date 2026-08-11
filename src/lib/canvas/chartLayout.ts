@@ -1,5 +1,5 @@
 import { makeElement, estimateTextSize } from "./elements";
-import { CANVAS_WIDTH, CANVAS_HEIGHT } from "./geometry";
+import { CANVAS_WIDTH, CANVAS_HEIGHT, elementBounds } from "./geometry";
 import type { CanvasElement, ChartBind, PolylineElement, ArrowElement } from "./types";
 
 export interface ChartDatum {
@@ -24,11 +24,17 @@ export interface ChartSpec {
   pieStart?: number;
   // 图表摆放位置（多图表平铺用）：scale 缩放整图、x/y 平移整图；缺省 = 默认 PLOT 区域
   at?: { x?: number; y?: number; scale?: number };
+  // 整图镜像（属性面板「操作」翻转整张图表）：水平/垂直各一轴，翻转后 recomputeChart 仍保留
+  flipH?: boolean;
+  flipV?: boolean;
+  // x 轴刻度标签间隔：数据点多时每隔 xStep 个分类显示一个刻度标签（如 30 个点、每 5 个标一个，
+  // 用户要求"每 N 年一个刻度"时传该值）；缺省自动稀疏化到 ≤15 个标签避免拥挤
+  xStep?: number;
 }
 
 export const CHART_PALETTE = ["#eef4ff", "#f0fff0", "#fff8e6", "#f3efff", "#ffeef0", "#ffffff"];
 // 折线/散点用深色描边（浅色在白底上不可见）；柱状/饼图仍用淡色 fill + 深色描边
-const CHART_STROKE_PALETTE = ["#3b82f6", "#22c55e", "#f59e0b", "#8b5cf6", "#ef4444", "#64748b"];
+export const CHART_STROKE_PALETTE = ["#3b82f6", "#22c55e", "#f59e0b", "#8b5cf6", "#ef4444", "#64748b"];
 const AXIS = "#2f2f2f";
 const LABEL = "#4a5568";
 
@@ -50,12 +56,12 @@ export function niceScale(maxV: number): { step: number; max: number } {
 export function layoutChart(spec: ChartSpec, chartId?: string): CanvasElement[] {
   const els = spec.type === "pie" ? pie(spec, chartId) : cartesian(spec, chartId);
   const at = spec.at;
-  if (!at) return els;
+  if (!at) return applyChartFlip(els, spec);
   const k = at.scale ?? 1;
   const dx = at.x ?? 0;
   const dy = at.y ?? 0;
-  if (k === 1 && dx === 0 && dy === 0) return els;
-  return els.map((e) => {
+  if (k === 1 && dx === 0 && dy === 0) return applyChartFlip(els, spec);
+  const shifted = els.map((e) => {
     const n = { ...e } as CanvasElement;
     n.x = e.x * k + dx;
     n.y = e.y * k + dy;
@@ -66,6 +72,37 @@ export function layoutChart(spec: ChartSpec, chartId?: string): CanvasElement[] 
     if (n.type === "polyline" && "points" in n) n.points = (n as PolylineElement).points.map((p) => ({ x: p.x * k + dx, y: p.y * k + dy }));
     if (n.type === "arrow" && (n as ArrowElement).midPoints) {
       (n as ArrowElement).midPoints = (n as ArrowElement).midPoints!.map((m) => ({ ...m, x: m.x * k, y: m.y * k }));
+    }
+    return n;
+  });
+  return applyChartFlip(shifted, spec);
+}
+
+// 整图镜像（spec.flipH/flipV）：绕整图包围盒中心翻转每个元素的位置与自身镜像标志，
+// 与普通元素的 flipH/flipV 语义一致（属性面板「操作」翻转图表时整图一起翻，不撕裂）
+function applyChartFlip(els: CanvasElement[], spec: ChartSpec): CanvasElement[] {
+  if (!spec.flipH && !spec.flipV) return els;
+  const bs = els.map((e) => elementBounds(e));
+  const minX = Math.min(...bs.map((b) => b.x));
+  const maxX = Math.max(...bs.map((b) => b.x + b.width));
+  const minY = Math.min(...bs.map((b) => b.y));
+  const maxY = Math.max(...bs.map((b) => b.y + b.height));
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  return els.map((e) => {
+    const b = elementBounds(e);
+    const ocx = b.x + b.width / 2;
+    const ocy = b.y + b.height / 2;
+    const dx = (spec.flipH ? 2 * cx - ocx : ocx) - ocx;
+    const dy = (spec.flipV ? 2 * cy - ocy : ocy) - ocy;
+    const n = { ...e } as CanvasElement;
+    n.x += dx;
+    n.y += dy;
+    if (spec.flipH) n.flipH = !e.flipH;
+    if (spec.flipV) n.flipV = !e.flipV;
+    // 折线/画笔点列是绝对坐标：随整图位移
+    if ((n.type === "polyline" || n.type === "pen") && "points" in n) {
+      n.points = (n as PolylineElement).points.map((p) => ({ x: p.x + dx, y: p.y + dy }));
     }
     return n;
   });
@@ -107,7 +144,13 @@ function cartesian(spec: ChartSpec, chartId?: string): CanvasElement[] {
   const out: CanvasElement[] = [];
   const plotW = PLOT.right - PLOT.left;
   const plotH = PLOT.bottom - PLOT.top;
-  const maxV = Math.max(...spec.data.map((d) => d.value), 1);
+  // 堆叠柱状：y 轴上限按每分类各系列之和的最大值取整（堆叠总高不能超出坐标轴）
+  const stacked = spec.type === "bar" && spec.variant === "stacked";
+  const sumByLabel = new Map<string, number>();
+  for (const d of spec.data) sumByLabel.set(d.label, (sumByLabel.get(d.label) ?? 0) + d.value);
+  const maxV = stacked
+    ? Math.max(...sumByLabel.values(), 1)
+    : Math.max(...spec.data.map((d) => d.value), 1);
   const { step, max } = niceScale(maxV);
   const y = (v: number) => PLOT.bottom - (v / max) * plotH;
 
@@ -143,25 +186,49 @@ function cartesian(spec: ChartSpec, chartId?: string): CanvasElement[] {
   });
   const cats = Array.from(new Set(spec.data.map((d) => d.label)));
   const catW = plotW / cats.length;
+  // x 轴刻度标签间隔：数据点多时每隔 xStep 个分类标一个（用户要求"每 N 年一个刻度"传 xStep）；
+  // 缺省自动稀疏化到 ≤15 个标签，避免 30 点折线图的 x 轴标签挤成一团
+  const xTickStep = spec.xStep ?? Math.max(1, Math.ceil(cats.length / 15));
 
   for (const [ci, cat] of cats.entries()) {
     const cx0 = PLOT.left + ci * catW + catW / 2;
     const rows = spec.data.filter((d) => d.label === cat);
-    const vals = rows.map((d) => ({ si: seriesNames.indexOf(d.series ?? "默认"), value: d.value, di: spec.data.indexOf(d) }));
+    const vals = rows.map((d) => ({ si: seriesNames.indexOf(d.series ?? "默认"), value: d.value, di: spec.data.indexOf(d), color: d.color }));
 
     if (spec.type === "bar") {
-      const groupW = catW - 24;
-      const bw = Math.min(70, groupW / series.length);
-      const off = (groupW - bw * series.length) / 2;
-      for (const v of vals) {
-        const bx = cx0 - groupW / 2 + off + v.si * bw;
-        const by = y(v.value);
-        const bar = makeElement("rect", bx, by, bw, Math.max(1, PLOT.bottom - by), {
-          fill: series[v.si].color, stroke: AXIS, strokeWidth: 1, zIndex: 2,
-        });
-        if (chartId) tag(bar, chartId, { chartId, role: "bar", index: v.di });
-        out.push(bar);
-        out.push(textEl(String(Number(v.value.toFixed(2))), 12, bx + bw / 2, by - 12, { chartId, bind: { chartId: chartId ?? "", role: "bar-label", index: v.di } }));
+      if (stacked) {
+        // 堆叠柱状：同分类内各系列自底向上累加（柱宽占满分类宽度，柱体按累计值定位）
+        const bw = Math.min(140, catW - 16);
+        const bx = cx0 - bw / 2;
+        const sorted = [...vals].sort((a, b) => a.si - b.si);
+        let acc = 0;
+        for (const v of sorted) {
+          const top = y(acc + v.value);
+          const bottom = y(acc);
+          const bar = makeElement("rect", bx, top, bw, Math.max(1, bottom - top), {
+            // 行自定义颜色优先，未指定回退系列色
+            fill: v.color ?? series[v.si].color, stroke: AXIS, strokeWidth: 1, zIndex: 2,
+          });
+          if (chartId) tag(bar, chartId, { chartId, role: "bar", index: v.di });
+          out.push(bar);
+          out.push(textEl(String(Number(v.value.toFixed(2))), 12, bx + bw / 2, top - 12, { chartId, bind: { chartId: chartId ?? "", role: "bar-label", index: v.di } }));
+          acc += v.value;
+        }
+      } else {
+        const groupW = catW - 24;
+        const bw = Math.min(70, groupW / series.length);
+        const off = (groupW - bw * series.length) / 2;
+        for (const v of vals) {
+          const bx = cx0 - groupW / 2 + off + v.si * bw;
+          const by = y(v.value);
+          const bar = makeElement("rect", bx, by, bw, Math.max(1, PLOT.bottom - by), {
+            // 行自定义颜色优先，未指定回退系列色（与饼图一致：d.color 生效，实时预览与最终一致）
+            fill: v.color ?? series[v.si].color, stroke: AXIS, strokeWidth: 1, zIndex: 2,
+          });
+          if (chartId) tag(bar, chartId, { chartId, role: "bar", index: v.di });
+          out.push(bar);
+          out.push(textEl(String(Number(v.value.toFixed(2))), 12, bx + bw / 2, by - 12, { chartId, bind: { chartId: chartId ?? "", role: "bar-label", index: v.di } }));
+        }
       }
     } else {
       for (const v of vals) {
@@ -169,7 +236,7 @@ function cartesian(spec: ChartSpec, chartId?: string): CanvasElement[] {
         const py = y(v.value);
         if (spec.type === "line") {
           const pt = makeElement("ellipse", px - 4, py - 4, 8, 8, {
-            fill: "#ffffff", stroke: series[v.si].color, strokeWidth: 2, zIndex: 2,
+            fill: "#ffffff", stroke: v.color ?? series[v.si].color, strokeWidth: 2, zIndex: 2,
           });
           if (chartId) tag(pt, chartId, { chartId, role: "bar", index: v.di });
           out.push(pt);
@@ -177,14 +244,17 @@ function cartesian(spec: ChartSpec, chartId?: string): CanvasElement[] {
         } else {
           // scatter：数据点圆点
           const pt = makeElement("ellipse", px - 5, py - 5, 10, 10, {
-            fill: series[v.si].color, stroke: AXIS, strokeWidth: 1, zIndex: 2,
+            fill: v.color ?? series[v.si].color, stroke: AXIS, strokeWidth: 1, zIndex: 2,
           });
           if (chartId) tag(pt, chartId, { chartId, role: "bar", index: v.di });
           out.push(pt);
         }
       }
     }
-    out.push(textEl(cat, 14, cx0, PLOT.bottom + 24, { chartId, bind: { chartId: chartId ?? "", role: "axis" } }));
+    // x 轴刻度标签：按 xTickStep 跳标（首个与末个必标），避免数据点多时标签拥挤重叠
+    if (ci % xTickStep === 0 || ci === cats.length - 1) {
+      out.push(textEl(cat, 14, cx0, PLOT.bottom + 24, { chartId, bind: { chartId: chartId ?? "", role: "axis" } }));
+    }
   }
 
   // 折线：每个系列一条 polyline（无箭头）

@@ -55,7 +55,7 @@ export default function CanvasStyleMenu({ x, y, onClose }: { x: number; y: numbe
   return (
     <div
       data-testid="canvas-style-menu"
-      className="fixed z-50 w-52 rounded-xl border border-white/50 bg-white/85 p-3 shadow-xl backdrop-blur-md"
+      className="fixed z-50 w-52 rounded-xl border border-white/50 bg-white/85 p-3 shadow-xl backdrop-blur-xl"
       style={{ left: x, top: y }}
       onClick={(e) => e.stopPropagation()}
     >

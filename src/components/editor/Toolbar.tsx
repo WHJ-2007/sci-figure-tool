@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { exportSvgFile, exportPng } from "@/lib/canvas/exporter";
 import { loadImageElement } from "@/lib/canvas/imageImport";
-import { CANVAS_WIDTH, CANVAS_HEIGHT } from "@/lib/canvas/geometry";
+import { VIEWPORT_WIDTH, VIEWPORT_HEIGHT } from "@/lib/canvas/geometry";
 import type { ToolType } from "@/lib/canvas/types";
 import ChartDialog from "./ChartDialog";
 import FormulaDialog from "./FormulaDialog";
@@ -43,6 +44,16 @@ const REDO_ICON = (
   </svg>
 );
 
+// 时间线图标：横线 + 圆点刻度（历史版本进度条入口）
+const TIMELINE_ICON = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+    <path d="M3 12h18" />
+    <circle cx="7" cy="12" r="2" fill="currentColor" stroke="none" />
+    <circle cx="12" cy="12" r="2" fill="currentColor" stroke="none" />
+    <circle cx="17" cy="12" r="2" fill="currentColor" stroke="none" />
+  </svg>
+);
+
 // 图表图标：坐标轴 + 三根柱（描边风格，与左坞其他图标一致）
 const CHART_ICON = (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
@@ -67,6 +78,14 @@ const PEN_ICON = (
     <circle cx="11" cy="11" r="2" />
   </svg>
 );
+
+// 画笔可选颜色：与编辑模块选色器同款色板（常用黑白灰 + 强饱和主色 / 中饱和 / 深色 / 科研浅色底）
+const PEN_SWATCHES = [
+  "#ffffff", "#111827", "#2f2f2f", "#ef4444", "#3b82f6", "#22c55e", "#f59e0b",
+  "#f87171", "#fb923c", "#fbbf24", "#4ade80", "#2dd4bf", "#60a5fa", "#a78bfa",
+  "#b91c1c", "#c2410c", "#15803d", "#0f766e", "#1d4ed8", "#6d28d9", "#8b5cf6",
+  "#eef4ff", "#f0fff0", "#fff8e6", "#f3efff", "#ffeef0", "#f8fafc", "#f97316",
+];
 
 // 图形图标：圆形描边（图案工具组入口，与文本框按钮并列）
 const SHAPE_ICON = (
@@ -189,12 +208,18 @@ export default function Toolbar() {
   const setTool = useCanvasStore((s) => s.setTool);
   const undo = useCanvasStore((s) => s.undo);
   const redo = useCanvasStore((s) => s.redo);
+  const jumpTo = useCanvasStore((s) => s.jumpTo);
+  // 时间线：past 长度 = 当前在第几步（0 = 最初），总步数 = past + future
+  const pastLen = useCanvasStore((s) => s.history.past.length);
+  const futureLen = useCanvasStore((s) => s.history.future.length);
   // 生成中禁撤销/重做：快照不入栈，undo 会破坏 AI 流式状态
   const isGenerating = useCanvasStore((s) => s.isGenerating);
   // 无可撤销/重做的内容时按钮变灰：普通历史栈 + 画布级恢复栈（删除画布的撤销/重做）
   const canUndo = useCanvasStore((s) => s.history.past.length > 0 || s.deletedProjects.length > 0);
   const canRedo = useCanvasStore((s) => s.history.future.length > 0 || s.restoredProjects.length > 0);
   const doc = useCanvasStore((s) => s.doc);
+  const view = useCanvasStore((s) => s.view);
+  const setView = useCanvasStore((s) => s.setView);
   const projects = useCanvasStore((s) => s.projects);
   const currentProjectId = useCanvasStore((s) => s.currentProjectId);
   const setCurrentProject = useCanvasStore((s) => s.setCurrentProject);
@@ -203,20 +228,49 @@ export default function Toolbar() {
   const deleteProject = useCanvasStore((s) => s.deleteProject);
   const addElement = useCanvasStore((s) => s.addElement);
   const setSelection = useCanvasStore((s) => s.setSelection);
+  const penColor = useCanvasStore((s) => s.penColor);
+  const penWidth = useCanvasStore((s) => s.penWidth);
+  const penStyle = useCanvasStore((s) => s.penStyle);
+  const penDrawing = useCanvasStore((s) => s.penDrawing);
+  const setPenColor = useCanvasStore((s) => s.setPenColor);
+  const setPenWidth = useCanvasStore((s) => s.setPenWidth);
+  const setPenStyle = useCanvasStore((s) => s.setPenStyle);
+  // 画笔自定义 hex 输入（与编辑模块 ColorPicker 同款双向同步：合法 6 位 hex 即写入，失焦回退显示当前色）
+  const [penHex, setPenHex] = useState(penColor);
+  useEffect(() => setPenHex(penColor), [penColor]);
+  // 画笔取色器面板开关：点击画笔图标展开，再次点击同一图标收起（toggle）
+  const [penOpen, setPenOpen] = useState(false);
+  // 取色器面板 portal 到 body 后的 fixed 锚点（画笔按钮右侧）：父级 dock 有 backdrop-filter，
+  // 会屏蔽子元素 backdrop-blur 导致只有半透明没有高斯模糊，故同导出菜单一样脱离容器
+  const [penPos, setPenPos] = useState<{ x: number; y: number } | null>(null);
+  const penBtnRef = useRef<HTMLButtonElement>(null);
+  // portal 到 body 的取色器面板自身引用（点击面板内部不关闭）
+  const penMenuRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState<"shape" | null>(null);
+  const [timelineOpen, setTimelineOpen] = useState(false);
+  const timelineRef = useRef<HTMLDivElement>(null);
   const [exportOpen, setExportOpen] = useState(false);
+  // PNG 导出选项：范围（全部/框选/对象）+ 含背景色 + 分辨率倍率（1x/4x/8x/64x）
+  const [pngOpts, setPngOpts] = useState<{ range: "all" | "frame" | "object"; includeBackground: boolean; scale: number }>({
+    range: "all",
+    includeBackground: false,
+    scale: 4,
+  });
   const [tabMenu, setTabMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [chartOpen, setChartOpen] = useState(false);
   const [formulaOpen, setFormulaOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const toolRef = useRef<HTMLDivElement>(null);
   const exportRef = useRef<HTMLDivElement>(null);
+  // portal 到 body 的导出菜单自身引用（点击菜单内部不关闭）
+  const exportMenuRef = useRef<HTMLDivElement>(null);
   const tabMenuRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // 导入外部图片：文件 → dataURL → 图片元素（画布中心），成功后选中
+  // 导入外部图片：文件 → dataURL → 图片元素（落点 = 当前视口中心的世界坐标，同粘贴图片），成功后选中
   const onImportFile = async (file: File) => {
-    const el = await loadImageElement(file, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+    const v = useCanvasStore.getState().view;
+    const el = await loadImageElement(file, (VIEWPORT_WIDTH / 2 - v.ox) / v.scale, (VIEWPORT_HEIGHT / 2 - v.oy) / v.scale);
     if (!el) return;
     addElement(el);
     setSelection([el.id]);
@@ -241,12 +295,34 @@ export default function Toolbar() {
     return () => window.removeEventListener("pointerdown", onDown);
   }, [open]);
 
+  // 时间线面板：点击自身保留，点击外部任意处收起
+  useEffect(() => {
+    if (!timelineOpen) return;
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (timelineRef.current?.contains(t)) return;
+      setTimelineOpen(false);
+    };
+    window.addEventListener("pointerdown", onDown);
+    return () => window.removeEventListener("pointerdown", onDown);
+  }, [timelineOpen]);
+
+  // 框选完成：Canvas 拖矩形生成 exportFrame 后派发事件，重新打开导出面板（选中的范围=框选）
+  useEffect(() => {
+    const onFrameReady = () => {
+      setPngOpts((o) => ({ ...o, range: "frame" }));
+      setExportOpen(true);
+    };
+    window.addEventListener("export-frame-ready", onFrameReady);
+    return () => window.removeEventListener("export-frame-ready", onFrameReady);
+  }, []);
+
   // 导出菜单 / 标签右键菜单：点击自身保留，点击外部任意处关闭
   useEffect(() => {
     if (!exportOpen && !tabMenu) return;
     const onDown = (e: PointerEvent) => {
       const t = e.target as Node;
-      if (exportRef.current?.contains(t) || tabMenuRef.current?.contains(t)) return;
+      if (exportRef.current?.contains(t) || exportMenuRef.current?.contains(t) || tabMenuRef.current?.contains(t)) return;
       setExportOpen(false);
       setTabMenu(null);
     };
@@ -254,12 +330,71 @@ export default function Toolbar() {
     return () => window.removeEventListener("pointerdown", onDown);
   }, [exportOpen, tabMenu]);
 
+  // 画笔取色器面板（portal 到 body）：点击自身保留，点击外部任意处收起（仅当画笔面板开着时注册）
+  useEffect(() => {
+    if (!penOpen) return;
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (penBtnRef.current?.contains(t) || penMenuRef.current?.contains(t)) return;
+      setPenOpen(false);
+    };
+    window.addEventListener("pointerdown", onDown);
+    return () => window.removeEventListener("pointerdown", onDown);
+  }, [penOpen]);
+
+  // 以视口中心为锚点缩放（与 Canvas 滚轮缩放同公式：保持锚点世界坐标不变）
+  const zoomBy = (factor: number) => {
+    const px = VIEWPORT_WIDTH / 2;
+    const py = VIEWPORT_HEIGHT / 2;
+    const newScale = Math.min(16, Math.max(0.1, view.scale * factor));
+    setView({
+      scale: newScale,
+      ox: px - ((px - view.ox) / view.scale) * newScale,
+      oy: py - ((py - view.oy) / view.scale) * newScale,
+    });
+  };
+  const zoomTo = (scale: number) => {
+    const px = VIEWPORT_WIDTH / 2;
+    const py = VIEWPORT_HEIGHT / 2;
+    const newScale = Math.min(16, Math.max(0.1, scale));
+    setView({
+      scale: newScale,
+      ox: px - ((px - view.ox) / view.scale) * newScale,
+      oy: py - ((py - view.oy) / view.scale) * newScale,
+    });
+  };
+
   const shapeActive = SHAPE_TOOL_SET.has(tool);
+
+  // 当前导出范围的基准尺寸（世界坐标）：全部画布 / 框选区域 / 选中对象包围盒。
+  // 分辨率下拉标签按它显示真实输出尺寸（如框选 400×300 选 8X → 8X（3200×2400）），
+  // 与导出结果严格一致，不再固定显示整张画布尺寸误导用户
+  const rangeDims = (() => {
+    if (pngOpts.range === "frame") {
+      const f = useCanvasStore.getState().exportFrame;
+      return f ? { w: Math.max(f.width, 1), h: Math.max(f.height, 1) } : null;
+    }
+    if (pngOpts.range === "object") {
+      const sel = useCanvasStore.getState().selection;
+      const els = doc.elements.filter((e) => sel.includes(e.id));
+      if (els.length > 0) {
+        const xs = els.flatMap((e) => [e.x, e.x + e.width]);
+        const ys = els.flatMap((e) => [e.y, e.y + e.height]);
+        return { w: Math.max(Math.max(...xs) - Math.min(...xs), 1), h: Math.max(Math.max(...ys) - Math.min(...ys), 1) };
+      }
+      return null;
+    }
+    return { w: doc.width, h: doc.height };
+  })();
+
+  // 框选模式：直接进入框选状态即可——聚焦（高亮画布 + 暗化周围）由 Canvas 用与教学引导同款的
+  // 聚光灯实现（不改视口），此处不再缩放视口（此前缩放 0.75x 全画布与引导式聚焦语义不符）
 
   return (
     <>
-      {/* 顶栏：画布标签页 + 导出 + 设置（工具/编辑沉到左侧坞） */}
-      <div className="relative z-40 flex items-center gap-1 border-b border-white/40 bg-white/60 px-2 py-1 backdrop-blur-md">
+      {/* 顶栏：画布标签页 + 导出 + 设置（工具/编辑沉到左侧坞）。
+          右侧留白与内容区 p-3 一致（12px），使顶栏右边界与右侧 AI 面板右边界横坐标对齐 */}
+      <div className="relative z-40 flex items-center gap-1 border-b border-white/40 bg-white/60 py-1 pl-2 pr-3 backdrop-blur-xl">
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
           {projects.map((p) => {
             const active = p.id === currentProjectId;
@@ -302,7 +437,55 @@ export default function Toolbar() {
             +
           </button>
         </div>
-        {/* 导出：下载图标按钮弹出格式菜单（SVG/PNG），替代原文本按钮 */}
+        {/* 缩放控件：低调灰色弹性拖动条（默认只显示细条 + 百分比，存在感弱）；
+            鼠标悬停才显示 −/+ 按钮与倍率输入框。−/+ 按钮与倍率区始终占位（透明切换而非 display 切换），
+            展开时缩放条位置不发生移位（以当前视口中心为锚点，与滚轮缩放一致） */}
+        <div className="group flex shrink-0 items-center gap-0.5 rounded-md px-1 py-0.5 transition-colors duration-200 hover:bg-white/60">
+          <button
+            title="缩小"
+            onClick={() => zoomBy(1 / 1.25)}
+            className="lift invisible flex h-5 w-5 shrink-0 items-center justify-center rounded text-xs leading-none text-gray-500 hover:bg-white/80 group-hover:visible"
+          >
+            −
+          </button>
+          {/* 倍率区：输入框与百分比 span 在同一固定宽度容器内重叠（透明切换），不引起布局位移 */}
+          <div className="relative h-5 w-10 shrink-0">
+            <input
+              aria-label="缩放倍率"
+              title="输入缩放倍率（百分比）"
+              value={Math.round(view.scale * 100)}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                if (Number.isFinite(v) && v > 0) zoomTo(v / 100);
+              }}
+              className="absolute inset-0 w-full rounded border border-white/60 bg-white/70 px-1 text-center text-[10px] text-gray-600 opacity-0 outline-none transition-opacity duration-150 focus:border-blue-300 group-hover:opacity-100"
+            />
+            <span className="absolute inset-0 flex items-center justify-center text-[10px] tabular-nums text-gray-400 transition-opacity duration-150 group-hover:opacity-0">
+              {Math.round(view.scale * 100)}%
+            </span>
+          </div>
+          <input
+            aria-label="缩放滑块"
+            title="拖动缩放"
+            type="range"
+            min={0.1}
+            max={16}
+            step={0.05}
+            value={view.scale}
+            onChange={(e) => zoomTo(Number(e.target.value))}
+            className="zoom-slider"
+          />
+          <button
+            title="放大"
+            onClick={() => zoomBy(1.25)}
+            className="lift invisible flex h-5 w-5 shrink-0 items-center justify-center rounded text-xs leading-none text-gray-500 hover:bg-white/80 group-hover:visible"
+          >
+            +
+          </button>
+        </div>
+        {/* 导出：下载图标按钮弹出格式菜单（SVG/PNG），替代原文本按钮。
+            菜单用 portal 渲染到 body + fixed 定位：脱离顶栏的 backdrop-filter 容器
+            （父级 backdrop root 会屏蔽子元素的 backdrop-blur，导致只有半透明没有高斯模糊） */}
         <div className="relative" ref={exportRef}>
           <button
             title="导出"
@@ -312,33 +495,175 @@ export default function Toolbar() {
           >
             {EXPORT_ICON}
           </button>
-          {exportOpen && (
-            <div className="absolute right-0 top-full z-50 mt-1 w-28 overflow-hidden rounded-xl border border-white/50 bg-white/80 shadow-xl backdrop-blur-md">
+          {exportOpen &&
+            createPortal(
+              <div ref={exportMenuRef} className="fixed z-50 w-52 overflow-hidden rounded-xl border border-white/50 bg-white/40 shadow-xl backdrop-blur-2xl backdrop-saturate-150"
+                   style={{ top: 48, right: 12 }}
+                   data-testid="export-menu">
+              <div className="max-h-[70vh] overflow-y-auto">
               <button
                 title="导出 SVG"
-                onClick={() => { setExportOpen(false); exportSvgFile(doc); }}
+                onClick={() => {
+                  // SVG 同样支持范围：对象用选中元素包围盒、框选用 exportFrame；全部不裁剪
+                  let crop: { x: number; y: number; width: number; height: number } | undefined;
+                  const range = pngOpts.range;
+                  if (range === "frame") {
+                    const f = useCanvasStore.getState().exportFrame;
+                    if (f) crop = { x: f.x, y: f.y, width: Math.max(f.width, 1), height: Math.max(f.height, 1) };
+                  } else if (range === "object") {
+                    const sel = useCanvasStore.getState().selection;
+                    const els = doc.elements.filter((e) => sel.includes(e.id));
+                    if (els.length > 0) {
+                      const xs = els.flatMap((e) => [e.x, e.x + e.width]);
+                      const ys = els.flatMap((e) => [e.y, e.y + e.height]);
+                      crop = { x: Math.min(...xs), y: Math.min(...ys), width: Math.max(Math.max(...xs) - Math.min(...xs), 1), height: Math.max(Math.max(...ys) - Math.min(...ys), 1) };
+                    }
+                  }
+                  setExportOpen(false);
+                  // SVG 同样支持"包含背景色"：跟随 PNG 面板的勾选状态（与导出 PNG 行为一致）
+                  exportSvgFile(doc, "figure.svg", crop, pngOpts.includeBackground);
+                }}
                 className="lift w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100"
               >
                 SVG
               </button>
+              {/* PNG 导出：点击展开选项面板（含背景 + 分辨率），设置后导出 */}
               <button
                 title="导出 PNG"
-                onClick={() => { setExportOpen(false); exportPng(doc).catch(console.error); }}
-                className="lift w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100"
+                onClick={() => setPngOpts((o) => ({ ...o, open: !(o as { open?: boolean }).open }))}
+                className="lift flex w-full items-center justify-between px-3 py-1.5 text-left text-sm hover:bg-gray-100"
+                aria-expanded={(pngOpts as { open?: boolean }).open}
               >
                 PNG
+                <span className={`text-[10px] text-gray-400 transition-transform ${(pngOpts as { open?: boolean }).open ? "rotate-180" : ""}`}>▾</span>
               </button>
-            </div>
-          )}
+              {(pngOpts as { open?: boolean }).open && (
+                <div className="space-y-2 border-t border-white/50 px-3 py-2" data-testid="png-options">
+                  <div className="flex items-center gap-1.5 text-xs text-gray-600">
+                    <span className="shrink-0">范围</span>
+                    <select
+                      value={pngOpts.range}
+                      aria-label="导出范围"
+                      onChange={(e) => setPngOpts((o) => ({ ...o, range: e.target.value as "all" | "frame" | "object" }))}
+                      className="flex-1 rounded border border-gray-200 bg-white/70 px-1 py-0.5 text-xs"
+                    >
+                      <option value="all">全部画布</option>
+                      <option value="object">选中对象</option>
+                      <option value="frame">框选区域</option>
+                    </select>
+                    {pngOpts.range === "frame" && (
+                      <button
+                        type="button"
+                        title="在画布上拖出导出区域"
+                        aria-label="在画布上框选导出区域"
+                        onClick={() => {
+                          // 聚焦画布：进入框选模式，Canvas 会用引导同款聚光灯高亮画布提示拖框
+                          useCanvasStore.getState().setFramingExport(true);
+                          setExportOpen(false);
+                        }}
+                        className="lift shrink-0 rounded border border-blue-300 bg-blue-50 px-1.5 py-0.5 text-[11px] text-blue-600 hover:bg-blue-100"
+                      >
+                        框选…
+                      </button>
+                    )}
+                  </div>
+                  <label className="flex items-center gap-1.5 text-xs text-gray-600">
+                    <input
+                      type="checkbox"
+                      checked={pngOpts.includeBackground}
+                      aria-label="导出含背景颜色"
+                      onChange={(e) => setPngOpts((o) => ({ ...o, includeBackground: e.target.checked }))}
+                    />
+                    含背景颜色
+                  </label>
+                  <div className="flex items-center gap-1.5 text-xs text-gray-600">
+                    <span className="shrink-0">分辨率</span>
+                    <select
+                      value={pngOpts.scale}
+                      aria-label="导出分辨率"
+                      onChange={(e) => setPngOpts((o) => ({ ...o, scale: Number(e.target.value) }))}
+                      className="flex-1 rounded border border-gray-200 bg-white/70 px-1 py-0.5 text-xs"
+                    >
+                      <option value={1}>1X（{rangeDims ? `${Math.round(rangeDims.w)}×${Math.round(rangeDims.h)}` : "未框选"}）</option>
+                      <option value={4}>4X（{rangeDims ? `${Math.round(rangeDims.w * 4)}×${Math.round(rangeDims.h * 4)}` : "未框选"}）</option>
+                      <option value={8}>8X（{rangeDims ? `${Math.round(rangeDims.w * 8)}×${Math.round(rangeDims.h * 8)}` : "未框选"}）</option>
+                      <option value={64}>64X（{rangeDims ? `${Math.round(rangeDims.w * 64)}×${Math.round(rangeDims.h * 64)}` : "未框选"}）</option>
+                    </select>
+                  </div>
+                  <button
+                    title="导出 PNG 文件"
+                    onClick={() => {
+                      const { includeBackground, scale, range } = pngOpts;
+                      // 范围 → crop：对象用选中元素包围盒，框选用 exportFrame；全部不裁剪
+                      let crop: { x: number; y: number; width: number; height: number } | undefined;
+                      if (range === "frame") {
+                        const f = useCanvasStore.getState().exportFrame;
+                        if (f) crop = { x: f.x, y: f.y, width: Math.max(f.width, 1), height: Math.max(f.height, 1) };
+                      } else if (range === "object") {
+                        const sel = useCanvasStore.getState().selection;
+                        const els = doc.elements.filter((e) => sel.includes(e.id));
+                        if (els.length > 0) {
+                          const xs = els.flatMap((e) => [e.x, e.x + e.width]);
+                          const ys = els.flatMap((e) => [e.y, e.y + e.height]);
+                          crop = { x: Math.min(...xs), y: Math.min(...ys), width: Math.max(Math.max(...xs) - Math.min(...xs), 1), height: Math.max(Math.max(...ys) - Math.min(...ys), 1) };
+                        }
+                      }
+                      setExportOpen(false);
+                      exportPng(doc, "figure.png", { scale, includeBackground, crop }).catch(console.error);
+                    }}
+                    className="lift w-full rounded-lg bg-blue-600/85 px-3 py-1 text-center text-xs font-medium text-white hover:bg-blue-700"
+                  >
+                    导出 PNG
+                  </button>
+                </div>
+              )}
+              </div>
+              </div>,
+              document.body
+            )}
         </div>
         <button title="设置" onClick={() => setSettingsOpen(true)} className="lift flex h-8 w-8 items-center justify-center rounded hover:bg-gray-100">{SETTINGS_ICON}</button>
       </div>
       {/* 左侧悬浮玻璃坞：悬停自动横向展开露出中文标签（撤销/重做/选择/图案/箭头/文本/公式/逻辑/图表/导入） */}
       {/* top-[4.625rem]（74px）= 顶栏 41px（h-8 + py-1 + border-b）+ FirstRunHint 33px（py-1.5 + text-sm + border-b），坞落在提示条下方 */}
-      <div className="group fixed left-4 top-[4.625rem] z-40 flex flex-col items-center gap-1 rounded-2xl border border-white/50 bg-white/70 p-1.5 shadow-xl backdrop-blur-md">
+      <div className="group fixed left-4 top-[4.625rem] z-40 flex flex-col items-center gap-1 rounded-2xl border border-white/50 bg-white/70 p-1.5 shadow-xl backdrop-blur-xl">
         <div className="flex items-center">
           <button title="撤销" onClick={undo} disabled={isGenerating || !canUndo} className="lift flex h-9 w-9 shrink-0 items-center justify-center rounded hover:bg-gray-100 disabled:bg-transparent disabled:opacity-40">{UNDO_ICON}</button>
           <span className="max-w-0 overflow-hidden whitespace-nowrap text-xs text-gray-600 opacity-0 transition-all duration-200 group-hover:ml-1.5 group-hover:mr-2.5 group-hover:max-w-20 group-hover:opacity-100">撤销</span>
+        </div>
+        {/* 时间线：撤销/重做之间，点击弹出进度条，拖动快速撤销/重做到任意历史版本 */}
+        <div className="relative flex items-center" ref={timelineRef}>
+          <button
+            title="时间线"
+            onClick={() => setTimelineOpen(!timelineOpen)}
+            aria-expanded={timelineOpen}
+            disabled={isGenerating || (pastLen + futureLen === 0)}
+            className={`lift flex h-9 w-9 shrink-0 items-center justify-center rounded hover:bg-gray-100 disabled:bg-transparent disabled:opacity-40 ${timelineOpen ? "bg-blue-100 text-blue-700 ring-1 ring-blue-400" : ""}`}
+          >
+            {TIMELINE_ICON}
+          </button>
+          <span className="max-w-0 overflow-hidden whitespace-nowrap text-xs text-gray-600 opacity-0 transition-all duration-200 group-hover:ml-1.5 group-hover:mr-2.5 group-hover:max-w-20 group-hover:opacity-100">时间线</span>
+          {timelineOpen && (
+            <div className="absolute left-full top-0 z-40 ml-2 w-44 rounded-xl border border-white/50 bg-white/85 p-2 shadow-xl backdrop-blur-xl" data-testid="timeline-panel">
+              <div className="mb-1 flex items-center justify-between text-[10px] font-medium text-gray-400">
+                <span>历史版本</span>
+                <span data-testid="timeline-pos">{pastLen} / {pastLen + futureLen}</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={pastLen + futureLen}
+                value={pastLen}
+                aria-label="历史版本进度"
+                onChange={(e) => jumpTo(Number(e.target.value))}
+                className="w-full"
+              />
+              <div className="mt-1 flex justify-between text-[9px] text-gray-400">
+                <span>最初</span>
+                <span>最新</span>
+              </div>
+            </div>
+          )}
         </div>
         <div className="flex items-center">
           <button title="重做" onClick={redo} disabled={isGenerating || !canRedo} className="lift flex h-9 w-9 shrink-0 items-center justify-center rounded hover:bg-gray-100 disabled:bg-transparent disabled:opacity-40">{REDO_ICON}</button>
@@ -370,7 +695,7 @@ export default function Toolbar() {
               {SHAPE_ICON}
             </button>
             {open === "shape" && (
-              <div className="absolute left-full top-0 z-40 ml-2 w-40 rounded-xl border border-white/50 bg-white/80 p-2 shadow-xl backdrop-blur-md">
+              <div className="absolute left-full top-0 z-40 ml-2 w-40 rounded-xl border border-white/50 bg-white/80 p-2 shadow-xl backdrop-blur-xl">
                 <div className="mb-1 px-1 text-[10px] font-medium text-gray-400">图案</div>
                 <div className="grid grid-cols-3 gap-1">
                   {SHAPE_TOOLS.map((t) => (
@@ -395,17 +720,102 @@ export default function Toolbar() {
           </button>
           <span className="max-w-0 overflow-hidden whitespace-nowrap text-xs text-gray-600 opacity-0 transition-all duration-200 group-hover:ml-1.5 group-hover:mr-2.5 group-hover:max-w-20 group-hover:opacity-100">箭头</span>
         </div>
-        {/* 画笔：自由手绘 + 手写箭头识别（$1）自动替换为规整箭头 */}
+        {/* 画笔：自由手绘 + 手写箭头识别（$1）自动替换为规整箭头；选中后展开颜色/粗细设置 */}
         <div className="flex items-center">
-          <button
-            title="画笔"
-            onClick={() => setTool("pen")}
-            className={`lift flex h-9 w-9 shrink-0 items-center justify-center rounded ${
-              tool === "pen" ? "bg-blue-100 text-blue-700 ring-1 ring-blue-400" : "hover:bg-gray-100"
-            }`}
-          >
-            {PEN_ICON}
-          </button>
+          <div className="relative">
+            <button
+              ref={penBtnRef}
+              title="画笔"
+              onClick={() => {
+                // toggle：已是画笔工具且面板开着 → 收起；否则切到画笔并展开取色器
+                if (tool === "pen" && penOpen) setPenOpen(false);
+                else {
+                  setTool("pen");
+                  setPenOpen(true);
+                  // 面板 portal 到 body 后需固定锚点：以画笔按钮的屏幕位置为基准
+                  const r = penBtnRef.current?.getBoundingClientRect();
+                  if (r) setPenPos({ x: r.right + 8, y: r.top });
+                }
+              }}
+              className={`lift flex h-9 w-9 shrink-0 items-center justify-center rounded ${
+                tool === "pen" ? "bg-blue-100 text-blue-700 ring-1 ring-blue-400" : "hover:bg-gray-100"
+              }`}
+            >
+              {PEN_ICON}
+            </button>
+            {/* 打开图案气泡、切换到其他工具或开始绘制时自动收起画笔面板；再次点击画笔图标也收起。
+                面板 portal 到 body + fixed：脱离左侧坞的 backdrop-filter 容器，backdrop-blur 才能真正高斯模糊 */}
+            {tool === "pen" && penOpen && open !== "shape" && !penDrawing && penPos && createPortal(
+              <div ref={penMenuRef} className="fixed z-50 w-52 rounded-xl border border-white/50 bg-white/40 p-2 shadow-xl backdrop-blur-2xl backdrop-saturate-150" style={{ left: penPos.x, top: penPos.y }} data-testid="pen-settings">
+                <div className="mb-1.5">
+                  <div className="mb-1 text-[10px] font-medium text-gray-400">颜色</div>
+                  {/* 与编辑模块选色器同款：7 列网格色板 + 自定义 hex 输入（磨砂毛玻璃面板） */}
+                  <div className="grid grid-cols-7 gap-1.5">
+                    {PEN_SWATCHES.map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        title={c}
+                        aria-label={`画笔颜色 ${c}`}
+                        onClick={() => setPenColor(c)}
+                        className={`lift aspect-square w-full rounded-md border ${penColor.toLowerCase() === c ? "border-blue-500 ring-2 ring-blue-300" : "border-black/10 hover:ring-2 hover:ring-blue-200"}`}
+                        style={{ background: c }}
+                      />
+                    ))}
+                  </div>
+                  <label className="mt-2 flex items-center gap-1.5 text-xs text-gray-500">
+                    <span className="shrink-0">自定义</span>
+                    <input
+                      value={penHex}
+                      aria-label="画笔颜色自定义"
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setPenHex(v);
+                        if (/^#[0-9a-fA-F]{6}$/.test(v)) setPenColor(v.toLowerCase());
+                      }}
+                      onBlur={() => setPenHex(penColor)}
+                      className="h-6 w-full min-w-0 flex-1 rounded-md border border-white/60 bg-white/70 px-1.5 text-xs text-gray-700 outline-none focus:border-blue-300"
+                      placeholder="#rrggbb"
+                    />
+                  </label>
+                </div>
+                <div>
+                  <div className="mb-1 text-[10px] font-medium text-gray-400">笔类型</div>
+                  <div className="grid grid-cols-3 gap-1">
+                    {([["solid", "中性笔"], ["dashed", "虚线笔"], ["pencil", "铅笔"]] as const).map(([s, label]) => (
+                      <button
+                        key={s}
+                        type="button"
+                        aria-pressed={penStyle === s}
+                        onClick={() => setPenStyle(s)}
+                        className={`lift rounded-lg border px-1 py-0.5 text-[11px] ${penStyle === s ? "border-blue-300 bg-blue-100 text-blue-700" : "border-white/60 bg-white/70 text-gray-600 shadow-sm hover:bg-white/90"}`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="mt-1.5">
+                  <div className="mb-1 text-[10px] font-medium text-gray-400">粗细（{penWidth}px）</div>
+                  <input
+                    type="range"
+                    min={1}
+                    max={12}
+                    step={1}
+                    value={penWidth}
+                    aria-label="画笔粗细"
+                    onChange={(e) => setPenWidth(Number(e.target.value))}
+                    className="w-full"
+                  />
+                  {/* 粗细预览：以当前颜色画一条所选粗细的线，所见即所得 */}
+                  <div className="mt-1.5 flex h-7 items-center rounded-md border border-white/60 bg-white/60 px-2">
+                    <div className="w-full rounded-full" style={{ height: Math.max(1, penWidth), background: penColor }} />
+                  </div>
+                </div>
+              </div>,
+              document.body
+            )}
+          </div>
           <span className="max-w-0 overflow-hidden whitespace-nowrap text-xs text-gray-600 opacity-0 transition-all duration-200 group-hover:ml-1.5 group-hover:mr-2.5 group-hover:max-w-20 group-hover:opacity-100">画笔</span>
         </div>
         <div className="flex items-center">
@@ -465,7 +875,7 @@ export default function Toolbar() {
         <div
           ref={tabMenuRef}
           data-testid="tab-menu"
-          className="fixed z-50 w-28 overflow-hidden rounded-xl border border-white/50 bg-white/80 shadow-xl backdrop-blur-md"
+          className="fixed z-50 w-28 overflow-hidden rounded-xl border border-white/50 bg-white/80 shadow-xl backdrop-blur-xl"
           style={{ left: tabMenu.x, top: tabMenu.y }}
         >
           <button
