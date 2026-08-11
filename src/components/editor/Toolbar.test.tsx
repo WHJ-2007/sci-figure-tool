@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import Toolbar from "./Toolbar";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { exportSvgFile, exportPng } from "@/lib/canvas/exporter";
@@ -84,6 +84,16 @@ describe("Toolbar 画布管理", () => {
     for (const el of [...screen.getAllByRole("button"), screen.getByTitle("设置")]) {
       expect(el.classList.contains("lift")).toBe(true);
     }
+  });
+
+  it("左侧工具栏上沿跟随画布玻璃面板真实位置", async () => {
+    const surface = document.createElement("div");
+    surface.dataset.canvasSurface = "";
+    surface.getBoundingClientRect = vi.fn(() => ({ top: 123, left: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 123, toJSON: () => ({}) }));
+    document.body.appendChild(surface);
+    render(<Toolbar />);
+    await waitFor(() => expect(screen.getByTestId("left-toolbar")).toHaveStyle({ top: "123px" }));
+    surface.remove();
   });
 
   it("设置按钮为描边风格 SVG 齿轮图标（非 emoji）", () => {

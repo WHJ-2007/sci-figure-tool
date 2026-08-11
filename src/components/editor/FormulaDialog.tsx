@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { makeElement } from "@/lib/canvas/elements";
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from "@/lib/canvas/geometry";
-import { latexToUnicode, STRUCTURE_QUICK, GREEK_QUICK, OPERATOR_QUICK, CHEM_QUICK, parseFormulaStructures, applySlotEdit } from "@/lib/canvas/formula";
+import { latexToUnicode, STRUCTURE_QUICK, GREEK_QUICK, OPERATOR_QUICK, CHEM_QUICK, parseFormulaStructures, parseFormulaAtoms, applySlotEdit } from "@/lib/canvas/formula";
 import { loadSettings } from "@/lib/settings";
 
 // 公式 AI 对话：用户用自然语言描述想要的符号/公式 → 大模型输出公式文本 →
@@ -174,6 +174,7 @@ export default function FormulaDialog({ id, onClose }: { id: string | null; onCl
   // 传统公式分位置编辑：把源码解析成结构（求和/积分/分数/根号…）→ 各槽位，
   // 每个槽位对应源码一个区间，改动槽位输入框即改写该处内容
   const structures = parseFormulaStructures(src);
+  const atoms = parseFormulaAtoms(src);
 
   // 槽位输入框改动 → 精确改写源码对应区间（不破坏其他部分）
   const editSlot = (slot: { start: number; end: number }, value: string) => {
@@ -232,6 +233,26 @@ export default function FormulaDialog({ id, onClose }: { id: string | null; onCl
                       ))}
                     </div>
                   </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {atoms.length > 0 && (
+            <div className="mb-3 rounded-xl border border-white/40 bg-white/50 p-2.5 shadow-sm" data-testid="formula-atoms">
+              <div className="mb-0.5 text-xs font-semibold text-gray-600">逐字符编辑</div>
+              <div className="mb-2 text-[10px] text-gray-400">公式中的普通字符、数学符号和 LaTeX 命令均可单独修改</div>
+              <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-6">
+                {atoms.map((atom) => (
+                  <label key={`${atom.start}-${atom.end}`} className="min-w-0" title={atom.label}>
+                    <span className="sr-only">{atom.label}</span>
+                    <input
+                      value={atom.value}
+                      aria-label={atom.label}
+                      onChange={(e) => editSlot(atom, e.target.value)}
+                      className="h-7 w-full min-w-0 rounded-md border border-white/70 bg-white/85 px-1 text-center text-xs text-gray-700 outline-none focus:border-blue-300 focus:ring-1 focus:ring-blue-100"
+                    />
+                  </label>
                 ))}
               </div>
             </div>

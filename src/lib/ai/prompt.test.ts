@@ -49,7 +49,8 @@ describe("buildSystemPrompt 多模式", () => {
     const p = buildSystemPrompt();
     expect(p).toContain("绘图世界观");
     expect(p).toContain("统一操作说明书");
-    expect(p).toContain("需求是流程/架构/机制图");
+    expect(p).toContain("需求是细胞/分子机制图");
+    expect(p).toContain("需求是没有领域符号要求的简单流程图");
     expect(p).toContain("需求是思维导图");
     expect(p).toContain("需求是数据图表");
   });
@@ -113,5 +114,34 @@ describe("buildSystemPrompt 多模式", () => {
     expect(p).toContain("直角矩形 = 数据/张量/存储");
     expect(p).toContain("构图");
     expect(p).toContain("对齐隐式网格");
+  });
+
+  it("细胞机制图使用专用生成器，不再退化为普通流程图", () => {
+    const p = buildSystemPrompt(["sci"]);
+    expect(p).toContain("必须使用 applyMechanism");
+    expect(p).toContain("胞外—细胞膜—胞质—细胞核/细胞器");
+    expect(p).toContain("严禁用 applyGraph");
+    expect(p).toContain("激活、抑制、结合、转位");
+  });
+
+  it("AI、机器学习、网络安全和大数据科研图使用通用科研引擎", () => {
+    const p = buildSystemPrompt(["sci"]);
+    expect(p).toContain("必须用 applyScientificDiagram");
+    expect(p).toContain("网络安全：攻防拓扑");
+    expect(p).toContain("大数据：采集—消息—计算—存储—服务链路");
+    expect(p).toContain("堆叠矩形=张量");
+    expect(p).toContain("攻击路径用红色");
+    expect(p).toContain("长链路用 pipeline 自动折行");
+    expect(p).toContain("nodes 数组必须按论文阅读顺序排列");
+    expect(p).toContain("detail 最多 2 个短行");
+  });
+
+  it("CNN 请求强制使用论文级专用结构引擎", () => {
+    const p = buildSystemPrompt(["sci"]);
+    expect(p).toContain("CNN 强制路由");
+    expect(p).toContain("必须直接调用 applyCNNArchitecture");
+    expect(p).toContain("禁止使用 applyGraph");
+    expect(p).toContain("局部感受野");
+    expect(p).toContain("Softmax 概率条");
   });
 });

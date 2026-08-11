@@ -204,6 +204,30 @@ function ToolButton({ item, active, onClick }: { item: ToolItem; active: boolean
 }
 
 export default function Toolbar() {
+  const [dockTop, setDockTop] = useState<number | null>(null);
+
+  // 左侧坞与画布玻璃面板共享真实的视觉上沿。画布位置会受首次配置提示条、
+  // 窗口尺寸和布局重排影响，因此不能继续依赖固定 top 偏移。
+  useEffect(() => {
+    const measure = () => {
+      const surface = document.querySelector<HTMLElement>("[data-canvas-surface]");
+      if (surface) setDockTop(Math.round(surface.getBoundingClientRect().top));
+    };
+    measure();
+    const frame = window.requestAnimationFrame(measure);
+    window.addEventListener("resize", measure);
+    const mutations = new MutationObserver(measure);
+    mutations.observe(document.body, { childList: true, subtree: true });
+    const surface = document.querySelector<HTMLElement>("[data-canvas-surface]");
+    const resize = surface && typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    if (surface) resize?.observe(surface);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("resize", measure);
+      mutations.disconnect();
+      resize?.disconnect();
+    };
+  }, []);
   const tool = useCanvasStore((s) => s.tool);
   const setTool = useCanvasStore((s) => s.setTool);
   const undo = useCanvasStore((s) => s.undo);
@@ -624,9 +648,12 @@ export default function Toolbar() {
         </div>
         <button title="设置" onClick={() => setSettingsOpen(true)} className="lift flex h-8 w-8 items-center justify-center rounded hover:bg-gray-100">{SETTINGS_ICON}</button>
       </div>
-      {/* 左侧悬浮玻璃坞：悬停自动横向展开露出中文标签（撤销/重做/选择/图案/箭头/文本/公式/逻辑/图表/导入） */}
-      {/* top-[4.625rem]（74px）= 顶栏 41px（h-8 + py-1 + border-b）+ FirstRunHint 33px（py-1.5 + text-sm + border-b），坞落在提示条下方 */}
-      <div className="group fixed left-4 top-[4.625rem] z-40 flex flex-col items-center gap-1 rounded-2xl border border-white/50 bg-white/70 p-1.5 shadow-xl backdrop-blur-xl">
+      {/* 左侧悬浮玻璃坞：真实 top 跟随画布玻璃面板，提示条显隐或窗口重排后仍严格同高。 */}
+      <div
+        data-testid="left-toolbar"
+        style={dockTop === null ? undefined : { top: dockTop }}
+        className="group fixed left-4 top-[3.8125rem] z-40 flex flex-col items-center gap-1 rounded-2xl border border-white/50 bg-white/70 p-1.5 shadow-xl backdrop-blur-xl"
+      >
         <div className="flex items-center">
           <button title="撤销" onClick={undo} disabled={isGenerating || !canUndo} className="lift flex h-9 w-9 shrink-0 items-center justify-center rounded hover:bg-gray-100 disabled:bg-transparent disabled:opacity-40">{UNDO_ICON}</button>
           <span className="max-w-0 overflow-hidden whitespace-nowrap text-xs text-gray-600 opacity-0 transition-all duration-200 group-hover:ml-1.5 group-hover:mr-2.5 group-hover:max-w-20 group-hover:opacity-100">撤销</span>

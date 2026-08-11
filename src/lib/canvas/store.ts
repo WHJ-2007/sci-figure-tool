@@ -140,6 +140,9 @@ const EMPTY_VIEW = { scale: 1, ox: 0, oy: 0 };
 export interface CanvasStore {
   doc: CanvasDocument;
   selection: string[];
+  // 最近一次点击选中的元素 id：点击组合内成员时整组选中，但"拆除组合"只拆这个
+  // 被点击的元素（其余成员保持组合）——记录点击锚点以便面板区分
+  lastClickedId: string | null;
   tool: ToolType;
   // 画笔设置：颜色 + 粗细（绘制/预览/箭头替换共用，默认深灰 3px）
   penColor: string;
@@ -182,9 +185,12 @@ export interface CanvasStore {
   scaleChart: (chartId: string, factor: number) => void;
   commitHistory: () => void;
   setSelection: (ids: string[]) => void;
+  setLastClicked: (id: string | null) => void;
   // 组合对象：把多个元素组合为整体（共享 groupId），或移除某组的组合标记
   groupElements: (ids: string[]) => void;
   ungroupElements: (groupId: string) => void;
+  // 只把单个元素从组合中拆出（其余成员保持组合）：点击组内元素后"拆除组合"默认走这里
+  ungroupSingle: (elementId: string) => void;
   setTool: (t: ToolType) => void;
   setPenColor: (c: string) => void;
   setPenWidth: (w: number) => void;
@@ -234,6 +240,7 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => {
   const initial: CanvasStore = {
     doc: structuredClone(current.doc),
     selection: [],
+    lastClickedId: null,
     tool: "select",
     penColor: "#2f2f2f",
     penWidth: 3,
@@ -347,6 +354,14 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => {
       set((s) => {
         const doc = structuredClone(s.doc);
         doc.elements = doc.elements.map((e) => (e.groupId === groupId ? { ...e, groupId: undefined } : e));
+        return { ...syncProject(s, doc, pushHistory(s.history, s.doc)) };
+      }),
+    // 只拆单个元素出组：清空该元素的 groupId，其余组内成员保持组合（一步撤销）；
+    // 选中整组时"拆除组合"默认只拆被点击的那个元素，避免一拆全散
+    ungroupSingle: (elementId) =>
+      set((s) => {
+        const doc = structuredClone(s.doc);
+        doc.elements = doc.elements.map((e) => (e.id === elementId ? { ...e, groupId: undefined } : e));
         return { ...syncProject(s, doc, pushHistory(s.history, s.doc)) };
       }),
     // 层级排序：orderedIds 按"顶层在前"排列（第一个 zIndex 最高），未列入的元素保持原相对顺序接到尾部；
@@ -475,6 +490,7 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => {
       }),
 
     setSelection: (ids) => set({ selection: [...ids] }),
+    setLastClicked: (id) => set({ lastClickedId: id }),
     setTool: (t) => set({ tool: t }),
     setPenColor: (c) => set({ penColor: c }),
     setPenWidth: (w) => set({ penWidth: w }),

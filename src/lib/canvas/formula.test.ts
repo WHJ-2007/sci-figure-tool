@@ -1,5 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { latexToUnicode, parseFormulaStructures, applySlotEdit } from "./formula";
+import {
+  latexToUnicode,
+  parseFormulaStructures,
+  parseFormulaAtoms,
+  applySlotEdit,
+  STRUCTURE_QUICK,
+  GREEK_QUICK,
+  OPERATOR_QUICK,
+  CHEM_QUICK,
+} from "./formula";
 
 describe("latexToUnicode", () => {
   it("分数转斜线", () => {
@@ -106,5 +115,58 @@ describe("parseFormulaStructures / applySlotEdit（分位置编辑）", () => {
     next = applySlotEdit(next, sts2[0].slots[1].start, sts2[0].slots[1].end, "k=0");
     expect(next).toBe("\\sum_{k=0}^{N} x_i");
     expect(latexToUnicode(next)).toBe("∑ₖ₌₀ᴺ xᵢ");
+  });
+
+  it("嵌套花括号不会截断分子、分母和被开方数", () => {
+    const sts = parseFormulaStructures("\\frac{\\sqrt{x^{2}+y^{2}}}{\\mathrm{norm}}");
+    expect(sts[0].kind).toBe("frac");
+    expect(sts[0].slots.map((slot) => slot.value)).toEqual(["\\sqrt{x^{2}+y^{2}}", "\\mathrm{norm}"]);
+    expect(sts.some((st) => st.kind === "sqrt" && st.slots[0].value === "x^{2}+y^{2}")).toBe(true);
+    expect(sts.filter((st) => st.kind === "sup").map((st) => st.slots[0].value)).toEqual(["2", "2"]);
+  });
+
+  it("字体、向量和重音命令均提供内容槽位", () => {
+    const sts = parseFormulaStructures("\\mathrm{Fe}^{3+} + \\vec{v} + \\hat{\\theta} + \\overline{AB}");
+    expect(sts.find((st) => st.kind === "mathrm")?.slots[0].value).toBe("Fe");
+    expect(sts.find((st) => st.kind === "sup")?.slots[0].value).toBe("3+");
+    expect(sts.find((st) => st.kind === "vec")?.slots[0].value).toBe("v");
+    expect(sts.find((st) => st.kind === "hat")?.slots[0].value).toBe("\\theta");
+    expect(sts.find((st) => st.kind === "overline")?.slots[0].value).toBe("AB");
+  });
+
+  it("括号组、矩阵、分段函数、二项式与上下标注均可分位置编辑", () => {
+    const delimiter = parseFormulaStructures("\\left( x + \\frac{a}{b} \\right)");
+    expect(delimiter.find((st) => st.kind === "delimiter")?.slots[0].value).toBe("x + \\frac{a}{b}");
+
+    const matrix = parseFormulaStructures("\\begin{bmatrix} a & b \\\\ c & d \\end{bmatrix}");
+    expect(matrix.find((st) => st.kind === "bmatrix")?.slots.map((slot) => slot.value)).toEqual(["a", "b", "c", "d"]);
+
+    const cases = parseFormulaStructures("\\begin{cases} x & x>0 \\\\ -x & x\\leq0 \\end{cases}");
+    expect(cases.find((st) => st.kind === "cases")?.slots.map((slot) => slot.label)).toEqual([
+      "第 1 行表达式", "第 1 行条件", "第 2 行表达式", "第 2 行条件",
+    ]);
+
+    expect(parseFormulaStructures("\\binom{n}{k}").find((st) => st.kind === "binom")?.slots.map((slot) => slot.value)).toEqual(["n", "k"]);
+    expect(parseFormulaStructures("\\overset{def}{=}").find((st) => st.kind === "overset")?.slots.map((slot) => slot.value)).toEqual(["def", "="]);
+  });
+
+  it("全部快捷面板条目都有逐字符编辑入口", () => {
+    const entries = [
+      ...STRUCTURE_QUICK.map((item) => item.insert),
+      ...GREEK_QUICK.map((item) => item.insert),
+      ...OPERATOR_QUICK.map((item) => item.insert),
+      ...CHEM_QUICK.map((item) => item.insert),
+    ];
+    for (const source of entries) {
+      expect(parseFormulaAtoms(source).length, source).toBeGreaterThan(0);
+    }
+  });
+
+  it("逐字符编辑覆盖 LaTeX 命令、Unicode、数字和运算符，并能精确写回", () => {
+    const source = "\\alpha_1 + β≤E[X]😀";
+    const atoms = parseFormulaAtoms(source);
+    expect(atoms.map((atom) => atom.value)).toEqual(["\\alpha", "1", "+", "β", "≤", "E", "[", "X", "]", "😀"]);
+    const beta = atoms.find((atom) => atom.value === "β")!;
+    expect(applySlotEdit(source, beta.start, beta.end, "γ")).toBe("\\alpha_1 + γ≤E[X]😀");
   });
 });

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import Toolbar from "@/components/editor/Toolbar";
 import Canvas from "@/components/editor/Canvas";
 import PropertyPanel from "@/components/editor/PropertyPanel";
@@ -9,8 +10,14 @@ import FirstRunHint from "@/components/editor/FirstRunHint";
 import AutoSave from "@/components/editor/AutoSave";
 import TutorialLauncher from "@/components/editor/TutorialLauncher";
 import { useCanvasStore } from "@/lib/canvas/store";
+import { initLogCapture } from "@/lib/log";
 
 export default function Home() {
+  // 网站一运行就开始收集运行日志（不再等打开设置）：console hook 幂等，只安装一次，
+  // 设置弹窗「运行设置」随时能看到从启动至今的完整日志
+  useEffect(() => {
+    initLogCapture();
+  }, []);
   // 选中元素 → 属性面板展开（grid 行 1fr 过渡动画），AI 窗口 flex-1 同步伸缩；
   // 取消选择播放反向（镜像）动画收起
   const hasSelection = useCanvasStore((s) => s.selection.length > 0);
@@ -31,10 +38,10 @@ export default function Home() {
               （内容溢出时内层滚动）；AI 面板 flex-1 占满剩余空间，随属性面板平滑伸缩。
               mt-2/mb-2 = 上下各内缩 8px，与画布玻璃面板的 inset-2（8px）包边严格对齐：
               右侧栏上边界（含 glass-panel 外边框）与画布上边界（含 glass-canvas 外边框）同高 */}
-          <div className="mt-2 mb-2 flex w-[22rem] shrink-0 flex-col gap-3">
+          <div className={`mt-2 mb-2 flex w-[22rem] shrink-0 flex-col transition-[gap] duration-300 ease-out ${hasSelection ? "gap-3" : "gap-0"}`}>
             <div
               className={`glass-panel grid overflow-hidden transition-[grid-template-rows,opacity,transform,border-color] duration-300 ease-out ${
-                hasSelection ? "max-h-[70%] translate-y-0 grid-rows-[1fr] border-white/60 opacity-100" : "translate-y-1.5 grid-rows-[0fr] border-transparent opacity-0"
+                hasSelection ? "max-h-[70%] translate-y-0 grid-rows-[1fr] border-white/60 opacity-100" : "translate-y-1.5 grid-rows-[0fr] border-0 opacity-0"
               }`}
             >
               <div className="min-h-0 overflow-y-auto">

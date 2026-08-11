@@ -75,6 +75,9 @@ export function buildTools(
         head: z.enum(["none", "single", "double"]).optional().describe("箭头头部样式（type=arrow 时用：single 单箭头=默认 / double 两端箭头 / none 无箭头纯线）"),
         midPoints: z.array(z.object({ x: z.number(), y: z.number(), smooth: z.boolean().optional() })).optional().describe("箭头折点（type=arrow 用，相对起点偏移；smooth=true 平滑曲线折点，科研图折线箭头/辅助流用）"),
         points: z.array(z.object({ x: z.number(), y: z.number() })).optional().describe("点列（type=polyline 折线用世界坐标；type=pen 画笔手绘用连续点列，可自由画出符号/复杂结构图标，如 σ、∫、卷积核、残差块手绘示意；缺省为起点→终点两点）"),
+        scientificRole: z.enum(["title", "container", "node", "node-label", "connector", "annotation", "legend", "decoration"]).optional().describe("科研图补充元素的机器可读角色；补画节点/容器/注释时必须准确填写，供结构化质量门禁审查"),
+        scientificId: z.string().optional().describe("科研语义对象稳定 id；补画科研节点时填写"),
+        scientificRegionId: z.string().optional().describe("所属科研分区 id；补画分区内对象时填写"),
       }),
       execute: (args) => draft.createElement(args),
     }),
@@ -108,6 +111,133 @@ export function buildTools(
         ).optional().describe("分区容器（可选）：把一组节点封装为阶段/环境的浅色虚线圆角框，科研图分组语义用"),
       }),
       execute: (args) => draft.applyGraph(args),
+    }),
+    applyCNNArchitecture: tool({
+      description:
+        "绘制可编辑的论文级 CNN 结构详解图。只要用户提到 CNN、卷积神经网络、卷积层或池化层，必须优先使用本工具，禁止退化成一排流程框。" +
+        "系统会自动绘制输入像素图、逐级收缩且加深的特征图堆叠、卷积/池化视觉区分、局部感受野与 3×3 卷积核、Dense 神经元和 Softmax 概率条，并执行结构质量门禁。即使参数不完整也可省略 stages 使用高质量默认结构。",
+      inputSchema: z.object({
+        title: z.string().optional().describe("图标题；省略时使用准确的 CNN 解释型标题"),
+        subtitle: z.string().optional().describe("一句话核心主张，不写泛泛描述"),
+        inputLabel: z.string().optional().describe("输入数据名称，如 RGB 图像或灰度图像"),
+        inputShape: z.string().optional().describe("输入张量尺寸，如 32 × 32 × 3"),
+        stages: z.array(z.object({
+          label: z.string().describe("层名称，如 Conv 1、MaxPool 1"),
+          operation: z.enum(["convolution", "pooling", "activation", "normalization"]).describe("决定特征图的视觉编码"),
+          channels: z.union([z.number(), z.string()]).optional().describe("输出通道数"),
+          spatial: z.string().optional().describe("空间尺寸，如 28×28"),
+          kernel: z.string().optional().describe("卷积核或池化窗口，如 3×3"),
+          detail: z.string().optional().describe("该层学到或保留的模式，控制在 12 字内"),
+        })).max(5).optional().describe("特征提取阶段；信息不足时整体省略，系统使用可靠默认值"),
+        denseUnits: z.union([z.number(), z.string()]).optional().describe("全连接层单元数，如 128"),
+        classes: z.array(z.string()).max(5).optional().describe("示例分类标签，最多 5 个"),
+        notes: z.array(z.string()).max(3).optional().describe("与主图直接对应的三条读图要点"),
+      }),
+      execute: (args) => draft.applyCNNArchitecture(args),
+    }),
+    applyScientificDiagram: tool({
+      description:
+        "面向论文、开题报告和技术报告的通用科研制图引擎，重点覆盖人工智能、机器学习、网络安全和大数据。模型只声明领域语义，系统自动完成专业符号、功能分区、自适应折行、节点避碰、正交跨行连线、文字换行、图例和紧凑注释带。" +
+        "AI/机器学习的模型架构、训练/推理流程、数据管线、实验方法图；网络安全的攻防拓扑、信任边界、检测与响应链；大数据的采集—消息—计算—存储—服务架构，都必须优先使用本工具。" +
+        "只有非常简单的通用流程图才使用 applyGraph；细胞/分子机制图继续使用 applyMechanism。",
+      inputSchema: z.object({
+        title: z.string().describe("准确、简洁的图标题"),
+        subtitle: z.string().optional().describe("可选副标题：任务、数据集、训练/推理场景或图的核心结论"),
+        domain: z.enum(["ai", "machine-learning", "cybersecurity", "big-data", "general"]).optional().describe("研究领域，决定主色和视觉编码"),
+        layout: z.enum(["pipeline", "layered-lr", "layered-tb"]).optional().describe("pipeline=长流程自动蛇形折行；layered-lr=从左到右的架构/数据流；layered-tb=自上而下的层级/拓扑"),
+        groups: z.array(z.object({
+          id: z.string().describe("分组唯一 id，供节点引用"),
+          label: z.string().describe("功能阶段或系统边界名称"),
+          semantic: z.enum(["input", "processing", "model", "storage", "security", "evaluation", "output", "control"]).optional().describe("分组语义，决定背景色"),
+          fill: z.string().optional().describe("可选自定义浅色背景"),
+        })).optional().describe("功能分区/阶段/信任域。图中存在训练阶段、网络区域、数据层级或平台层时应显式声明"),
+        nodes: z.array(z.object({
+          id: z.string().describe("节点唯一 id，供边和注释引用"),
+          text: z.string().describe("节点主标签；使用领域规范术语，避免“模块1”之类空名"),
+          role: z.enum(["data", "tensor", "process", "model", "neural-network", "storage", "service", "decision", "metric", "user", "network", "threat", "defense", "output"]).describe("节点的科研语义角色，决定专业符号"),
+          group: z.string().optional().describe("所属分组 id"),
+          detail: z.string().optional().describe("必要的结构/参数/方法说明，最多 2 个短行、每行建议不超过 14 字；不要写长段落"),
+          badge: z.string().optional().describe("简短状态或阶段徽标，如 Train、Frozen、Online、TLS、L3"),
+          fill: z.string().optional().describe("可选自定义填充色；一般让系统按角色决定"),
+        })),
+        edges: z.array(z.object({
+          from: z.string(), to: z.string(),
+          relation: z.enum(["data-flow", "control-flow", "dependency", "feedback", "attack", "defense", "trust", "association"]).optional().describe("关系语义，决定颜色、虚实和箭头；默认 data-flow"),
+          label: z.string().optional().describe("边上的短标签（建议不超过 8 字），如 Batch、Gradient、Alert、Kafka、TLS；不确定时省略"),
+        })),
+        notes: z.array(z.object({
+          text: z.string().describe("一句话注释、约束、贡献点或风险说明"),
+          target: z.string().optional().describe("可选目标节点 id"),
+          tone: z.enum(["neutral", "positive", "warning", "critical"]).optional(),
+        })).optional().describe("少量高价值注释；不要把正文塞进图中"),
+      }),
+      execute: (args) => draft.applyScientificDiagram(args),
+    }),
+    applyPenMotif: tool({
+      description:
+        "用可编辑画笔笔迹与基础形状组合科研语义图元，为结构图增加更灵活、精细的视觉表达。文本模型只需选择语义 kind 和边界框，系统会把归一化模板转换成稳定点列，避免盲猜像素坐标。" +
+        "适合在 applyScientificDiagram 主结构完成后加入 1~2 个高信息密度视觉图元：神经网络、特征图、注意力矩阵、模型芯片、数据流、云、服务器集群、安全盾锁或 Agent 循环。不能用它堆无意义装饰，也不能代替主流程节点和语义连线。" +
+        "custom 允许提供归一化 strokes（每个点 x/y 为 0~1），用于模板无法表达的论文专用轮廓；仍会被限制在给定边界框内。",
+      inputSchema: z.object({
+        kind: z.enum(["neural-network", "feature-map", "shield-lock", "data-stream", "cloud", "server-cluster", "attention", "model-chip", "agent-loop", "custom"]).describe("科研语义图元类型"),
+        x: z.number().describe("图元边界框左上角 x"),
+        y: z.number().describe("图元边界框左上角 y"),
+        width: z.number().positive().describe("图元宽度，建议 90~240"),
+        height: z.number().positive().describe("图元高度，建议 70~180"),
+        stroke: z.string().optional().describe("主线色，默认深蓝灰"),
+        accent: z.string().optional().describe("强调色，应与科研图主色一致"),
+        label: z.string().optional().describe("可选短标签，避免重复主节点已有文字"),
+        scientificId: z.string().optional().describe("该图元表达的科研语义对象 id"),
+        regionId: z.string().optional().describe("所属分区 id"),
+        strokes: z.array(z.array(z.object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1) }).describe("归一化点"))).optional().describe("仅 custom 使用：1~16 条归一化笔迹，每条点坐标限定 0~1"),
+      }),
+      execute: (args) => draft.applyPenMotif(args),
+    }),
+    auditScientificFigure: tool({
+      description:
+        "对当前科研图执行无需视觉模型的确定性质量审查。返回拓扑、可编辑性、几何、间距、连线清晰度、字体配色、裁切遮挡的 0~1 分数，以及每个问题的对象 id、数值证据、修复动作和验收条件。" +
+        "用 createElement/updateElement 做过科研图补充或微调后必须调用；只有 passed=true 才能宣称结构与版式检查通过。",
+      inputSchema: z.object({}),
+      execute: () => draft.auditScientificFigure(),
+    }),
+    correctScientificFigure: tool({
+      description:
+        "按科研质量报告执行最小对象级自动纠错：处理越界、节点遮挡、文字装不下和连线穿过节点，并在每轮后重新审查。不会把图压成图片。",
+      inputSchema: z.object({
+        maxIterations: z.number().int().min(1).max(4).optional().describe("审查—纠错最大轮数，默认 2"),
+      }),
+      execute: ({ maxIterations }) => draft.correctScientificFigure(maxIterations),
+    }),
+    applyMechanism: tool({
+      description:
+        "声明式一键绘制生物医学机制图/细胞信号通路图。与普通 applyGraph 不同，本工具按真实空间区室组织画面，自动绘制细胞外、双层细胞膜、胞质、细胞核/细胞器背景，并用稳定视觉符号区分配体、跨膜受体、蛋白、激酶、复合体、小分子、基因和表型输出。" +
+        "关系支持 activation 激活（蓝色箭头）、inhibition 抑制（红色 T 端）、binding 结合（双向线）、translocation 转位（紫色虚线）和 indirect 间接作用（灰色虚线）。" +
+        "用户要求细胞机制、分子机制、信号通路、受体通路、调控网络或出现 EGFR/MAPK/PI3K/AKT 等生物医学实体时，必须优先使用本工具，禁止用 applyGraph 画成一排流程框。",
+      inputSchema: z.object({
+        title: z.string().optional().describe("图标题，如“EGFR–MAPK 信号转导机制”"),
+        compartments: z.array(z.object({
+          id: z.string().describe("区室唯一 id，供节点引用"),
+          label: z.string().describe("区室显示名，如“胞外空间”“细胞膜”“细胞质”“细胞核”"),
+          kind: z.enum(["extracellular", "membrane", "cytoplasm", "nucleus", "organelle", "custom"]).optional().describe("区室类型，决定背景和膜结构"),
+          fill: z.string().optional().describe("可选自定义浅色背景"),
+        })).describe("按从上到下的真实空间顺序声明区室"),
+        nodes: z.array(z.object({
+          id: z.string().describe("节点唯一 id，供关系引用"),
+          text: z.string().describe("实体名称，保留规范蛋白/基因大小写"),
+          compartment: z.string().describe("节点所在区室 id"),
+          role: z.enum(["ligand", "receptor", "protein", "kinase", "complex", "small-molecule", "gene", "output"]).optional().describe("生物学角色，决定视觉符号"),
+          detail: z.string().optional().describe("必要的简短机制说明；不要堆砌长句"),
+          badge: z.string().optional().describe("状态徽标，如 P、Ub、Ac；仅有证据时使用"),
+          fill: z.string().optional().describe("可选自定义填充色"),
+        })),
+        edges: z.array(z.object({
+          from: z.string(),
+          to: z.string(),
+          relation: z.enum(["activation", "inhibition", "binding", "translocation", "indirect"]).optional().describe("作用类型，默认 activation"),
+          label: z.string().optional().describe("短机制标注，如“磷酸化”“二聚化”；不确定时省略"),
+        })).describe("机制关系，方向从 from 指向 to"),
+      }),
+      execute: (args) => draft.applyMechanism(args),
     }),
     applyMindMap: tool({
       description:

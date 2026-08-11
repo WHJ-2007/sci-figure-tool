@@ -249,15 +249,25 @@ export interface FormulaStructure {
 // 解析 {…} 包裹内容：返回 { value, start, end }（start 指向 { 后第一个字符，end 指向 } 前）
 function parseBraced(src: string, i: number): { value: string; start: number; end: number } | null {
   if (src[i] !== "{") return null;
-  const end = src.indexOf("}", i + 1);
-  if (end < 0) return null;
-  return { value: src.slice(i + 1, end), start: i + 1, end };
+  let depth = 1;
+  for (let end = i + 1; end < src.length; end++) {
+    if (src[end] === "\\") {
+      // Escaped delimiters such as \{ and \} are content, not group bounds.
+      if (src[end + 1] === "{" || src[end + 1] === "}") end++;
+      continue;
+    }
+    if (src[end] === "{") depth++;
+    if (src[end] === "}") depth--;
+    if (depth === 0) return { value: src.slice(i + 1, end), start: i + 1, end };
+  }
+  return null;
 }
 
 // 解析 \cmd_{...}^{...} 形式的命令：返回 { name, opt, sub, sup }（均可缺省）
 // i 指向反斜杠；opt 处理 [n]（n 次根），sub/sup 处理 _{} 与 ^{}（求和上下限/积分上下限）
 interface ParsedCommand {
   name: string;
+  commandEnd: number;
   body: { value: string; start: number; end: number } | null;
   opt: { value: string; start: number; end: number } | null;
   sub: { value: string; start: number; end: number } | null;
@@ -270,10 +280,12 @@ function parseCommand(src: string, i: number): ParsedCommand | null {
   while (j < src.length && /[A-Za-z]/.test(src[j])) j++;
   const name = src.slice(i + 1, j);
   if (!name) return null;
+  const commandEnd = j;
   let opt: ParsedCommand["opt"] = null;
   let sub: ParsedCommand["sub"] = null;
   let sup: ParsedCommand["sup"] = null;
   let k = j;
+  while (src[k] === " ") k++;
   // 可选 [n]
   if (src[k] === "[") {
     const close = src.indexOf("]", k + 1);
@@ -297,33 +309,40 @@ function parseCommand(src: string, i: number): ParsedCommand | null {
   // 主体 {}（分数两个、根号一个、括号一对）
   const body = parseBraced(src, k);
   if (body) k = body.end + 1;
-  return { name, body, opt, sub, sup };
+  return { name, commandEnd, body, opt, sub, sup };
 }
 
 // 把公式源码解析为可编辑结构列表（传统公式：求和/积分/分数/根号/上下标/极限/括号）。
 // 覆盖常见写法；无法识别的部分忽略（仍可整体编辑源码）。
 export function parseFormulaStructures(src: string): FormulaStructure[] {
   const out: FormulaStructure[] = [];
+  const claimedScripts = new Set<number>();
+  const claimScript = (slot: ParsedCommand["sub"], marker: "_" | "^") => {
+    if (!slot) return;
+    let at = slot.start - 1;
+    if (src[at] === "{") at--;
+    while (at >= 0 && src[at] === " ") at--;
+    if (src[at] === marker) claimedScripts.add(at);
+  };
   let i = 0;
   while (i < src.length) {
     const ch = src[i];
     if (ch === "\\") {
       const c = parseCommand(src, i);
       if (!c) { i++; continue; }
-      const consumed = c.body ? c.body.end + 1 : c.opt ? c.opt.end + 1 : c.sub ? c.sub.end + 1 : c.sup ? c.sup.end + 1 : 0;
-      if (c.name === "frac" && c.body) {
+      claimScript(c.sub, "_");
+      claimScript(c.sup, "^");
+      if ((c.name === "frac" || c.name === "dfrac" || c.name === "tfrac") && c.body) {
         // 分数：\frac{a}{b} → 分子/分母两个槽位（第二个 {} 即分母）
         const second = parseBraced(src, c.body.end + 1);
         const slots: FormulaSlot[] = [
           { start: c.body.start, end: c.body.end, label: "分子", value: c.body.value },
         ];
-        let next = c.body.end + 1;
         if (second) {
           slots.push({ start: second.start, end: second.end, label: "分母", value: second.value });
-          next = second.end + 1;
         }
         out.push({ kind: "frac", name: "分数", symbol: "a⁄b", slots });
-        i = next;
+        i = c.commandEnd;
         continue;
       }
       if (c.name === "sqrt") {
@@ -332,15 +351,20 @@ export function parseFormulaStructures(src: string): FormulaStructure[] {
         if (c.opt) slots.push({ start: c.opt.start, end: c.opt.end, label: "根指数", value: c.opt.value });
         if (c.body) slots.push({ start: c.body.start, end: c.body.end, label: "被开方数", value: c.body.value });
         if (slots.length > 0) out.push({ kind: "sqrt", name: "根号", symbol: "√", slots });
-        i = c.body ? c.body.end + 1 : consumed || c.opt?.end ? (c.opt!.end + 1) : i + 1;
+        i = c.commandEnd;
         continue;
       }
-      if (c.name === "sum" || c.name === "int" || c.name === "prod") {
+      if (["sum", "prod", "int", "iint", "iiint", "oint", "bigcup", "bigcap"].includes(c.name)) {
         // 求和/积分/连乘：上限（sup）+ 下限（sub）+ 被积/被求项（body）
         const labels: Record<string, { name: string; symbol: string }> = {
           sum: { name: "求和", symbol: "∑" },
           int: { name: "积分", symbol: "∫" },
           prod: { name: "连乘", symbol: "∏" },
+          iint: { name: "二重积分", symbol: "∬" },
+          iiint: { name: "三重积分", symbol: "∭" },
+          oint: { name: "环路积分", symbol: "∮" },
+          bigcup: { name: "并集", symbol: "⋃" },
+          bigcap: { name: "交集", symbol: "⋂" },
         };
         const meta = labels[c.name];
         const slots: FormulaSlot[] = [];
@@ -348,29 +372,138 @@ export function parseFormulaStructures(src: string): FormulaStructure[] {
         if (c.sub) slots.push({ start: c.sub.start, end: c.sub.end, label: "下面", value: c.sub.value });
         if (c.body) slots.push({ start: c.body.start, end: c.body.end, label: c.name === "int" ? "被积函数" : "求和项", value: c.body.value });
         out.push({ kind: c.name, name: meta.name, symbol: meta.symbol, slots });
-        i = c.body ? c.body.end + 1 : c.sup ? c.sup.end + 1 : c.sub ? c.sub.end + 1 : i + 1;
+        i = c.commandEnd;
         continue;
       }
-      if (c.name === "lim") {
+      if (c.name === "lim" || c.name === "limsup" || c.name === "liminf") {
         // 极限：趋近条件（sub）
         const slots: FormulaSlot[] = [];
         if (c.sub) slots.push({ start: c.sub.start, end: c.sub.end, label: "趋近条件", value: c.sub.value });
-        out.push({ kind: "lim", name: "极限", symbol: "lim", slots });
-        i = c.sub ? c.sub.end + 1 : c.body ? c.body.end + 1 : i + 1;
+        const limName = c.name === "limsup" ? "上极限" : c.name === "liminf" ? "下极限" : "极限";
+        out.push({ kind: c.name, name: limName, symbol: c.name, slots });
+        i = c.commandEnd;
+        continue;
+      }
+      if (["vec", "hat", "widehat", "bar", "overline", "underline", "tilde", "widetilde", "dot", "ddot", "mathring", "overbrace", "underbrace"].includes(c.name) && c.body) {
+        const accents: Record<string, { name: string; symbol: string; label: string }> = {
+          vec: { name: "向量", symbol: "v⃗", label: "向量内容" },
+          hat: { name: "帽符号", symbol: "x̂", label: "符号内容" },
+          widehat: { name: "宽帽符号", symbol: "x̂", label: "符号内容" },
+          bar: { name: "上横线", symbol: "x̄", label: "符号内容" },
+          overline: { name: "上横线", symbol: "x̄", label: "符号内容" },
+          underline: { name: "下横线", symbol: "x̲", label: "符号内容" },
+          tilde: { name: "波浪符号", symbol: "x̃", label: "符号内容" },
+          widetilde: { name: "宽波浪符号", symbol: "x̃", label: "符号内容" },
+          dot: { name: "一阶导数", symbol: "ẋ", label: "变量" },
+          ddot: { name: "二阶导数", symbol: "ẍ", label: "变量" },
+          mathring: { name: "圆圈重音", symbol: "x̊", label: "符号内容" },
+          overbrace: { name: "上花括号", symbol: "⏞", label: "括号内容" },
+          underbrace: { name: "下花括号", symbol: "⏟", label: "括号内容" },
+        };
+        const meta = accents[c.name];
+        out.push({ kind: c.name, name: meta.name, symbol: meta.symbol, slots: [{ ...c.body, label: meta.label }] });
+        i = c.commandEnd;
+        continue;
+      }
+      if (["text", "mathrm", "mathbf", "mathit", "operatorname", "textrm", "mathsf", "mathtt", "mathcal", "mathbb"].includes(c.name) && c.body) {
+        const names: Record<string, string> = {
+          text: "文本", mathrm: "正体", mathbf: "粗体", mathit: "斜体", operatorname: "函数名",
+          textrm: "文本正体", mathsf: "无衬线体", mathtt: "等宽体", mathcal: "花体", mathbb: "黑板粗体",
+        };
+        out.push({ kind: c.name, name: names[c.name], symbol: "Aa", slots: [{ ...c.body, label: "内容" }] });
+        i = c.commandEnd;
+        continue;
+      }
+      if (c.name === "binom" && c.body) {
+        const second = parseBraced(src, c.body.end + 1);
+        const slots: FormulaSlot[] = [{ ...c.body, label: "上项" }];
+        if (second) slots.push({ ...second, label: "下项" });
+        out.push({ kind: "binom", name: "二项式", symbol: "(ⁿₖ)", slots });
+        i = c.commandEnd;
+        continue;
+      }
+      if (c.name === "begin" && c.body) {
+        const env = c.body.value;
+        const matrixEnvs = new Set(["matrix", "pmatrix", "bmatrix", "Bmatrix", "vmatrix", "Vmatrix", "cases", "aligned", "align", "array"]);
+        const endMarker = `\\end{${env}}`;
+        let bodyStart = c.body.end + 1;
+        const bodyEnd = src.indexOf(endMarker, bodyStart);
+        if (matrixEnvs.has(env) && bodyEnd >= 0) {
+          if (env === "array" && src[bodyStart] === "{") {
+            const columns = parseBraced(src, bodyStart);
+            if (columns) bodyStart = columns.end + 1;
+          }
+          const slots: FormulaSlot[] = [];
+          let row = 1;
+          let col = 1;
+          let cellStart = bodyStart;
+          let depth = 0;
+          const pushCell = (rawEnd: number) => {
+            let start = cellStart;
+            let end = rawEnd;
+            while (start < end && /\s/.test(src[start])) start++;
+            while (end > start && /\s/.test(src[end - 1])) end--;
+            if (start < end) {
+              const label = env === "cases" ? (col === 1 ? `第 ${row} 行表达式` : `第 ${row} 行条件`) : `第 ${row} 行第 ${col} 列`;
+              slots.push({ start, end, label, value: src.slice(start, end) });
+            }
+          };
+          for (let p = bodyStart; p < bodyEnd; p++) {
+            if (src[p] === "{") depth++;
+            else if (src[p] === "}") depth = Math.max(0, depth - 1);
+            else if (depth === 0 && src[p] === "&") {
+              pushCell(p);
+              col++;
+              cellStart = p + 1;
+            } else if (depth === 0 && src[p] === "\\" && src[p + 1] === "\\") {
+              pushCell(p);
+              row++;
+              col = 1;
+              p++;
+              cellStart = p + 1;
+            }
+          }
+          pushCell(bodyEnd);
+          const name = env === "cases" ? "分段函数" : env === "aligned" || env === "align" ? "对齐公式" : "矩阵";
+          out.push({ kind: env, name, symbol: env === "cases" ? "{⋮" : "[▦]", slots });
+        }
+        i = c.commandEnd;
+        continue;
+      }
+      if (["overset", "underset", "stackrel"].includes(c.name) && c.body) {
+        const second = parseBraced(src, c.body.end + 1);
+        const above = c.name !== "underset";
+        const slots: FormulaSlot[] = [{ ...c.body, label: above ? "上方内容" : "下方内容" }];
+        if (second) slots.push({ ...second, label: "主体" });
+        out.push({ kind: c.name, name: above ? "上方标注" : "下方标注", symbol: above ? "a⁝x" : "x⁝a", slots });
+        i = c.commandEnd;
         continue;
       }
       if (c.name === "left" || c.name === "right") {
         // 括号组：\left( x \right) → 去标记；\left\{ → 大括号
         // 括号对整体不拆槽位（内容在 \right 的 body 里），跳过继续扫描内部
-        i++;
+        if (c.name === "left") {
+          let contentStart = c.commandEnd;
+          if (src[contentStart] === "\\") contentStart += 2;
+          else if (contentStart < src.length) contentStart++;
+          const rightAt = src.indexOf("\\right", contentStart);
+          if (rightAt >= 0) {
+            let start = contentStart;
+            let end = rightAt;
+            while (start < end && /\s/.test(src[start])) start++;
+            while (end > start && /\s/.test(src[end - 1])) end--;
+            out.push({ kind: "delimiter", name: "括号组", symbol: "( )", slots: [{ start, end, label: "括号内容", value: src.slice(start, end) }] });
+          }
+        }
+        i = c.commandEnd;
         continue;
       }
       // 其他命令：跳过命令本身，继续扫描（保留其子内容可被后续结构解析）
-      i = consumed > 0 ? consumed : i + 1;
+      i = c.commandEnd;
       continue;
     }
     // 裸上标/下标：x^{n} / x_{i}（在命令外单独出现）
-    if ((ch === "^" || ch === "_") && src[i + 1] === "{") {
+    if ((ch === "^" || ch === "_") && !claimedScripts.has(i) && src[i + 1] === "{") {
       const b = parseBraced(src, i + 1);
       if (b) {
         out.push({
@@ -384,7 +517,7 @@ export function parseFormulaStructures(src: string): FormulaStructure[] {
       }
     }
     // 单字符上下标（H_2O、x^2 等无花括号写法）：同样作为可编辑槽位
-    if ((ch === "^" || ch === "_") && i + 1 < src.length) {
+    if ((ch === "^" || ch === "_") && !claimedScripts.has(i) && i + 1 < src.length) {
       const nc = src[i + 1];
       if (nc !== "{" && nc !== "}" && nc !== "\\" && nc !== " ") {
         out.push({
@@ -406,4 +539,43 @@ export function parseFormulaStructures(src: string): FormulaStructure[] {
 export function applySlotEdit(src: string, start: number, end: number, value: string): string {
   if (start < 0 || end < start || end > src.length) return src;
   return src.slice(0, start) + value + src.slice(end);
+}
+
+// 结构解析之外的兜底层：把所有可见字符（LaTeX 命令按一个字符处理）映射回源码区间。
+// 这样希腊字母、关系符、箭头、集合符号、普通 Unicode 与尚未专门建模的新命令
+// 都能进入“逐字符编辑”，不会因为结构解析器尚不认识而只能回源码框修改。
+export interface FormulaAtom extends FormulaSlot {
+  type: "command" | "character" | "symbol";
+}
+
+export function parseFormulaAtoms(src: string): FormulaAtom[] {
+  const atoms: FormulaAtom[] = [];
+  let index = 1;
+  for (let i = 0; i < src.length;) {
+    const ch = src[i];
+    if (/\s/.test(ch) || ch === "{" || ch === "}" || ch === "_" || ch === "^" || ch === "&") {
+      i++;
+      continue;
+    }
+    if (ch === "\\") {
+      if (src[i + 1] === "\\") {
+        i += 2;
+        continue;
+      }
+      let end = i + 1;
+      while (end < src.length && /[A-Za-z]/.test(src[end])) end++;
+      if (end === i + 1 && end < src.length) end++;
+      const value = src.slice(i, end);
+      atoms.push({ start: i, end, value, label: `命令 ${index++}`, type: "command" });
+      i = end;
+      continue;
+    }
+    const codePoint = src.codePointAt(i);
+    const width = codePoint !== undefined && codePoint > 0xffff ? 2 : 1;
+    const value = src.slice(i, i + width);
+    const type = /[\p{L}\p{N}]/u.test(value) ? "character" : "symbol";
+    atoms.push({ start: i, end: i + width, value, label: `${type === "symbol" ? "符号" : "字符"} ${index++}`, type });
+    i += width;
+  }
+  return atoms;
 }

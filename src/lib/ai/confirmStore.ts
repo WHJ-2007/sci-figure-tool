@@ -4,7 +4,25 @@ import type { DraftCanvas } from "./draft";
 // resolved：用户已表态（确认/取消）的挂起项 id，全部表态后会话才删除（多挂起项逐条确认会话保活）
 // applied：已实际执行的挂起项 id（幂等：防重试/重复提交把同一操作执行两次）
 const TTL = 15 * 60 * 1000;
-const sessions = new Map<string, { draft: DraftCanvas; resolved: Set<string>; applied: Set<string>; ts: number }>();
+
+type ConfirmSession = {
+  draft: DraftCanvas;
+  resolved: Set<string>;
+  applied: Set<string>;
+  ts: number;
+};
+
+// `/api/chat` 与 `/api/chat/confirm` 会被 Next.js 编译成不同的路由包。
+// 普通模块变量在开发热更新时可能被实例化多次，导致刚创建的会话被误判为过期。
+// 放到 globalThis 后，同一 Node 进程中的路由包与 HMR 模块实例会共享一份会话仓库。
+const STORE_KEY = "__scientificFigureConfirmSessionsV1__" as const;
+type ConfirmStoreGlobal = typeof globalThis & {
+  [STORE_KEY]?: Map<string, ConfirmSession>;
+};
+const confirmStoreGlobal = globalThis as ConfirmStoreGlobal;
+const sessions =
+  confirmStoreGlobal[STORE_KEY] ??
+  (confirmStoreGlobal[STORE_KEY] = new Map<string, ConfirmSession>());
 
 function sweep() {
   const now = Date.now();
@@ -18,7 +36,9 @@ export function setConfirmSession(id: string, draft: DraftCanvas) {
 
 export function getConfirmSession(id: string): DraftCanvas | undefined {
   sweep();
-  return sessions.get(id)?.draft;
+  const session = sessions.get(id);
+  if (session) session.ts = Date.now();
+  return session?.draft;
 }
 
 export function deleteConfirmSession(id: string) {
@@ -31,6 +51,7 @@ export function deleteConfirmSession(id: string) {
 export function markResolved(sessionId: string, ids: string[]): number {
   const s = sessions.get(sessionId);
   if (!s) return 0;
+  s.ts = Date.now();
   let added = 0;
   for (const pid of ids) {
     if (typeof pid === "string" && !s.resolved.has(pid)) {
@@ -43,7 +64,10 @@ export function markResolved(sessionId: string, ids: string[]): number {
 
 // 挂起项已实际执行（确认项 apply 前标记）：幂等，防重试/重复提交二次执行
 export function markApplied(sessionId: string, id: string) {
-  sessions.get(sessionId)?.applied.add(id);
+  const session = sessions.get(sessionId);
+  if (!session) return;
+  session.ts = Date.now();
+  session.applied.add(id);
 }
 
 export function isApplied(sessionId: string, id: string): boolean {

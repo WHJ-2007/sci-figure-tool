@@ -47,6 +47,11 @@ export interface BaseElement {
   fillOpacity?: number; // 内部填充透明度（0~1，与整体 opacity 相乘）
   strokeOpacity?: number; // 边框透明度（0~1，与整体 opacity 相乘）
   shadow?: ElementShadow; // 整体投影（颜色/模糊半径/偏移/不透明度）
+  // 科研图的机器可读语义。它不参与渲染，供非多模态模型和确定性质量门禁
+  // 区分真正的节点、容器、连线与装饰，避免仅凭“看起来像矩形”误判遮挡。
+  scientificRole?: "title" | "container" | "node" | "node-label" | "connector" | "annotation" | "legend" | "decoration";
+  scientificId?: string;
+  scientificRegionId?: string;
 }
 
 export interface RectElement extends BaseElement {

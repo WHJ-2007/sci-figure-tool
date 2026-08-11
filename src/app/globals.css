@@ -109,6 +109,32 @@ nextjs-portal {
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* AI 实时工作气泡：扫描线表示持续推进，边框呼吸表示当前阶段仍在执行。
+   只在生成气泡挂载期间运行；减少动态偏好下完全静止。 */
+.ai-live-scan {
+  transform-origin: left center;
+  animation: ai-live-scan 1.8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+.ai-live-pulse {
+  animation: ai-live-pulse 1.8s ease-out infinite;
+}
+@keyframes ai-live-scan {
+  0% { transform: scaleX(0.08); opacity: 0.35; }
+  55% { transform: scaleX(0.72); opacity: 0.9; }
+  100% { transform: scaleX(1); opacity: 0; }
+}
+@keyframes ai-live-pulse {
+  0% { transform: scale(0.86); opacity: 0.7; }
+  70%, 100% { transform: scale(1.35); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ai-live-scan,
+  .ai-live-pulse,
+  .toast-in {
+    animation: none !important;
+  }
+}
+
 /* 顶栏缩放条：低调灰色弹性拖动条——常态细灰线，悬停时变粗、滑块浮现（弹性过渡） */
 .zoom-slider {
   -webkit-appearance: none;

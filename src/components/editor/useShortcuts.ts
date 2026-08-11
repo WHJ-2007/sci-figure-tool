@@ -23,6 +23,8 @@ export function useShortcuts() {
       const dx = (pressed.has("a") ? 1 : 0) - (pressed.has("d") ? 1 : 0);
       const dy = (pressed.has("w") ? 1 : 0) - (pressed.has("s") ? 1 : 0);
       s.setView({ scale: s.view.scale, ox: s.view.ox + dx * 50, oy: s.view.oy + dy * 50 });
+      // 通知 Canvas 显示左下角缩略图（与滚轮缩放共用 zooming 显示机制，停止 800ms 后自动收起）
+      window.dispatchEvent(new CustomEvent("canvas-wasd-pan"));
     };
     const loop = (t: number) => {
       if (t - lastMove >= 33) {

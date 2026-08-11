@@ -220,6 +220,20 @@ describe("DraftCanvas", () => {
     expect(log).toContain("层级");
   });
 
+  it("updateElement 修改折点时保留向左/向上的有向箭头几何", () => {
+    const d = new DraftCanvas([]);
+    const right = d.createElement({ type: "rect", x: 320, y: 220, width: 100, height: 60 });
+    const left = d.createElement({ type: "rect", x: 80, y: 80, width: 100, height: 60 });
+    const connected = d.connectElements({ sourceId: right.id!, targetId: left.id! });
+    const before = d.serialize().elements.find((e) => e.id === connected.id)!;
+    expect(before.width).toBeLessThan(0);
+    expect(before.height).toBeLessThan(0);
+    d.updateElement({ id: connected.id!, patch: { midPoints: [{ x: before.width / 2, y: 0 }] } });
+    const after = d.serialize().elements.find((e) => e.id === connected.id)!;
+    expect(after.width).toBe(before.width);
+    expect(after.height).toBe(before.height);
+  });
+
   it("listElements 摘要含正文/箭头样式/层级", () => {
     const d = new DraftCanvas([]);
     const l = d.createElement({ type: "logic", x: 10, y: 10, width: 100, height: 60, text: "编码", body: "要点" });
@@ -377,6 +391,215 @@ describe("DraftCanvas", () => {
     });
     expect(r.ok).toBe(false);
     expect(d.serialize().elements).toHaveLength(0);
+  });
+
+  it("applyMechanism 生成空间区室、膜结构、生物学节点与机制关系", () => {
+    const d = new DraftCanvas([]);
+    const r = d.applyMechanism({
+      title: "EGFR–MAPK 信号转导机制",
+      compartments: [
+        { id: "extra", label: "胞外空间", kind: "extracellular" },
+        { id: "mem", label: "细胞膜", kind: "membrane" },
+        { id: "cyto", label: "细胞质", kind: "cytoplasm" },
+        { id: "nuc", label: "细胞核", kind: "nucleus" },
+      ],
+      nodes: [
+        { id: "egf", text: "EGF", compartment: "extra", role: "ligand" },
+        { id: "egfr", text: "EGFR", compartment: "mem", role: "receptor", detail: "二聚化\n自磷酸化", badge: "P" },
+        { id: "ras", text: "RAS-GTP", compartment: "cyto", role: "protein" },
+        { id: "erk", text: "ERK", compartment: "cyto", role: "kinase", badge: "P" },
+        { id: "gene", text: "靶基因转录", compartment: "nuc", role: "gene" },
+      ],
+      edges: [
+        { from: "egf", to: "egfr", relation: "binding", label: "结合" },
+        { from: "egfr", to: "ras", relation: "activation" },
+        { from: "ras", to: "erk", relation: "activation", label: "激酶级联" },
+        { from: "erk", to: "gene", relation: "translocation", label: "核转位" },
+      ],
+    });
+    expect(r.ok).toBe(true);
+    const els = d.serialize().elements;
+    expect(els.some((e) => e.type === "text" && e.text === "EGFR–MAPK 信号转导机制")).toBe(true);
+    expect(els.some((e) => e.type === "text" && e.text === "细胞膜")).toBe(true);
+    expect(els.filter((e) => e.type === "ellipse").length).toBeGreaterThan(10); // 配体 + 膜磷脂 + 徽标
+    expect(els.some((e) => e.type === "logic" && e.text === "EGFR")).toBe(true);
+    expect(els.some((e) => e.type === "arrow" && e.head === "double")).toBe(true);
+    expect(els.some((e) => e.type === "arrow" && e.dash?.join(",") === "8,5")).toBe(true);
+    expect(d.flushActivity().join("")).toContain("完成机制图");
+  });
+
+  it("applyScientificDiagram 为机器学习流水线生成角色化节点、功能分区和反馈线", () => {
+    const d = new DraftCanvas([]);
+    const r = d.applyScientificDiagram({
+      title: "面向恶意流量检测的深度学习框架",
+      subtitle: "训练、评估与在线推理闭环",
+      domain: "machine-learning",
+      layout: "pipeline",
+      groups: [
+        { id: "data", label: "数据与特征", semantic: "input" },
+        { id: "model", label: "模型训练", semantic: "model" },
+        { id: "eval", label: "评估与部署", semantic: "evaluation" },
+      ],
+      nodes: [
+        { id: "raw", text: "网络流量", role: "data", group: "data" },
+        { id: "feat", text: "特征张量", role: "tensor", group: "data", detail: "B × T × F" },
+        { id: "net", text: "Transformer", role: "neural-network", group: "model", badge: "Train" },
+        { id: "metric", text: "F1 / AUC", role: "metric", group: "eval" },
+        { id: "pred", text: "威胁分类", role: "output", group: "eval", badge: "Online" },
+      ],
+      edges: [
+        { from: "raw", to: "feat", relation: "data-flow", label: "窗口化" },
+        { from: "feat", to: "net", relation: "data-flow", label: "Batch" },
+        { from: "net", to: "metric", relation: "dependency" },
+        { from: "metric", to: "net", relation: "feedback", label: "调参" },
+        { from: "net", to: "pred", relation: "data-flow" },
+      ],
+      notes: [{ text: "反馈仅作用于训练阶段", target: "net", tone: "neutral" }],
+    });
+    expect(r.ok).toBe(true);
+    expect(r.quality?.passed).toBe(true);
+    expect(r.quality?.hardFailures).toBe(0);
+    const els = d.serialize().elements;
+    expect(els.some((e) => e.type === "text" && e.text === "面向恶意流量检测的深度学习框架")).toBe(true);
+    expect(els.filter((e) => e.type === "rect" && e.fillOpacity === 0.42)).toHaveLength(3);
+    expect(els.filter((e) => e.type === "rect").length).toBeGreaterThan(5); // 分组 + 堆叠张量 + 注释卡片
+    expect(els.some((e) => e.type === "arrow" && e.dash?.join(",") === "8,4" && e.midPoints?.length)).toBe(true);
+    expect(els.some((e) => e.type === "text" && e.text === "Train")).toBe(true);
+    expect(d.flushActivity().join("")).toContain("完成科研图");
+  });
+
+  it("applyPenMotif 用可编辑画笔和基础形状生成科研语义图元", () => {
+    const d = new DraftCanvas([]);
+    const result = d.applyPenMotif({
+      kind: "neural-network",
+      x: 120,
+      y: 140,
+      width: 220,
+      height: 150,
+      scientificId: "encoder-detail",
+      regionId: "model",
+    });
+    expect(result.ok).toBe(true);
+    expect(result.ids?.length).toBeGreaterThan(8);
+    const elements = d.serialize().elements;
+    expect(elements.filter((e) => e.type === "pen").length).toBeGreaterThan(5);
+    expect(elements.some((e) => e.type === "ellipse")).toBe(true);
+    expect(elements.every((e) => e.scientificRole === "decoration")).toBe(true);
+    expect(elements.every((e) => e.scientificId === "encoder-detail")).toBe(true);
+  });
+
+  it("applyPenMotif custom 将归一化笔迹限制在指定边界框", () => {
+    const d = new DraftCanvas([]);
+    const result = d.applyPenMotif({
+      kind: "custom", x: 100, y: 200, width: 120, height: 80,
+      strokes: [[{ x: -1, y: 0.5 }, { x: 0.5, y: 2 }, { x: 1, y: 0 }]],
+    });
+    expect(result.ok).toBe(true);
+    const pen = d.serialize().elements.find((e) => e.type === "pen");
+    expect(pen?.type === "pen" ? pen.points : []).toEqual([
+      { x: 100, y: 240 }, { x: 160, y: 280 }, { x: 220, y: 200 },
+    ]);
+  });
+
+  it("applyScientificDiagram 长流水线自动折行、分区避碰、注释就近换行且跨行连线正交", () => {
+    const d = new DraftCanvas([]);
+    const nodes = Array.from({ length: 9 }, (_, i) => ({
+      id: `n${i + 1}`,
+      text: `阶段 ${i + 1}`,
+      role: "process" as const,
+      group: i < 7 ? "feature" : "head",
+      detail: "执行关键处理并输出中间特征",
+    }));
+    const edges = nodes.slice(0, -1).map((node, i) => ({ from: node.id, to: nodes[i + 1].id, relation: "data-flow" as const }));
+    const result = d.applyScientificDiagram({
+      title: "论文级模型流水线",
+      domain: "machine-learning",
+      layout: "pipeline",
+      groups: [
+        { id: "feature", label: "特征学习", semantic: "model" },
+        { id: "head", label: "任务头", semantic: "evaluation" },
+      ],
+      nodes,
+      edges,
+      notes: [{ text: "该说明较长，用于验证注释会在紧邻主图的位置自动换行，而不是被固定到画布最底部。", target: "n7" }],
+    });
+    expect(result.ok).toBe(true);
+    expect(result.quality?.passed).toBe(true);
+    const els = d.serialize().elements;
+    const boxes = els.filter((e) => e.type === "logic");
+    expect(boxes).toHaveLength(9);
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        const a = boxes[i], b = boxes[j];
+        const overlaps = a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+        expect(overlaps).toBe(false);
+      }
+    }
+    const groupPanels = els.filter((e) => e.type === "rect" && e.fillOpacity === 0.42);
+    expect(groupPanels.length).toBeGreaterThanOrEqual(3); // 第一分区跨行后拆为两个连续面板
+    const crossRow = els.find((e) => e.type === "arrow" && e.startId === boxes[5].id && e.endId === boxes[6].id);
+    expect(crossRow?.type === "arrow" ? crossRow.midPoints : undefined).toHaveLength(2);
+    const noteCard = els.find((e) => e.type === "rect" && e.fillOpacity === 0.7);
+    expect(noteCard).toBeTruthy();
+    expect(noteCard!.y).toBeLessThan(750);
+    const noteLines = els.filter((e) => e.type === "text" && e.fontSize === 12 && e.y >= noteCard!.y && e.y < noteCard!.y + noteCard!.height);
+    expect(noteLines.length).toBeGreaterThan(1);
+  });
+
+  it("applyScientificDiagram 为网络安全图区分攻击路径、防御关系和信任边界", () => {
+    const d = new DraftCanvas([]);
+    const r = d.applyScientificDiagram({
+      title: "零信任环境下的攻击检测与响应",
+      domain: "cybersecurity",
+      layout: "layered-lr",
+      nodes: [
+        { id: "actor", text: "攻击者", role: "threat" },
+        { id: "edge", text: "边界网络", role: "network" },
+        { id: "ids", text: "入侵检测", role: "defense" },
+        { id: "siem", text: "SIEM", role: "storage" },
+        { id: "response", text: "自动响应", role: "output" },
+      ],
+      edges: [
+        { from: "actor", to: "edge", relation: "attack", label: "恶意流量" },
+        { from: "edge", to: "ids", relation: "trust", label: "身份校验" },
+        { from: "ids", to: "siem", relation: "data-flow", label: "告警" },
+        { from: "response", to: "edge", relation: "defense", label: "隔离" },
+      ],
+    });
+    expect(r.ok).toBe(true);
+    const arrows = d.serialize().elements.filter((e) => e.type === "arrow");
+    expect(arrows.some((e) => e.stroke === "#c43d3d")).toBe(true);
+    expect(arrows.some((e) => e.stroke === "#16806f")).toBe(true);
+    expect(arrows.some((e) => e.head === "double" && e.dash?.join(",") === "3,3")).toBe(true);
+  });
+
+  it("applyScientificDiagram 在引用未知分组/节点时不产生半成品", () => {
+    const d = new DraftCanvas([]);
+    expect(d.applyScientificDiagram({
+      title: "非法输入",
+      groups: [{ id: "g", label: "分组" }],
+      nodes: [{ id: "a", text: "A", role: "data", group: "missing" }],
+      edges: [],
+    }).ok).toBe(false);
+    expect(d.serialize().elements).toHaveLength(0);
+  });
+
+  it("applyMechanism 对未知区室和未知节点引用 fail-fast，且不创建元素", () => {
+    const d1 = new DraftCanvas([]);
+    expect(d1.applyMechanism({
+      compartments: [{ id: "cyto", label: "细胞质" }],
+      nodes: [{ id: "a", text: "A", compartment: "missing" }],
+      edges: [],
+    }).ok).toBe(false);
+    expect(d1.serialize().elements).toHaveLength(0);
+
+    const d2 = new DraftCanvas([]);
+    expect(d2.applyMechanism({
+      compartments: [{ id: "cyto", label: "细胞质" }],
+      nodes: [{ id: "a", text: "A", compartment: "cyto" }],
+      edges: [{ from: "a", to: "missing" }],
+    }).ok).toBe(false);
+    expect(d2.serialize().elements).toHaveLength(0);
   });
 
   it("createElement 支持 dash 虚线描边并透传到元素", () => {
@@ -547,13 +770,15 @@ describe("DraftCanvas", () => {
     expect(new Set(xs).size).toBe(2); // x 不相同 = 已错开
   });
 
-  it("applyChart 校验：空数据 / 负值 / 过多 / 未知类型报错且不创建元素", () => {
+  it("applyChart 校验：空数据 / 负值 / 未知类型报错；大量数据（>60 项）不设上限可正常创建", () => {
     const d = new DraftCanvas([]);
     expect(d.applyChart({ type: "bar", data: [] }).ok).toBe(false);
     expect(d.applyChart({ type: "bar", data: [{ label: "a", value: -1 }] }).ok).toBe(false);
-    expect(d.applyChart({ type: "bar", data: Array.from({ length: 61 }, (_, i) => ({ label: `d${i}`, value: i })) }).ok).toBe(false);
+    // 数据量上限已移除：61 项（如 61 年/61 国）不再被拒绝，可正常生成图表
+    const big = d.applyChart({ type: "bar", data: Array.from({ length: 61 }, (_, i) => ({ label: `d${i}`, value: i + 1 })) });
+    expect(big.ok).toBe(true);
+    expect(d.serialize().elements.length).toBeGreaterThan(0);
     expect(d.applyChart({ type: "weird" as never, data: [{ label: "a", value: 1 }] }).ok).toBe(false);
-    expect(d.serialize().elements).toHaveLength(0);
   });
 
   it("createElement 把字面 \\n 转成真换行（模型转义修复）", () => {
@@ -755,6 +980,13 @@ describe("runAgent", () => {
       model: "deepseek-chat",
       onEvent: (ev) => events.push(ev),
     });
+    expect(events[0]).toMatchObject({ type: "status", phase: "thinking" });
+    const drawingIndex = events.findIndex((e) => e.type === "status" && e.phase === "drawing");
+    const progressIndex = events.findIndex((e) => e.type === "progress");
+    const firstSnapshotIndex = events.findIndex((e) => e.type === "snapshot");
+    expect(drawingIndex).toBeGreaterThan(0);
+    expect(progressIndex).toBeGreaterThan(drawingIndex);
+    expect(firstSnapshotIndex).toBeGreaterThan(progressIndex);
     const snapshots = events.filter((e) => e.type === "snapshot");
     expect(snapshots.length).toBeGreaterThan(0);
     expect(snapshots[0].canvas.elements).toHaveLength(1);

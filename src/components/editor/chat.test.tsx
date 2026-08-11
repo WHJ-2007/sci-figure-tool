@@ -16,6 +16,55 @@ function mockStream(events: unknown[]) {
 }
 
 describe("ChatPanel", () => {
+  it("新版复制按钮写入剪贴板并显示成功对勾状态", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    vi.mocked(fetch).mockResolvedValueOnce(mockStream([
+      { type: "complete", canvas: { width: 1600, height: 1000, elements: [] }, summary: "可复制的科研说明" },
+    ]));
+    render(<ChatPanel />);
+    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "生成说明" } });
+    fireEvent.click(screen.getByText("一键生成"));
+    await waitFor(() => expect(screen.getByText("可复制的科研说明")).toBeInTheDocument());
+
+    const copyButtons = screen.getAllByLabelText("复制消息");
+    fireEvent.click(copyButtons[copyButtons.length - 1]);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("可复制的科研说明"));
+    expect(screen.getByLabelText("已复制")).toBeInTheDocument();
+  });
+
+  it("streams planning and drawing status while canvas snapshots apply before completion", async () => {
+    let ctrl!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({ start(c) { ctrl = c; } });
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(stream, { headers: { "Content-Type": "application/x-ndjson" } }));
+    render(<ChatPanel />);
+    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "draw a pipeline" } });
+    fireEvent.click(screen.getByText("一键生成"));
+
+    const enc = new TextEncoder();
+    ctrl.enqueue(enc.encode(JSON.stringify({ type: "status", phase: "thinking", message: "Analyzing the requested structure" }) + "\n"));
+    await waitFor(() => expect(screen.getByText("Analyzing the requested structure")).toBeInTheDocument());
+    expect(screen.getByTestId("canvas-sync-receipt")).toHaveTextContent("规划阶段 · 画布未变更");
+
+    ctrl.enqueue(enc.encode(JSON.stringify({ type: "status", phase: "drawing", message: "Creating the model nodes" }) + "\n"));
+    ctrl.enqueue(enc.encode(JSON.stringify({ type: "progress", activity: ["Created model node"] }) + "\n"));
+    const node = makeElement("rect", 10, 10, 100, 60);
+    ctrl.enqueue(enc.encode(JSON.stringify({ type: "snapshot", canvas: { width: 1600, height: 1000, elements: [node] } }) + "\n"));
+    await waitFor(() => expect(screen.getByText("Creating the model nodes")).toBeInTheDocument());
+    expect(screen.getByText("Created model node")).toBeInTheDocument();
+    await waitFor(() => expect(useCanvasStore.getState().doc.elements).toHaveLength(1));
+    expect(screen.getByTestId("canvas-sync-receipt")).toHaveTextContent("已同步 1 次 · 1 个对象");
+
+    ctrl.enqueue(enc.encode(JSON.stringify({ type: "status", phase: "checking", message: "Checking layout" }) + "\n"));
+    await waitFor(() => expect(screen.getByText("Checking layout")).toBeInTheDocument());
+    expect(screen.getByTestId("canvas-sync-receipt")).toHaveTextContent("已同步 1 次 · 1 个对象");
+
+    ctrl.enqueue(enc.encode(JSON.stringify({ type: "complete", canvas: { width: 1600, height: 1000, elements: [node] }, summary: "Done" }) + "\n"));
+    ctrl.close();
+    await waitFor(() => expect(screen.getByText("Done")).toBeInTheDocument());
+    expect(screen.queryByTestId("ai-typing")).toBeNull();
+  });
+
   it("发送消息显示在对话中，生成中思考步骤出现，生成完成后应用画布", async () => {
     let ctrl!: ReadableStreamDefaultController<Uint8Array>;
     const stream = new ReadableStream<Uint8Array>({ start(c) { ctrl = c; } });
@@ -153,12 +202,14 @@ describe("ChatPanel", () => {
     fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "我的问题" } });
     fireEvent.click(screen.getByText("一键生成"));
     await waitFor(() => expect(screen.getByText(/AI 回复内容/)).toBeInTheDocument());
-    // 用户消息 + AI 回复各有一个复制按钮；可见性由 CSS group-hover 控制（默认 hidden，hover 显示）
+    // 用户消息 + AI 回复各有一个复制按钮；默认透明且不接收指针，悬停/键盘焦点后显示。
     const copyBtns = screen.getAllByLabelText("复制消息");
     expect(copyBtns.length).toBe(2);
     for (const btn of copyBtns) {
-      expect(btn.className).toContain("group-hover/msg:flex");
-      expect(btn.className).toContain("hidden");
+      expect(btn.className).toContain("pointer-events-none");
+      expect(btn.className).toContain("opacity-0");
+      expect(btn.className).toContain("group-hover/msg:opacity-100");
+      expect(btn.className).toContain("focus-visible:opacity-100");
     }
     // 点击复制用户消息内容
     fireEvent.click(copyBtns[0]);

@@ -1,4 +1,4 @@
-// 运行日志收集：hook console（log/info/warn/error），保留最近 200 条带时间戳的日志，
+// 运行日志收集：hook console（log/info/warn/error），保留最近 500 条带时间戳的日志，
 // 供设置弹窗「运行日志一键复制」排查问题（报错信息、AI 生成失败等）。
 // 仅浏览器环境生效（模块级惰性初始化），jsdom 测试环境不拦截 console 以免干扰测试断言。
 
@@ -8,7 +8,7 @@ interface LogEntry {
   text: string;
 }
 
-const MAX = 200;
+const MAX = 500;
 let entries: LogEntry[] = [];
 let installed = false;
 

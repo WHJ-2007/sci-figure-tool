@@ -215,6 +215,8 @@ describe("PropertyPanel", () => {
     useCanvasStore.getState().addElement(a);
     useCanvasStore.getState().setSelection([a.id]);
     render(<PropertyPanel />);
+    const iconPaths = [...screen.getByTestId("flip-v-icon").querySelectorAll("path")].map((path) => path.getAttribute("d"));
+    expect(iconPaths).toEqual(["M3 12h18", "m8 7 4-4 4 4", "m8 17 4 4 4-4"]);
     fireEvent.click(screen.getByTitle("垂直镜像"));
     expect(useCanvasStore.getState().doc.elements[0].flipV).toBe(true);
   });

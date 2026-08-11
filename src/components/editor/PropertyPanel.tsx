@@ -480,11 +480,11 @@ export default function PropertyPanel() {
               (chartId ? !!doc.charts?.[chartId]?.flipV : !!one.flipV) ? "border-blue-300 bg-blue-100 text-blue-700" : "border-white/60 bg-white/70 text-gray-600 shadow-sm hover:bg-white/90"
             }`}
           >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              {/* 垂直镜像：水平中线 + 上箭头朝上、下箭头朝下（表达上下翻转） */}
+            <svg data-testid="flip-v-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              {/* 与水平镜像同一套开放箭头语言：中轴水平，箭头围绕 x=12 上下对称。 */}
               <path d="M3 12h18" />
-              <path d="M5 8l3-4 3 4" />
-              <path d="M5 16l3 4 3-4" />
+              <path d="m8 7 4-4 4 4" />
+              <path d="m8 17 4 4 4-4" />
             </svg>
             垂直
           </button>

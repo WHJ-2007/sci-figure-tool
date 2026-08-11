@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { CHANGELOG, APP_VERSION } from "@/lib/changelog";
 
@@ -8,11 +8,11 @@ import { CHANGELOG, APP_VERSION } from "@/lib/changelog";
 // 版本内分一级标题/二级标题：一级标题点击展开/收起，展示其下二级标题与小内容，带展开收回动画。
 export default function ChangelogDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [page, setPage] = useState(0);
-  // 展开的一级标题集合：默认展开当前版本第一个有内容的一级标题
-  const [expanded, setExpanded] = useState<Set<string>>(() => {
-    const first = CHANGELOG.find((v) => v.sections.length > 0);
-    return new Set(first && first.sections.length > 0 ? [first.sections[0].title] : []);
-  });
+  // 更新日志用于按需查阅：每次打开与每次翻页都从全折叠状态开始。
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    if (open) setExpanded(new Set());
+  }, [open, page]);
   if (!open) return null;
   const total = CHANGELOG.length;
   const entry = CHANGELOG[page];
@@ -55,6 +55,7 @@ export default function ChangelogDialog({ open, onClose }: { open: boolean; onCl
             {entry.sections.length === 0 && <p className="text-xs text-gray-400">暂无更新内容</p>}
             {entry.sections.map((sec) => {
               const isOpen = expanded.has(sec.title);
+              const contentId = `changelog-${page}-${sec.title.replace(/\s+/g, "-")}`;
               return (
                 <div key={sec.title} className="overflow-hidden rounded-xl border border-white/40 bg-white/60 shadow-sm backdrop-blur-xl">
                   <button
@@ -62,12 +63,13 @@ export default function ChangelogDialog({ open, onClose }: { open: boolean; onCl
                     onClick={() => toggle(sec.title)}
                     className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-white/70"
                     aria-expanded={isOpen}
+                    aria-controls={contentId}
                   >
                     <span className={`shrink-0 text-gray-400 transition-transform duration-200 ${isOpen ? "rotate-90" : ""}`}>▶</span>
                     <span className="text-sm font-semibold text-gray-800">{sec.title}</span>
                   </button>
                   {/* 展开动画：grid-template-rows 0fr → 1fr */}
-                  <div className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
+                  <div id={contentId} aria-hidden={!isOpen} className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
                     <div className="overflow-hidden">
                       <div className="space-y-3 border-t border-white/50 px-4 py-3">
                         {sec.subsections.map((sub) => (

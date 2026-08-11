@@ -192,7 +192,6 @@ export default function ChartDialog({
       data.push({ label, value: v, series: isPie ? undefined : r.series.trim() || undefined, color: r.color.trim() || undefined });
     }
     if (data.length < 1) { setErr("至少 1 行数据"); return; }
-    if (data.length > 60) { setErr("最多 60 行数据"); return; }
     if (data.reduce((s, d) => s + d.value, 0) <= 0) { setErr("数据总和必须大于 0"); return; }
     // 尺寸滑块：合并进 at.scale（保留已有位置偏移）；新建时把图表几何中心对准当前视口中心
     const prevAt = chartId ? useCanvasStore.getState().doc.charts?.[chartId]?.at : undefined;
@@ -373,11 +372,10 @@ export default function ChartDialog({
             </div>
           ))}
         </div>
-        {/* 添加行：自动预填下一个自动配色（新建标签自动换好颜色） */}
+        {/* 添加行：自动预填下一个自动配色（新建标签自动换好颜色）；无数据量上限，可添加任意多行 */}
         <button
           onClick={() => setRows((rs) => [...rs, { label: "", value: "", series: "", color: autoColor(rs.length) }])}
-          disabled={rows.length >= 60}
-          className="mt-2 lift rounded-lg border border-white/60 bg-white/70 px-2 py-0.5 text-xs text-gray-600 disabled:opacity-40"
+          className="mt-2 lift rounded-lg border border-white/60 bg-white/70 px-2 py-0.5 text-xs text-gray-600 hover:bg-white/90"
         >
           + 添加行
         </button>

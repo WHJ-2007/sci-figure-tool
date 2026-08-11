@@ -97,6 +97,18 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
   const [zooming, setZooming] = useState(false);
   const zoomTimerRef = useRef<number | null>(null);
 
+  // WASD 键盘平移也显示左下角缩略图：useShortcuts 每次移动派发 canvas-wasd-pan，
+  // 这里复用 zooming 显示机制（停止 800ms 后自动收起），与滚轮缩放行为一致
+  useEffect(() => {
+    const onWasdPan = () => {
+      setZooming(true);
+      if (zoomTimerRef.current) window.clearTimeout(zoomTimerRef.current);
+      zoomTimerRef.current = window.setTimeout(() => setZooming(false), 800);
+    };
+    window.addEventListener("canvas-wasd-pan", onWasdPan);
+    return () => window.removeEventListener("canvas-wasd-pan", onWasdPan);
+  }, []);
+
   // 每次换算实时读 store 的 view：任何时刻的换算基准都与渲染一致，
   // 不依赖闭包捕获的 view 快照（拖动中若 view 变化会与按下时的 startX 混算，元素位移被放大）
   const worldX = useCallback((clientX: number) => {
@@ -367,7 +379,7 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
       {/* 玻璃面板包裹画布：撑满整个画布容器（高度与右侧 AI 面板天然齐平），
           svg 内容固定 1200×800 居中；inset-2 四周留边距让外投影完整显示，
           不再被容器边缘/相邻面板裁切（阴影断裂）；溢出内容由玻璃面板自身裁剪 */}
-      <div ref={glassRef} className="glass-canvas absolute inset-2 flex items-center justify-center overflow-hidden">
+      <div ref={glassRef} data-canvas-surface className="glass-canvas absolute inset-2 flex items-center justify-center overflow-hidden">
       <svg
         ref={svgRef}
         width={viewportWidth}

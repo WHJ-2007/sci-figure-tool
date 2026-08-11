@@ -35,6 +35,12 @@ export default function ChatPanel() {
   const [waitingAnswer, setWaitingAnswer] = useState<string | null>(null);
   // A9 可点击选项：当前等待回答的问题的可点击选项（点选即作为回答发送）
   const [questionOptions, setQuestionOptions] = useState<string[] | null>(null);
+  // 仅在本轮生成期间存在的实时状态气泡：不写入对话历史，不冒充 AI 的最终回答。
+  const [liveStatus, setLiveStatus] = useState<{ phase: "thinking" | "drawing" | "checking"; message: string } | null>(null);
+  // 真实画布同步收据：只在收到 snapshot 后递增。状态气泡据此显示“已同步”，
+  // 不再在纯思考/只读检查阶段承诺画布正在变化。
+  const [canvasSync, setCanvasSync] = useState<{ revision: number; elements: number }>({ revision: 0, elements: 0 });
+  const [copiedMessage, setCopiedMessage] = useState<number | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   // A5 画布守卫：记录本轮请求对应的画布 id，生成中切换画布 → 后续事件全部丢弃
   const requestProjectIdRef = useRef<string | null>(null);
@@ -60,10 +66,11 @@ export default function ChatPanel() {
   // 持久化到 chatThreads-{projectId}（兼容旧 chatMessages-{projectId} 单对话格式，加载时自动迁移）
   interface Thread { id: string; name: string; messages: Msg[] }
   const threadsKey = (pid: string) => `chatThreads-${pid}`;
-  const [threads, setThreads] = useState<Thread[]>([]);
-  const [activeThreadId, setActiveThreadId] = useState("");
-  const threadsRef = useRef<Thread[]>([]);
-  const activeThreadIdRef = useRef("");
+  const initialThreadId = `t-${currentProjectId}-default`;
+  const [threads, setThreads] = useState<Thread[]>(() => [{ id: initialThreadId, name: "对话 1", messages: [] }]);
+  const [activeThreadId, setActiveThreadId] = useState(initialThreadId);
+  const threadsRef = useRef<Thread[]>(threads);
+  const activeThreadIdRef = useRef(initialThreadId);
   useEffect(() => { threadsRef.current = threads; }, [threads]);
   useEffect(() => { activeThreadIdRef.current = activeThreadId; }, [activeThreadId]);
 
@@ -258,7 +265,7 @@ export default function ChatPanel() {
 
   useEffect(() => {
     bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
-  }, [messages]);
+  }, [messages, liveStatus, activity]);
 
   // A3 提问澄清：收到问题后聚焦输入框，等待用户回答
   useEffect(() => {
@@ -282,6 +289,8 @@ export default function ChatPanel() {
     setInput("");
     setActivity([]);
     setError("");
+    setLiveStatus({ phase: "thinking", message: "正在连接 AI 并读取当前任务…" });
+    setCanvasSync({ revision: 0, elements: s.doc.elements.length });
     setGenerating(true);
     // 生成前基线：基线内元素允许被 AI 快照合并替换；基线外且未被 AI 触碰的本地元素保留
     useCanvasStore.getState().setAiBaseline(s.doc.elements.map((e) => e.id));
@@ -358,9 +367,14 @@ export default function ChatPanel() {
               break;
             }
             const ev = JSON.parse(line) as AgentEvent;
-            if (ev.type === "progress") {
+            if (ev.type === "status") {
+              setLiveStatus({ phase: ev.phase, message: ev.message });
+            }
+            else if (ev.type === "progress") {
               const items = ev.activity ?? [];
-              if (items.length) useCanvasStore.setState((s) => ({ activity: [...s.activity, ...items] }));
+              if (items.length) {
+                useCanvasStore.setState((s) => ({ activity: [...s.activity, ...items] }));
+              }
             }
             else if (ev.type === "new-canvas") {
               // AI 新建画布：创建并切换到新项目，撤销基线重置为新画布空态；
@@ -372,6 +386,7 @@ export default function ChatPanel() {
             } else if (ev.type === "snapshot") {
               useCanvasStore.getState().applyAISnapshot(ev.canvas);
               lastSnapshot = ev.canvas;
+              setCanvasSync((receipt) => ({ revision: receipt.revision + 1, elements: ev.canvas.elements.length }));
               // 累积本轮 AI 触碰的元素 id：前端锁定（不可选中/拖动）+ 快照合并排除（AI 可删除自己的元素）
               const touched = ev.touched ?? [];
               if (touched.length) {
@@ -385,6 +400,7 @@ export default function ChatPanel() {
             } else if (ev.type === "complete") {
               finalDoc = ev.canvas;
               summary = ev.summary ?? "";
+              setLiveStatus(null);
             } else if (ev.type === "question") {
               // A3 提问澄清：若 AI 提问前已画了元素（不应发生）则按问题优先全部丢弃——恢复生成前基线；
               // 问题作为 assistant 消息入对话，等待用户回答后走主流程继续生成
@@ -396,6 +412,7 @@ export default function ChatPanel() {
               setWaitingAnswer(ev.question);
               // A9 可点击选项：AI 提供选项时渲染可点击按钮，点选即作为回答发送
               setQuestionOptions(ev.options && ev.options.length > 0 ? ev.options : null);
+              setLiveStatus(null);
             } else if (ev.type === "confirm-request") {
               // 生成主体结束：把最后快照作为最终结果入历史（一步 undo 回到生成前），再弹确认框；
               // AI 文字回复先入对话（与 complete 分支的 summary 行为一致，空串不产生气泡）
@@ -406,7 +423,11 @@ export default function ChatPanel() {
                 setMessages((m) => [...m, { role: "assistant", content: ev.summary, referenced: refs.length ? refs.join("、") : undefined }]);
               }
               setConfirmReq({ sessionId: ev.sessionId, summary: ev.summary, pending: ev.pending });
-            } else if (ev.type === "error") setError(ev.message);
+              setLiveStatus(null);
+            } else if (ev.type === "error") {
+              setError(ev.message);
+              setLiveStatus(null);
+            }
             else if (ev.type === "referenced") {
               // 跨画布引用：记录画布名，追加 assistant 消息时打标（气泡下方显示「引用了…画布」）
               referencedRef.current = [...referencedRef.current, ev.canvasName];
@@ -434,6 +455,7 @@ export default function ChatPanel() {
       // 生成结束：解除全部锁定与基线（applyAIResult 已把最终画布合并入栈）
       useCanvasStore.getState().setAiLocked([]);
       useCanvasStore.getState().setAiBaseline([]);
+      setLiveStatus(null);
       setGenerating(false);
     }
   };
@@ -542,10 +564,36 @@ export default function ChatPanel() {
     }
   };
 
+  const phaseLabel = liveStatus?.phase === "drawing" ? "正在绘制" : liveStatus?.phase === "checking" ? "正在检查" : "正在规划";
+  const syncReceipt = canvasSync.revision > 0
+    ? `已同步 ${canvasSync.revision} 次 · ${canvasSync.elements} 个对象`
+    : liveStatus?.phase === "checking"
+      ? "只读检查 · 画布未变更"
+      : liveStatus?.phase === "drawing"
+        ? "等待首个画布操作"
+        : "规划阶段 · 画布未变更";
+
   return (
-    <div className="flex h-full flex-col bg-transparent">
+    <div className="flex h-full flex-col bg-[#f7f9fc] text-slate-800">
       {/* 对话标签页：多对话切换 / 新建 / 删除 / 右键重命名（单画布内） */}
-      <div className="border-b border-white/50 px-2 py-1.5">
+      <div className="border-b border-slate-200/80 bg-white px-3 pb-2 pt-3">
+        <div className="mb-3 flex items-center justify-between">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-slate-900 text-blue-200 shadow-[0_5px_14px_rgba(15,23,42,0.18)]">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M4 7.5 12 3l8 4.5-8 4.5-8-4.5Z" />
+                <path d="m4 12 8 4.5 8-4.5M4 16.5l8 4.5 8-4.5" />
+              </svg>
+            </span>
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold tracking-[-0.01em] text-slate-900">科研绘图助手</div>
+            </div>
+          </div>
+          <span className={`flex items-center gap-1.5 text-[10px] font-medium ${isGenerating ? "text-blue-700" : "text-emerald-700"}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${isGenerating ? "animate-pulse bg-blue-500" : "bg-emerald-500"}`} aria-hidden="true" />
+            {isGenerating ? "工作中" : "就绪"}
+          </span>
+        </div>
         <div className="flex items-center gap-1 overflow-x-auto">
           {threads.map((t) => {
             const active = t.id === activeThreadId;
@@ -558,8 +606,8 @@ export default function ChatPanel() {
                   e.preventDefault();
                   renameThread(t.id);
                 }}
-                className={`flex h-7 shrink-0 items-center gap-1 rounded-lg border px-2 text-xs ${
-                  active ? "border-blue-400 bg-blue-600 text-white" : "border-white/60 bg-white/40 text-gray-600 hover:bg-white/70"
+                className={`flex h-7 shrink-0 items-center gap-1 rounded-lg px-2 text-xs transition-colors ${
+                  active ? "bg-slate-100 font-medium text-slate-900 ring-1 ring-inset ring-slate-200" : "text-slate-500 hover:bg-slate-100 hover:text-slate-800"
                 }`}
               >
                 <button
@@ -572,7 +620,7 @@ export default function ChatPanel() {
                 <button
                   title={`删除对话 ${t.name}`}
                   onClick={() => deleteThread(t.id)}
-                  className="lift flex h-4 w-4 shrink-0 items-center justify-center rounded text-xs leading-none hover:bg-red-500 hover:text-white"
+                  className="lift flex h-4 w-4 shrink-0 items-center justify-center rounded text-xs leading-none opacity-55 hover:bg-red-500 hover:text-white hover:opacity-100"
                 >
                   ×
                 </button>
@@ -582,24 +630,32 @@ export default function ChatPanel() {
           <button
             title="新建对话"
             onClick={newThread}
-            className="lift flex h-7 w-7 shrink-0 items-center justify-center rounded border border-dashed border-white/60 bg-white/40 text-gray-600 hover:bg-white/70"
+            className="lift flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-dashed border-slate-300 text-slate-500 hover:border-slate-400 hover:bg-slate-100 hover:text-slate-800"
           >
             +
           </button>
         </div>
       </div>
-      <div className="border-b border-white/50 px-4 py-3">
-        <span className="text-sm font-semibold text-gray-700">AI 助手</span>
-      </div>
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3.5 pb-12 pt-3.5 text-sm" ref={bodyRef}>
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-10 pt-4 text-sm" ref={bodyRef}>
+        {messages.length === 0 && !isGenerating && (
+          <div className="mx-auto mt-8 max-w-[17rem] text-center" data-testid="chat-empty">
+            <div className="mx-auto mb-3 grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-500 shadow-[0_5px_16px_rgba(15,23,42,0.06)]">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4v-4a2 2 0 0 1-2-2V7a3 3 0 0 1 3-3Z" />
+                <path d="M7 9h10M7 13h6" />
+              </svg>
+            </div>
+            <p className="text-sm font-medium text-slate-700">告诉AI你想画什么</p>
+          </div>
+        )}
         {messages.map((m, i) => (
-          <div key={i} className="group/msg relative after:absolute after:top-full after:left-0 after:right-0 after:h-4 after:content-['']">
-            <div className={`flex max-w-[85%] ${m.role === "user" ? "ml-auto flex-col items-end" : "flex-col items-start"}`}>
+          <div key={i} className="group/msg relative after:absolute after:left-0 after:right-0 after:top-full after:h-7 after:content-['']">
+            <div className={`flex ${m.role === "user" ? "ml-auto max-w-[86%] flex-col items-end" : "max-w-[94%] flex-col items-start"}`}>
               <div
-                className={`msg-in w-fit border px-3.5 py-2 backdrop-blur-xl ${
+                className={`msg-in w-fit px-3.5 py-2.5 leading-6 ${
                   m.role === "user"
-                    ? "rounded-[14px_14px_4px_14px] border-blue-400/40 bg-blue-500/85 text-white shadow-md"
-                    : "rounded-[14px_14px_14px_4px] border-white/60 bg-white/80 text-gray-800 shadow-md"
+                    ? "rounded-[15px_15px_5px_15px] bg-blue-600 text-white shadow-[0_5px_14px_rgba(37,99,235,0.18)]"
+                    : "rounded-[5px_15px_15px_15px] border border-slate-200 bg-white text-slate-700 shadow-[0_5px_16px_rgba(15,23,42,0.05)]"
                 }`}
               >
                 {m.content}
@@ -683,39 +739,71 @@ export default function ChatPanel() {
                   hover 保持：容器 after 向下延伸热区（与按钮重叠），鼠标从气泡移向按钮的路径上
                   容器始终处于 hover（group-hover 不失效），到达按钮后按钮自身 hover 保持，不会闪隐 */}
               <button
-                title="复制"
-                aria-label="复制消息"
-                onClick={() => {
-                  navigator.clipboard?.writeText(m.content).catch(() => {});
+                title={copiedMessage === i ? "已复制" : "复制"}
+                aria-label={copiedMessage === i ? "已复制" : "复制消息"}
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard?.writeText(m.content);
+                    setCopiedMessage(i);
+                    window.setTimeout(() => setCopiedMessage((current) => current === i ? null : current), 1400);
+                  } catch {
+                    // 浏览器拒绝剪贴板权限时保持原状态，不显示虚假成功。
+                  }
                 }}
-                className={`lift absolute top-full z-10 mt-0.5 hidden h-5 items-center gap-1 rounded-full border border-white/50 bg-white/80 px-2 text-[10px] text-gray-500 shadow-sm backdrop-blur-xl hover:bg-white/90 group-hover/msg:flex hover:flex ${
+                className={`pointer-events-none absolute top-full z-10 mt-1 grid h-7 w-7 place-items-center rounded-lg border border-slate-200 bg-white text-slate-400 opacity-0 shadow-[0_4px_12px_rgba(15,23,42,0.08)] transition-[opacity,color,background-color,border-color,transform] duration-150 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-700 active:translate-y-px group-hover/msg:pointer-events-auto group-hover/msg:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/60 ${
                   m.role === "user" ? "right-0" : "left-0"
                 }`}
               >
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <rect x="9" y="9" width="13" height="13" rx="2" />
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                </svg>
-                复制
+                {copiedMessage === i ? (
+                  <svg className="text-emerald-600" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="m5 12 4 4L19 6" />
+                  </svg>
+                ) : (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <rect x="8" y="8" width="11" height="11" rx="2" />
+                    <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
+                  </svg>
+                )}
               </button>
             </div>
           </div>
         ))}
         {isGenerating && messages.length > 0 && messages[messages.length - 1].role === "user" && (
-          <div data-testid="ai-typing" className="msg-in w-fit rounded-[14px_14px_14px_4px] border border-white/60 bg-white/80 px-3.5 py-2 shadow-md backdrop-blur-xl">
-            {activity.length === 0 ? (
-              <div className="flex items-center gap-1">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500 [animation-delay:150ms]" />
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500 [animation-delay:300ms]" />
+          <div
+            data-testid="ai-typing"
+            aria-live="polite"
+            className="msg-in relative w-full overflow-hidden rounded-2xl bg-slate-900 px-4 py-3.5 text-white shadow-[0_10px_28px_rgba(15,23,42,0.20)]"
+          >
+            <span className="ai-live-scan absolute inset-x-0 top-0 h-0.5 bg-blue-400" aria-hidden="true" />
+            <div className="flex items-start gap-2.5">
+              <span className="relative mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-white/10 text-blue-300">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1" />
+                </svg>
+                <span className="ai-live-pulse absolute inset-0 rounded-lg border border-blue-300/60" aria-hidden="true" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-white">
+                    {phaseLabel}
+                  </span>
+                  <span className="rounded-md bg-white/10 px-1.5 py-0.5 text-[10px] text-blue-200" data-testid="canvas-sync-receipt">
+                    {syncReceipt}
+                  </span>
+                </div>
+                <p key={liveStatus?.message} className="toast-in mt-1 text-xs leading-5 text-slate-300">
+                  {liveStatus?.message ?? "正在理解需求、识别图类型并组织信息层级…"}
+                </p>
               </div>
-            ) : (
-              <div className="space-y-1" data-testid="thinking-steps">
-                {activity.map((a, idx) => (
-                  <div key={`${idx}-${a}`} className="flex items-center gap-1.5 text-xs text-gray-500">
-                    <span className={idx === activity.length - 1 ? "h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-blue-500" : "shrink-0 text-emerald-500"}>
-                      {idx === activity.length - 1 ? "" : "✓"}
-                    </span>
+            </div>
+            {activity.length > 0 && (
+              <div className="mt-3 space-y-1.5 border-t border-white/10 pt-2.5" data-testid="thinking-steps">
+                {activity.slice(-5).map((a, idx, shown) => (
+                  <div key={`${activity.length - shown.length + idx}-${a}`} className="flex items-start gap-1.5 text-[11px] leading-4 text-slate-300">
+                    <svg className="mt-0.5 shrink-0 text-emerald-400" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="m5 12 4 4L19 6" />
+                    </svg>
                     <span>{a}</span>
                   </div>
                 ))}
@@ -723,27 +811,35 @@ export default function ChatPanel() {
             )}
           </div>
         )}
-        {error && <div className="rounded-xl border border-red-200/60 bg-red-100/40 p-2 text-xs text-red-700 backdrop-blur-xl">{error}</div>}
+        {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs leading-5 text-red-700">{error}</div>}
       </div>
       {/* AI 思考过程已整合进对话气泡（不再单独挂外部活动气泡） */}
-      <div className="border-t border-white/50 p-3">
-        <textarea
+      <div className="border-t border-slate-200 bg-white p-3">
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-2 shadow-[0_5px_18px_rgba(15,23,42,0.06)] focus-within:border-blue-300 focus-within:bg-white">
+          <textarea
           id="chat-input"
           ref={inputRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
           placeholder={waitingAnswer ? "回答后继续生成…" : "描述你想画的图…（回车发送）"}
-          rows={3}
-          className="w-full resize-none rounded-xl border border-white/60 bg-white/60 px-3 py-2 text-sm text-gray-700 shadow-sm outline-none backdrop-blur-xl focus:border-blue-400"
-        />
-        <button
-          onClick={send}
-          disabled={isGenerating || !input.trim()}
-          className="lift mt-1.5 w-full rounded-xl bg-blue-600/85 px-3.5 py-1.5 text-sm text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
-        >
-          {isGenerating ? "生成中…" : "一键生成"}
-        </button>
+            rows={3}
+            className="w-full resize-none bg-transparent px-2 py-1.5 text-sm leading-6 text-slate-800 outline-none placeholder:text-slate-400"
+          />
+          <div className="flex items-center justify-between gap-2 px-1 pt-1">
+            <span className="text-[10px] text-slate-400">Enter 发送 · Shift+Enter 换行</span>
+            <button
+              onClick={send}
+              disabled={isGenerating || !input.trim()}
+              className="lift flex h-8 items-center gap-1.5 rounded-lg bg-slate-900 px-3 text-xs font-medium text-white shadow-[0_4px_10px_rgba(15,23,42,0.18)] hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
+            >
+              {isGenerating ? "生成中…" : "一键生成"}
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="m5 12 14-8-4 16-3-6-7-2Z" />
+              </svg>
+            </button>
+          </div>
+        </div>
       </div>
       {confirmReq && confirmReq.pending.length > 0 && (
         <div className="px-3 pb-2 text-center text-[10px] text-gray-400">请在对话气泡内选择允许或不允许</div>
