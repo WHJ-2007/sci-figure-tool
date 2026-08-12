@@ -259,11 +259,25 @@ export async function svgToPngDataUrl(svg: string, width: number, height: number
   }
 }
 
+// 统一下载：data URL 或 blob URL 都挂载到 document.body 再 click（部分浏览器/旧版 Safari
+// 不挂载 DOM 的 <a>.click() 不触发下载或产出 0B 文件），点击后移除锚点。
+// blob URL 不能立即 revoke——浏览器读取是异步的，立即释放会导致下载 0 字节（导出 SVG/PNG 0B 的根因）
 export function downloadDataUrl(dataUrl: string, filename: string) {
+  triggerDownload(dataUrl, filename);
+}
+
+function triggerDownload(href: string, filename: string, revokeUrl?: string) {
   const a = document.createElement("a");
-  a.href = dataUrl;
+  a.href = href;
   a.download = filename;
+  a.style.display = "none";
+  document.body.appendChild(a);
   a.click();
+  a.remove();
+  if (revokeUrl) {
+    // 延迟释放 blob URL：等浏览器完成异步下载读取后再回收（10s 足够）
+    window.setTimeout(() => URL.revokeObjectURL(revokeUrl), 10_000);
+  }
 }
 
 // PNG 导出超采样倍率：4x 超高清（6400×4000），矢量渲染放大到最大也无锯齿
@@ -364,9 +378,6 @@ export function exportSvgFile(doc: CanvasDocument, filename = "figure.svg", crop
   // includeBackground 默认 false 保持旧行为（透明背景贴论文）；勾选"包含背景色"后 SVG 也带画布背景
   const blob = new Blob([serializeSVG(doc, 1, includeBackground, crop)], { type: "image/svg+xml" });
   const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+  // 挂载 DOM 触发下载 + 延迟释放 blob URL：立即 revoke 会导致下载 0 字节（导出 0B 的根因）
+  triggerDownload(url, filename, url);
 }

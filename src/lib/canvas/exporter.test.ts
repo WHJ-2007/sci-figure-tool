@@ -1,5 +1,5 @@
-import { describe, it, expect, afterEach } from "vitest";
-import { serializeSVG, elementToSvg, exportSvgFile } from "./exporter";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import { serializeSVG, elementToSvg, exportSvgFile, downloadDataUrl } from "./exporter";
 import { makeElement } from "./elements";
 import type { CanvasElement } from "./types";
 
@@ -402,5 +402,55 @@ describe("exporter", () => {
     expect(captured).not.toBeNull();
     const text2 = await blobText(captured!);
     expect(text2).not.toContain('<rect x="0" y="0" width="1600" height="1000"');
+  });
+
+  it("exportSvgFile：锚点挂载到 body 触发下载，blob URL 延迟释放而非立即 revoke（修复导出 0B）", () => {
+    const origCreate = URL.createObjectURL;
+    const origRevoke = URL.revokeObjectURL;
+    const origClick = HTMLAnchorElement.prototype.click;
+    const clicked: { href: string; download: string; inDom: boolean }[] = [];
+    let revokeCount = 0;
+    URL.createObjectURL = () => "blob:delayed";
+    URL.revokeObjectURL = () => { revokeCount += 1; };
+    HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) {
+      clicked.push({ href: this.href, download: this.download, inDom: this.isConnected });
+    };
+    afterEach(() => {
+      URL.createObjectURL = origCreate;
+      URL.revokeObjectURL = origRevoke;
+      HTMLAnchorElement.prototype.click = origClick;
+      vi.useRealTimers();
+    });
+    // 先开假定时器再调用：让延迟释放的 setTimeout 注册到假定时器上，之后才能 advance 触发
+    vi.useFakeTimers();
+    const doc = { width: 1600, height: 1000, elements: [makeElement("rect", 10, 10, 100, 60)] };
+    exportSvgFile(doc, "figure.svg");
+    // 下载锚点：blob URL + 正确文件名 + 已挂载到 DOM（未挂载的部分浏览器产出 0B）
+    expect(clicked).toHaveLength(1);
+    expect(clicked[0].href).toBe("blob:delayed");
+    expect(clicked[0].download).toBe("figure.svg");
+    expect(clicked[0].inDom).toBe(true);
+    // blob URL 延迟释放：点击后不应立即 revoke（立即释放 = 下载 0 字节的根因）
+    expect(revokeCount).toBe(0);
+    // 延迟释放生效：触发定时器后 revoke 才执行
+    vi.advanceTimersByTime(10_001);
+    expect(revokeCount).toBe(1);
+    vi.useRealTimers();
+  });
+
+  it("downloadDataUrl：锚点挂载到 body 触发下载，避免 0B 文件", () => {
+    const origClick = HTMLAnchorElement.prototype.click;
+    const clicked: { href: string; download: string; inDom: boolean }[] = [];
+    HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) {
+      clicked.push({ href: this.href, download: this.download, inDom: this.isConnected });
+    };
+    afterEach(() => {
+      HTMLAnchorElement.prototype.click = origClick;
+    });
+    downloadDataUrl("data:image/png;base64,AAAA", "figure.png");
+    expect(clicked).toHaveLength(1);
+    expect(clicked[0].href).toBe("data:image/png;base64,AAAA");
+    expect(clicked[0].download).toBe("figure.png");
+    expect(clicked[0].inDom).toBe(true);
   });
 });
