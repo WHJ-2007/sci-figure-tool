@@ -438,20 +438,40 @@ describe("exporter", () => {
     vi.useRealTimers();
   });
 
-  it("downloadDataUrl：锚点挂载到 body 触发下载，避免 0B 文件", () => {
+  it("downloadDataUrl：data URL 转 Blob 下载（锚点挂载 body + 延迟 revoke），避免 0B 文件", () => {
     const origClick = HTMLAnchorElement.prototype.click;
+    const origCreate = URL.createObjectURL;
+    const origRevoke = URL.revokeObjectURL;
     const clicked: { href: string; download: string; inDom: boolean }[] = [];
+    let created: Blob | null = null;
+    let revokeCount = 0;
     HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) {
       clicked.push({ href: this.href, download: this.download, inDom: this.isConnected });
     };
+    URL.createObjectURL = (blob: Blob) => {
+      created = blob;
+      return "blob:png";
+    };
+    URL.revokeObjectURL = () => { revokeCount += 1; };
     afterEach(() => {
       HTMLAnchorElement.prototype.click = origClick;
+      URL.createObjectURL = origCreate;
+      URL.revokeObjectURL = origRevoke;
     });
+    vi.useFakeTimers();
+    // PNG data URL → Blob：解码字节应与 base64 一致（避免超大 data URL 直接 href 下载失败 0B）
     downloadDataUrl("data:image/png;base64,AAAA", "figure.png");
+    expect(created).not.toBeNull();
+    expect(created!.type).toBe("image/png");
     expect(clicked).toHaveLength(1);
-    expect(clicked[0].href).toBe("data:image/png;base64,AAAA");
+    expect(clicked[0].href).toBe("blob:png");
     expect(clicked[0].download).toBe("figure.png");
     expect(clicked[0].inDom).toBe(true);
+    // blob URL 延迟释放：点击后不立即 revoke（立即释放 = 下载 0 字节的根因）
+    expect(revokeCount).toBe(0);
+    vi.advanceTimersByTime(10_001);
+    expect(revokeCount).toBe(1);
+    vi.useRealTimers();
   });
 
   it("全部元素类型序列化后都是合法 XML：无重复属性、无未转义/非法字符（SVG 图片加载不报错）", () => {

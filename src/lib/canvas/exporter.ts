@@ -264,10 +264,30 @@ export async function svgToPngDataUrl(svg: string, width: number, height: number
 }
 
 // 统一下载：data URL 或 blob URL 都挂载到 document.body 再 click（部分浏览器/旧版 Safari
-// 不挂载 DOM 的 <a>.click() 不触发下载或产出 0B 文件），点击后移除锚点。
-// blob URL 不能立即 revoke——浏览器读取是异步的，立即释放会导致下载 0 字节（导出 SVG/PNG 0B 的根因）
+// 不挂载 DOM 的 <a>.click() 不触发下载或产出 0B 文件）。
+// 关键时序：点击下载是异步的，立即移除锚点或立即 revoke blob URL 会让浏览器读取不到内容，
+// 下载得到 0 字节文件（导出 SVG/PNG 0B 的根因）——统一延迟到下载开始后再清理。
 export function downloadDataUrl(dataUrl: string, filename: string) {
-  triggerDownload(dataUrl, filename);
+  // PNG base64 可能达数 MB~数十 MB：超大 data URL 直接当 href 在部分浏览器下载失败（0B）。
+  // 统一转成 Blob 再用 blob URL 下载，更可靠；转换失败（格式异常）回退直接 data URL 下载
+  try {
+    const blob = dataUrlToBlob(dataUrl);
+    const url = URL.createObjectURL(blob);
+    triggerDownload(url, filename, url);
+  } catch {
+    triggerDownload(dataUrl, filename);
+  }
+}
+
+function dataUrlToBlob(dataUrl: string): Blob {
+  const comma = dataUrl.indexOf(",");
+  const meta = comma >= 0 ? dataUrl.slice(0, comma) : "";
+  const b64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+  const mime = /data:([^;]+)/.exec(meta)?.[1] ?? "application/octet-stream";
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
 }
 
 function triggerDownload(href: string, filename: string, revokeUrl?: string) {
@@ -277,11 +297,12 @@ function triggerDownload(href: string, filename: string, revokeUrl?: string) {
   a.style.display = "none";
   document.body.appendChild(a);
   a.click();
-  a.remove();
-  if (revokeUrl) {
-    // 延迟释放 blob URL：等浏览器完成异步下载读取后再回收（10s 足够）
-    window.setTimeout(() => URL.revokeObjectURL(revokeUrl), 10_000);
-  }
+  // 点击后延迟清理：立即 remove / revoke 在部分浏览器（尤其 Firefox/Chrome 大文件）中
+  // 下载会得到 0 字节文件；10s 足够浏览器完成异步下载读取
+  window.setTimeout(() => {
+    a.remove();
+    if (revokeUrl) URL.revokeObjectURL(revokeUrl);
+  }, 10_000);
 }
 
 // PNG 导出超采样倍率：4x 超高清（6400×4000），矢量渲染放大到最大也无锯齿
