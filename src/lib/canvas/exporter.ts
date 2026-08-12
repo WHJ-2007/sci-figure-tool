@@ -16,7 +16,7 @@ export function elementToSvg(e: CanvasElement): string {
   const strokeOpacity = e.strokeOpacity !== undefined ? ` stroke-opacity="${e.opacity * e.strokeOpacity}"` : "";
   const dash = e.dash ? ` stroke-dasharray="${e.dash.join(" ")}"` : "";
   const filter = e.shadow ? ` filter="url(#sh-${e.id})"` : "";
-  const attrs = `x="${e.x}" y="${e.y}" fill="${e.fill}" stroke="${e.stroke}" stroke-width="${e.strokeWidth}"${dash}${dash} opacity="${e.opacity}"${fillOpacity}${strokeOpacity}`;
+  const attrs = `x="${e.x}" y="${e.y}" fill="${e.fill}" stroke="${e.stroke}" stroke-width="${e.strokeWidth}"${dash} opacity="${e.opacity}"${fillOpacity}${strokeOpacity}`;
   const t = elementTransform(e);
   const rot = t ? ` transform="${t}"` : "";
   // 投影 filter 引用（defs 由 serializeSVG 输出），与渲染一致的 id

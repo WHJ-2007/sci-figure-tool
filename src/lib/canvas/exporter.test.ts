@@ -56,6 +56,8 @@ describe("exporter", () => {
     const a = makeElement("arrow", 0, 0, 100, 50, { dash: [8, 4] });
     const out = elementToSvg(a);
     expect(out).toContain('stroke-dasharray="8 4"');
+    // 只出现一次：XML 不允许重复属性，重复会让 SVG 作为图片加载失败（img.onerror 报"SVG 图片加载失败"）
+    expect(out.match(/stroke-dasharray=/g)).toHaveLength(1);
     // 无 dash 的旧元素不输出该属性，保持兼容
     expect(elementToSvg(makeElement("rect", 0, 0, 50, 50))).not.toContain("stroke-dasharray");
   });
