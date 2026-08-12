@@ -4,9 +4,11 @@ import { contrastTextColor, elementTransform } from "./elements";
 import { latexToUnicode } from "./formula";
 
 const XML_ESCAPE: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" };
+// XML 1.0 非法控制字符（除 \t \n \r 外）：文本/属性里出现会直接导致 SVG 图片加载失败（img.onerror）
+const XML_ILLEGAL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uD800-\uDFFF\uFFFE\uFFFF]/g;
 
 function esc(s: string): string {
-  return s.replace(/[&<>"]/g, (c) => XML_ESCAPE[c]);
+  return s.replace(/[&<>"]/g, (c) => XML_ESCAPE[c]).replace(XML_ILLEGAL, "");
 }
 
 export function elementToSvg(e: CanvasElement): string {
@@ -161,8 +163,10 @@ export function elementToSvg(e: CanvasElement): string {
       return `<text ${textAttrs} x="${tx}" y="${e.y + e.height / 2}" text-anchor="${anchor}" dominant-baseline="middle" font-size="${e.fontSize}" font-family="${e.fontFamily}"${weight}${style}${rot}${sh}>${esc(latexToUnicode(e.text))}</text>`;
     }
     case "image":
-      // 位图图片：与画布渲染一致（拉伸填充 + 描边边框）
-      return `<g${rot}${sh}><image x="${e.x}" y="${e.y}" width="${e.width}" height="${e.height}" href="${esc(e.src)}" preserveAspectRatio="none" opacity="${e.opacity}"/><rect ${attrs} width="${e.width}" height="${e.height}" fill="none" stroke="${e.stroke}" stroke-width="${e.strokeWidth}"${dash} opacity="${e.opacity}"/></g>`;
+      // 位图图片：与画布渲染一致（拉伸填充 + 描边边框）。
+      // attrs 已含 x/y/fill/stroke/stroke-width/dash/opacity，边框 rect 只补 width/height——
+      // 再追加 fill/stroke 等会重复属性，XML 不允许重复属性（img.onerror 报"SVG 图片加载失败"）
+      return `<g${rot}${sh}><image x="${e.x}" y="${e.y}" width="${e.width}" height="${e.height}" href="${esc(e.src)}" preserveAspectRatio="none" opacity="${e.opacity}"/><rect ${attrs} width="${e.width}" height="${e.height}"/></g>`;
     case "logic": {
       // 逻辑节点：可多种外形（矩形/平行四边形/菱形）+ 标题（顶部）+ 多行正文（小 2 号），布局与 logicBoxSize 公式一致
       const weight = e.bold ? ' font-weight="bold"' : "";

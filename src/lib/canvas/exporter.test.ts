@@ -453,4 +453,50 @@ describe("exporter", () => {
     expect(clicked[0].download).toBe("figure.png");
     expect(clicked[0].inDom).toBe(true);
   });
+
+  it("全部元素类型序列化后都是合法 XML：无重复属性、无未转义/非法字符（SVG 图片加载不报错）", () => {
+    const parseErrors = (svg: string): string[] => {
+      const doc = new DOMParser().parseFromString(svg, "text/xml");
+      const errs = doc.getElementsByTagName("parsererror");
+      return Array.from(errs).map((e) => e.textContent ?? "");
+    };
+    const cases: [string, CanvasElement][] = [
+      ["rect+dash", makeElement("rect", 0, 0, 50, 50, { dash: [8, 4] })],
+      ["ellipse", makeElement("ellipse", 10, 10, 40, 30)],
+      ["triangle", makeElement("triangle", 20, 20, 40, 40)],
+      ["arrow+midpoint", makeElement("arrow", 0, 0, 100, 50, { midPoints: [{ x: 30, y: 20 }], dash: [4, 2] })],
+      ["arrow double", makeElement("arrow", 0, 0, 100, 0, { head: "double" })],
+      ["arrow none", makeElement("arrow", 0, 0, 100, 50, { head: "none" })],
+      ["polyline", makeElement("polyline", 0, 0, 0, 0, { points: [{ x: 0, y: 0 }, { x: 50, y: 50 }] })],
+      ["pen", makeElement("pen", 0, 0, 0, 0, { points: [{ x: 0, y: 0 }, { x: 10, y: 10 }] })],
+      ["text 特殊字符", makeElement("text", 0, 0, 100, 20, { text: "A&B <C> \"D\"" })],
+      ["formula", makeElement("formula", 0, 0, 100, 20, { text: "\\alpha + \\beta" })],
+      ["image dataURL", makeElement("image", 0, 0, 50, 50, { src: "data:image/png;base64,iVBORw0KGgo=" })],
+      ["logic", makeElement("logic", 0, 0, 120, 60, { text: "标题", body: "第一行\n第二行" })],
+      ["sector", makeElement("sector", 100, 100, 40, 40, { radius: 20, startAngle: 0, endAngle: Math.PI })],
+      ["curve", makeElement("curve", 0, 0, 80, 40, { curvature: 0.5 })],
+      ["donut", makeElement("donut", 0, 0, 60, 60)],
+      ["half", makeElement("half", 0, 0, 60, 40)],
+      ["star", makeElement("star", 0, 0, 60, 60)],
+      ["cross", makeElement("cross", 0, 0, 60, 60)],
+      ["hexagon", makeElement("hexagon", 0, 0, 60, 60)],
+      ["diamond", makeElement("diamond", 0, 0, 60, 60)],
+      ["logic parallelogram", makeElement("logic", 0, 0, 120, 60, { text: "t", shape: "parallelogram" })],
+      ["logic diamond", makeElement("logic", 0, 0, 120, 60, { text: "t", shape: "diamond" })],
+    ];
+    const bad: string[] = [];
+    for (const [name, el] of cases) {
+      const out = elementToSvg(el);
+      const errs = parseErrors(`<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">${out}</svg>`);
+      if (errs.length) bad.push(`${name}: ${errs[0]}`);
+    }
+    expect(bad).toEqual([]);
+    // 整画布序列化同样合法（覆盖阴影 defs / 重复属性等组合场景）
+    const svg = serializeSVG({
+      width: 1600,
+      height: 1000,
+      elements: cases.map(([, el]) => el),
+    });
+    expect(parseErrors(svg)).toEqual([]);
+  });
 });
