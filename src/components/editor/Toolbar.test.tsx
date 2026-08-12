@@ -115,7 +115,7 @@ describe("Toolbar 悬浮坞", () => {
     expect(screen.queryByTitle("重命名画布")).toBeNull();
     const dock = screen.getByTitle("撤销").closest(".fixed")!;
     const titles = [...dock.querySelectorAll("button")].map((b) => b.getAttribute("title"));
-    expect(titles).toEqual(["撤销", "时间线", "重做", "选择", "图形", "箭头", "画笔", "文本框", "公式", "逻辑", "图表", "图片"]);
+    expect(titles).toEqual(["撤销", "历史", "重做", "选择", "图形", "箭头", "画笔", "文本框", "公式", "逻辑", "图表", "图片"]);
     // 子工具默认收在气泡里
     expect(screen.queryByTitle("矩形")).toBeNull();
   });
@@ -131,21 +131,33 @@ describe("Toolbar 悬浮坞", () => {
     expect(spy).toHaveBeenCalled();
   });
 
-  it("导出菜单：点导出图标弹 SVG/PNG 选项；SVG 直接导出，PNG 展开选项面板（含背景 + 分辨率）后导出并关闭菜单", () => {
+  it("导出菜单：格式/范围/清晰度三平行选项；SVG 直接导出，PNG 选清晰度后导出并显示进度条", async () => {
     render(<Toolbar />);
     fireEvent.click(screen.getByTitle("导出"));
+    // 三平行选项：导出格式（SVG/PNG 切换）、导出范围、导出清晰度
     expect(screen.getByTitle("导出 SVG")).toBeInTheDocument();
     expect(screen.getByTitle("导出 PNG")).toBeInTheDocument();
+    expect(screen.getByLabelText("导出范围")).toBeInTheDocument();
+    // SVG：切换格式 → 点统一导出按钮（title="导出文件"）
     fireEvent.click(screen.getByTitle("导出 SVG"));
+    fireEvent.click(screen.getByTitle("导出文件"));
     expect(exportSvgFile).toHaveBeenCalledTimes(1);
-    expect(screen.queryByTitle("导出 SVG")).toBeNull();
-    // PNG：重新打开菜单 → 点击 PNG 展开选项面板（含背景 + 分辨率）→ 点导出按钮执行
+    expect(screen.queryByTitle("导出文件")).toBeNull();
+    // PNG：重新打开菜单 → 切 PNG → 选清晰度 → 导出并显示进度条
     fireEvent.click(screen.getByTitle("导出"));
     fireEvent.click(screen.getByTitle("导出 PNG"));
     expect(screen.getByTestId("png-options")).toBeInTheDocument();
-    fireEvent.click(screen.getByTitle("导出 PNG 文件"));
+    fireEvent.click(screen.getByTitle("导出清晰度 8X"));
+    fireEvent.click(screen.getByTitle("导出文件"));
     expect(exportPng).toHaveBeenCalledTimes(1);
-    expect(screen.queryByTitle("导出 PNG 文件")).toBeNull();
+    expect(exportPng).toHaveBeenCalledWith(
+      expect.anything(),
+      "figure.png",
+      expect.objectContaining({ scale: 8 })
+    );
+    // 导出期间显示进度条（大图分块实时反馈），完成后异步关闭菜单
+    expect(screen.getByTestId("export-progress")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByTitle("导出文件")).toBeNull());
   });
 
   it("导出菜单点击外部关闭", () => {

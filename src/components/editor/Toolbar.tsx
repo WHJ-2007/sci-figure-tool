@@ -274,13 +274,17 @@ export default function Toolbar() {
   const [timelineOpen, setTimelineOpen] = useState(false);
   const timelineRef = useRef<HTMLDivElement>(null);
   const [exportOpen, setExportOpen] = useState(false);
-  // PNG 导出选项：范围（全部/框选/对象）+ 含背景色 + 分辨率倍率（1x/4x/8x/64x）
-  const [pngOpts, setPngOpts] = useState<{ range: "all" | "frame" | "object"; includeBackground: boolean; scale: number }>({
+  // 导出选项：格式（SVG/PNG）+ 范围（全部/框选/对象）+ 清晰度倍率（1x/4x/8x/64x，仅 PNG）+ 含背景色
+  const [pngOpts, setPngOpts] = useState<{ format: "svg" | "png"; range: "all" | "frame" | "object"; includeBackground: boolean; scale: number }>({
+    format: "png",
     range: "all",
     includeBackground: false,
     scale: 4,
   });
   const [tabMenu, setTabMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  // 导出进度（大图分块渲染实时上报）与错误提示：进度条替代"点了没反应"，失败不再被 console.error 吞掉
+  const [exportProgress, setExportProgress] = useState<{ done: number; total: number } | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [chartOpen, setChartOpen] = useState(false);
   const [formulaOpen, setFormulaOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -414,6 +418,53 @@ export default function Toolbar() {
   // 框选模式：直接进入框选状态即可——聚焦（高亮画布 + 暗化周围）由 Canvas 用与教学引导同款的
   // 聚光灯实现（不改视口），此处不再缩放视口（此前缩放 0.75x 全画布与引导式聚焦语义不符）
 
+  // 统一导出：格式/范围/清晰度三平行选项共用一份处理逻辑。
+  // 范围 → crop：对象用选中元素包围盒，框选用 exportFrame；全部不裁剪。
+  // SVG 矢量忽略清晰度倍率；PNG 按倍率超采样并走分块渲染 + 进度回调
+  const doExport = () => {
+    const { format, includeBackground, scale, range } = pngOpts;
+    let crop: { x: number; y: number; width: number; height: number } | undefined;
+    if (range === "frame") {
+      const f = useCanvasStore.getState().exportFrame;
+      if (f) crop = { x: f.x, y: f.y, width: Math.max(f.width, 1), height: Math.max(f.height, 1) };
+    } else if (range === "object") {
+      const sel = useCanvasStore.getState().selection;
+      const els = doc.elements.filter((e) => sel.includes(e.id));
+      if (els.length > 0) {
+        const xs = els.flatMap((e) => [e.x, e.x + e.width]);
+        const ys = els.flatMap((e) => [e.y, e.y + e.height]);
+        crop = { x: Math.min(...xs), y: Math.min(...ys), width: Math.max(Math.max(...xs) - Math.min(...xs), 1), height: Math.max(Math.max(...ys) - Math.min(...ys), 1) };
+      }
+    }
+    setExportError(null);
+    if (format === "svg") {
+      try {
+        exportSvgFile(doc, "figure.svg", crop, includeBackground);
+        setExportOpen(false);
+      } catch (err) {
+        setExportError(err instanceof Error ? err.message : String(err));
+      }
+      return;
+    }
+    setExportProgress({ done: 0, total: 1 });
+    // 进度条实时反馈：大图分块渲染逐块上报，失败显示错误而非静默（修复"点了没反应"）
+    exportPng(doc, "figure.png", {
+      scale,
+      includeBackground,
+      crop,
+      onProgress: (done, total) => setExportProgress({ done, total }),
+    })
+      .then(() => {
+        // 导出完成：进度条已显示全过程，关闭菜单回到画布
+        setExportProgress(null);
+        setExportOpen(false);
+      })
+      .catch((err: unknown) => {
+        setExportProgress(null);
+        setExportError(err instanceof Error ? err.message : String(err));
+      });
+  };
+
   return (
     <>
       {/* 顶栏：画布标签页 + 导出 + 设置（工具/编辑沉到左侧坞）。
@@ -524,52 +575,42 @@ export default function Toolbar() {
               <div ref={exportMenuRef} className="fixed z-50 w-52 overflow-hidden rounded-xl border border-white/50 bg-white/40 shadow-xl backdrop-blur-2xl backdrop-saturate-150"
                    style={{ top: 48, right: 12 }}
                    data-testid="export-menu">
-              <div className="max-h-[70vh] overflow-y-auto">
-              <button
-                title="导出 SVG"
-                onClick={() => {
-                  // SVG 同样支持范围：对象用选中元素包围盒、框选用 exportFrame；全部不裁剪
-                  let crop: { x: number; y: number; width: number; height: number } | undefined;
-                  const range = pngOpts.range;
-                  if (range === "frame") {
-                    const f = useCanvasStore.getState().exportFrame;
-                    if (f) crop = { x: f.x, y: f.y, width: Math.max(f.width, 1), height: Math.max(f.height, 1) };
-                  } else if (range === "object") {
-                    const sel = useCanvasStore.getState().selection;
-                    const els = doc.elements.filter((e) => sel.includes(e.id));
-                    if (els.length > 0) {
-                      const xs = els.flatMap((e) => [e.x, e.x + e.width]);
-                      const ys = els.flatMap((e) => [e.y, e.y + e.height]);
-                      crop = { x: Math.min(...xs), y: Math.min(...ys), width: Math.max(Math.max(...xs) - Math.min(...xs), 1), height: Math.max(Math.max(...ys) - Math.min(...ys), 1) };
-                    }
-                  }
-                  setExportOpen(false);
-                  // SVG 同样支持"包含背景色"：跟随 PNG 面板的勾选状态（与导出 PNG 行为一致）
-                  exportSvgFile(doc, "figure.svg", crop, pngOpts.includeBackground);
-                }}
-                className="lift w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100"
-              >
-                SVG
-              </button>
-              {/* PNG 导出：点击展开选项面板（含背景 + 分辨率），设置后导出 */}
-              <button
-                title="导出 PNG"
-                onClick={() => setPngOpts((o) => ({ ...o, open: !(o as { open?: boolean }).open }))}
-                className="lift flex w-full items-center justify-between px-3 py-1.5 text-left text-sm hover:bg-gray-100"
-                aria-expanded={(pngOpts as { open?: boolean }).open}
-              >
-                PNG
-                <span className={`text-[10px] text-gray-400 transition-transform ${(pngOpts as { open?: boolean }).open ? "rotate-180" : ""}`}>▾</span>
-              </button>
-              {(pngOpts as { open?: boolean }).open && (
-                <div className="space-y-2 border-t border-white/50 px-3 py-2" data-testid="png-options">
-                  <div className="flex items-center gap-1.5 text-xs text-gray-600">
-                    <span className="shrink-0">范围</span>
+              <div className="max-h-[70vh] space-y-3 overflow-y-auto p-3">
+                {/* 导出格式：SVG / PNG 平行切换（分段控件，选中高亮） */}
+                <div>
+                  <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-gray-400">导出格式</div>
+                  <div className="grid grid-cols-2 gap-1 rounded-lg bg-white/60 p-0.5">
+                    <button
+                      title="导出 SVG"
+                      aria-pressed={pngOpts.format === "svg"}
+                      onClick={() => setPngOpts((o) => ({ ...o, format: "svg" }))}
+                      className={`lift rounded-md px-2 py-1 text-xs transition-colors ${
+                        pngOpts.format === "svg" ? "bg-white font-medium text-blue-700 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                      }`}
+                    >
+                      SVG 矢量
+                    </button>
+                    <button
+                      title="导出 PNG"
+                      aria-pressed={pngOpts.format === "png"}
+                      onClick={() => setPngOpts((o) => ({ ...o, format: "png" }))}
+                      className={`lift rounded-md px-2 py-1 text-xs transition-colors ${
+                        pngOpts.format === "png" ? "bg-white font-medium text-blue-700 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                      }`}
+                    >
+                      PNG 位图
+                    </button>
+                  </div>
+                </div>
+                {/* 导出范围：全部 / 选中对象 / 框选区域（平行选项，框选时附「框选…」入口） */}
+                <div data-testid="png-options">
+                  <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-gray-400">导出范围</div>
+                  <div className="flex items-center gap-1.5">
                     <select
                       value={pngOpts.range}
                       aria-label="导出范围"
                       onChange={(e) => setPngOpts((o) => ({ ...o, range: e.target.value as "all" | "frame" | "object" }))}
-                      className="flex-1 rounded border border-gray-200 bg-white/70 px-1 py-0.5 text-xs"
+                      className="h-7 min-w-0 flex-1 rounded-lg border border-white/60 bg-white/70 px-1.5 text-xs text-gray-700 outline-none focus:border-blue-300"
                     >
                       <option value="all">全部画布</option>
                       <option value="object">选中对象</option>
@@ -585,62 +626,81 @@ export default function Toolbar() {
                           useCanvasStore.getState().setFramingExport(true);
                           setExportOpen(false);
                         }}
-                        className="lift shrink-0 rounded border border-blue-300 bg-blue-50 px-1.5 py-0.5 text-[11px] text-blue-600 hover:bg-blue-100"
+                        className="lift shrink-0 rounded-lg border border-blue-300 bg-blue-50 px-2 py-1 text-[11px] text-blue-600 hover:bg-blue-100"
                       >
                         框选…
                       </button>
                     )}
                   </div>
-                  <label className="flex items-center gap-1.5 text-xs text-gray-600">
-                    <input
-                      type="checkbox"
-                      checked={pngOpts.includeBackground}
-                      aria-label="导出含背景颜色"
-                      onChange={(e) => setPngOpts((o) => ({ ...o, includeBackground: e.target.checked }))}
-                    />
-                    含背景颜色
-                  </label>
-                  <div className="flex items-center gap-1.5 text-xs text-gray-600">
-                    <span className="shrink-0">分辨率</span>
-                    <select
-                      value={pngOpts.scale}
-                      aria-label="导出分辨率"
-                      onChange={(e) => setPngOpts((o) => ({ ...o, scale: Number(e.target.value) }))}
-                      className="flex-1 rounded border border-gray-200 bg-white/70 px-1 py-0.5 text-xs"
-                    >
-                      <option value={1}>1X（{rangeDims ? `${Math.round(rangeDims.w)}×${Math.round(rangeDims.h)}` : "未框选"}）</option>
-                      <option value={4}>4X（{rangeDims ? `${Math.round(rangeDims.w * 4)}×${Math.round(rangeDims.h * 4)}` : "未框选"}）</option>
-                      <option value={8}>8X（{rangeDims ? `${Math.round(rangeDims.w * 8)}×${Math.round(rangeDims.h * 8)}` : "未框选"}）</option>
-                      <option value={64}>64X（{rangeDims ? `${Math.round(rangeDims.w * 64)}×${Math.round(rangeDims.h * 64)}` : "未框选"}）</option>
-                    </select>
-                  </div>
-                  <button
-                    title="导出 PNG 文件"
-                    onClick={() => {
-                      const { includeBackground, scale, range } = pngOpts;
-                      // 范围 → crop：对象用选中元素包围盒，框选用 exportFrame；全部不裁剪
-                      let crop: { x: number; y: number; width: number; height: number } | undefined;
-                      if (range === "frame") {
-                        const f = useCanvasStore.getState().exportFrame;
-                        if (f) crop = { x: f.x, y: f.y, width: Math.max(f.width, 1), height: Math.max(f.height, 1) };
-                      } else if (range === "object") {
-                        const sel = useCanvasStore.getState().selection;
-                        const els = doc.elements.filter((e) => sel.includes(e.id));
-                        if (els.length > 0) {
-                          const xs = els.flatMap((e) => [e.x, e.x + e.width]);
-                          const ys = els.flatMap((e) => [e.y, e.y + e.height]);
-                          crop = { x: Math.min(...xs), y: Math.min(...ys), width: Math.max(Math.max(...xs) - Math.min(...xs), 1), height: Math.max(Math.max(...ys) - Math.min(...ys), 1) };
-                        }
-                      }
-                      setExportOpen(false);
-                      exportPng(doc, "figure.png", { scale, includeBackground, crop }).catch(console.error);
-                    }}
-                    className="lift w-full rounded-lg bg-blue-600/85 px-3 py-1 text-center text-xs font-medium text-white hover:bg-blue-700"
-                  >
-                    导出 PNG
-                  </button>
                 </div>
-              )}
+                {/* 导出清晰度：1X/4X/8X/64X（仅 PNG 显示；SVG 矢量无清晰度概念） */}
+                {pngOpts.format === "png" && (
+                  <div>
+                    <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-gray-400">导出清晰度</div>
+                    <div className="grid grid-cols-4 gap-1 rounded-lg bg-white/60 p-0.5">
+                      {[1, 4, 8, 64].map((s) => (
+                        <button
+                          key={s}
+                          title={`导出清晰度 ${s}X`}
+                          aria-pressed={pngOpts.scale === s}
+                          onClick={() => setPngOpts((o) => ({ ...o, scale: s }))}
+                          className={`lift rounded-md px-1 py-1 text-[11px] transition-colors ${
+                            pngOpts.scale === s ? "bg-white font-medium text-blue-700 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                          }`}
+                        >
+                          {s}X
+                        </button>
+                      ))}
+                    </div>
+                    <div className="mt-0.5 text-right text-[10px] text-gray-400">
+                      {rangeDims ? `输出 ${Math.round(rangeDims.w * pngOpts.scale)}×${Math.round(rangeDims.h * pngOpts.scale)}` : "未框选"}
+                    </div>
+                  </div>
+                )}
+                {/* 含背景颜色（SVG/PNG 共用） */}
+                <label className="flex items-center gap-1.5 text-xs text-gray-600">
+                  <input
+                    type="checkbox"
+                    checked={pngOpts.includeBackground}
+                    aria-label="导出含背景颜色"
+                    onChange={(e) => setPngOpts((o) => ({ ...o, includeBackground: e.target.checked }))}
+                    className="h-3.5 w-3.5 accent-blue-600"
+                  />
+                  含背景颜色
+                </label>
+                {/* 导出按钮：统一走 doExport（格式/范围/清晰度三平行选项都设置好后一键导出） */}
+                <button
+                  title="导出文件"
+                  disabled={!!exportProgress}
+                  onClick={doExport}
+                  className="lift flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-slate-900 px-3 text-xs font-medium text-white shadow-[0_4px_10px_rgba(15,23,42,0.18)] hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
+                >
+                  {exportProgress ? "导出中…" : `导出${pngOpts.format === "svg" ? " SVG" : " PNG"}`}
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <path d="m7 10 5 5 5-5" />
+                    <path d="M12 15V3" />
+                  </svg>
+                </button>
+                {/* 导出进度条：分块渲染实时反馈（大图 64X 可能耗时数秒~数十秒） */}
+                {exportProgress && (
+                  <div className="space-y-1" data-testid="export-progress">
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-blue-100">
+                      <div
+                        className="h-full rounded-full bg-blue-500 transition-[width] duration-150"
+                        style={{ width: `${Math.round((exportProgress.done / Math.max(1, exportProgress.total)) * 100)}%` }}
+                      />
+                    </div>
+                    <div className="text-right text-[10px] text-gray-400">
+                      正在渲染 {exportProgress.done}/{exportProgress.total} 块…
+                    </div>
+                  </div>
+                )}
+                {exportError && (
+                  <div role="alert" data-testid="export-error" className="rounded-lg border border-red-200/70 bg-red-50/80 px-2 py-1 text-[11px] text-red-600">
+                    导出失败：{exportError}
+                  </div>
+                )}
               </div>
               </div>,
               document.body
@@ -658,10 +718,10 @@ export default function Toolbar() {
           <button title="撤销" onClick={undo} disabled={isGenerating || !canUndo} className="lift flex h-9 w-9 shrink-0 items-center justify-center rounded hover:bg-gray-100 disabled:bg-transparent disabled:opacity-40">{UNDO_ICON}</button>
           <span className="max-w-0 overflow-hidden whitespace-nowrap text-xs text-gray-600 opacity-0 transition-all duration-200 group-hover:ml-1.5 group-hover:mr-2.5 group-hover:max-w-20 group-hover:opacity-100">撤销</span>
         </div>
-        {/* 时间线：撤销/重做之间，点击弹出进度条，拖动快速撤销/重做到任意历史版本 */}
+        {/* 历史：撤销/重做之间，点击弹出进度条，拖动快速撤销/重做到任意历史版本 */}
         <div className="relative flex items-center" ref={timelineRef}>
           <button
-            title="时间线"
+            title="历史"
             onClick={() => setTimelineOpen(!timelineOpen)}
             aria-expanded={timelineOpen}
             disabled={isGenerating || (pastLen + futureLen === 0)}
@@ -669,7 +729,7 @@ export default function Toolbar() {
           >
             {TIMELINE_ICON}
           </button>
-          <span className="max-w-0 overflow-hidden whitespace-nowrap text-xs text-gray-600 opacity-0 transition-all duration-200 group-hover:ml-1.5 group-hover:mr-2.5 group-hover:max-w-20 group-hover:opacity-100">时间线</span>
+          <span className="max-w-0 overflow-hidden whitespace-nowrap text-xs text-gray-600 opacity-0 transition-all duration-200 group-hover:ml-1.5 group-hover:mr-2.5 group-hover:max-w-20 group-hover:opacity-100">历史</span>
           {timelineOpen && (
             <div className="absolute left-full top-0 z-40 ml-2 w-44 rounded-xl border border-white/50 bg-white/85 p-2 shadow-xl backdrop-blur-xl" data-testid="timeline-panel">
               <div className="mb-1 flex items-center justify-between text-[10px] font-medium text-gray-400">

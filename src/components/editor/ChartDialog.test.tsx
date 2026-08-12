@@ -129,4 +129,86 @@ describe("ChartDialog", () => {
     expect(spec.data).toHaveLength(1);
     expect(spec.data[0]).toMatchObject({ label: "A", value: 100 });
   });
+
+  it("预览交互：点击命中层选中元素显示选中框，拖动移动后保存写入 elementAdjust", () => {
+    render(<ChartDialog open={true} onClose={() => {}} />);
+    const labels = screen.getAllByLabelText(/标签 \d+/);
+    const values = screen.getAllByLabelText(/数值 \d+/);
+    fireEvent.change(labels[0], { target: { value: "Q1" } });
+    fireEvent.change(values[0], { target: { value: "10" } });
+    fireEvent.change(labels[1], { target: { value: "Q2" } });
+    fireEvent.change(values[1], { target: { value: "20" } });
+    // 预览已渲染，命中层覆盖各元素
+    const hit0 = screen.getByTestId("chart-hit-0");
+    const svg = hit0.closest("svg")!;
+    const container = svg.parentElement!;
+    // jsdom 无真实布局：打桩 svg 的 boundingRect 为 1:1（viewBox 1600×1000 与 rect 同尺寸），
+    // 使 client 坐标即 viewBox 坐标，拖动增量可直接断言
+    svg.getBoundingClientRect = () => ({ left: 0, top: 0, right: 1600, bottom: 1000, width: 1600, height: 1000, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    // 点击命中层 → 选中框出现
+    fireEvent.pointerDown(hit0, { clientX: 200, clientY: 200 });
+    expect(screen.getByTestId("chart-selection")).toBeInTheDocument();
+    // 拖动 +30/+20
+    fireEvent.pointerMove(container, { clientX: 230, clientY: 220 });
+    fireEvent.pointerUp(container);
+    // 保存：elementAdjust 应写入 spec（键 = chartElemKey，含 x/y 偏移）
+    fireEvent.click(screen.getByRole("button", { name: "生成图表" }));
+    const st = useCanvasStore.getState();
+    const spec = Object.values(st.doc.charts ?? {})[0];
+    expect(spec.elementAdjust).toBeTruthy();
+    const adj = Object.values(spec.elementAdjust!)[0];
+    expect(adj.x).toBeCloseTo(30, 6);
+    expect(adj.y).toBeCloseTo(20, 6);
+  });
+
+  it("预览交互：选中文字元素显示字号控件，+ 增大字号保存写入 fontSize 偏移", () => {
+    render(<ChartDialog open={true} onClose={() => {}} />);
+    const labels = screen.getAllByLabelText(/标签 \d+/);
+    const values = screen.getAllByLabelText(/数值 \d+/);
+    fireEvent.change(labels[0], { target: { value: "Q1" } });
+    fireEvent.change(values[0], { target: { value: "10" } });
+    fireEvent.change(labels[1], { target: { value: "Q2" } });
+    fireEvent.change(values[1], { target: { value: "20" } });
+    // 逐个点击命中层，找到文字元素（出现字号控件）
+    const hits = screen.getAllByTestId(/chart-hit-\d+/);
+    let fontHit: Element | null = null;
+    for (const h of hits) {
+      fireEvent.pointerDown(h, { clientX: 0, clientY: 0 });
+      fireEvent.pointerUp(h);
+      if (screen.queryByTestId("chart-font-control")) { fontHit = h; break; }
+    }
+    expect(fontHit).not.toBeNull();
+    const before = Number(screen.getByTestId("chart-font-size").textContent);
+    fireEvent.click(screen.getByLabelText("增大字号"));
+    const after = Number(screen.getByTestId("chart-font-size").textContent);
+    expect(after).toBe(before + 1);
+    // 保存：elementAdjust 里应有 fontSize 偏移
+    fireEvent.click(screen.getByRole("button", { name: "生成图表" }));
+    const st = useCanvasStore.getState();
+    const spec = Object.values(st.doc.charts ?? {})[0];
+    expect(spec.elementAdjust).toBeTruthy();
+    const adj = Object.values(spec.elementAdjust!)[0];
+    expect(adj.fontSize).toBe(1);
+  });
+
+  it("编辑已有图表：加载已保存的 elementAdjust，预览元素带上微调偏移", () => {
+    const s = useCanvasStore.getState();
+    const spec = {
+      type: "bar" as const,
+      data: [{ label: "A", value: 1 }, { label: "B", value: 2 }],
+      elementAdjust: { "bar:0": { x: 12, y: 8 } },
+    };
+    const els = layoutChart(spec).map((e) => ({ ...e, chartId: "c-adj" }));
+    s.applyChartEdit("c-adj", spec, els, []);
+    render(<ChartDialog open={true} chartId="c-adj" initial={spec} onClose={() => {}} />);
+    // 编辑数据不改变布局时，命中层第一个元素即 bar:0（x/y 已偏移）——验证微调被加载
+    const hit0 = screen.getByTestId("chart-hit-0");
+    fireEvent.pointerDown(hit0, { clientX: 0, clientY: 0 });
+    expect(screen.getByTestId("chart-selection")).toBeInTheDocument();
+    // 保存后 elementAdjust 保留（编辑数据本身不重置微调）
+    fireEvent.click(screen.getByRole("button", { name: "保存修改" }));
+    const st = useCanvasStore.getState();
+    const saved = st.doc.charts?.["c-adj"];
+    expect(saved?.elementAdjust?.["bar:0"]).toMatchObject({ x: 12, y: 8 });
+  });
 });

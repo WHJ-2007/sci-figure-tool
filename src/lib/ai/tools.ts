@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { tool } from "ai";
 import type { DraftCanvas } from "./draft";
-import { searchWeb, formatSearchResults } from "./search";
+import { searchAuthority, formatAuthorityResults } from "./search";
 
 const shapeType = z.enum(["rect", "ellipse", "triangle", "diamond", "hexagon", "star", "cross", "donut", "half", "arrow", "polyline", "text", "logic", "formula", "pen"]);
 
@@ -11,7 +11,7 @@ const branchSchema: z.ZodType<MindMapBranchInput> = z.lazy(() =>
   z.object({
     keyword: z.string().describe("分支关键词（实义语义名词，≤8 字）"),
     body: z.string().optional().describe("分支要点（多行用 \\n 分隔，每行一个要点 ≤12 字，可省略）"),
-    fill: z.string().optional().describe("填充色（5 色调色板：蓝/绿/橙/紫/红，可省略自动配色，同分支同色系）"),
+    fill: z.string().optional().describe("可选自定义填充色；通常省略以使用系统的高对比论文配色，同分支自动保持同色系"),
     children: z.array(branchSchema).optional().describe("子分支（≤3 层）"),
   })
 );
@@ -36,7 +36,6 @@ export interface CanvasSnapshot {
 
 export function buildTools(
   draft: DraftCanvas,
-  tavilyApiKey?: string,
   canvases: CanvasSnapshot[] = [],
   onReferenced?: (canvasName: string) => void
 ) {
@@ -333,9 +332,18 @@ export function buildTools(
     }),
     listElements: tool({
       description:
-        "查看当前画布全貌：返回画布总览（现有内容范围 + 建议的空白起始位置）+ 全部元素明细（id、类型、位置、文字）。动手前必先调用——先纵观全画布，新增内容放在总览建议的空白区域，不要总从同一位置开始。",
+        "查看当前无限画布全貌：返回现有内容包围盒、初始可视区域、右侧/下方扩展起点和全部元素明细。1600×1000 只是初始视口，不是硬边界；新增独立内容不得挤入旧图。",
       inputSchema: z.object({}),
       execute: () => draft.listElements(),
+    }),
+    setDrawingRegion: tool({
+      description:
+        "把后续所有新建内容自动放到现有内容旁边。当前画布已有图，而用户要求新增一张独立图、补充新模块或在旁边继续画时，必须先调用：right 放右侧，below 放下方。该工具让 applyScientificDiagram、applyGraph、applyCNNArchitecture、applyMindMap、applyChart、画笔和基础元素统一使用扩展区域；不要把 1600×1000 当硬边界。修改已有元素时不要调用。",
+      inputSchema: z.object({
+        side: z.enum(["right", "below"]).describe("新内容放在现有内容右侧或下方"),
+        gap: z.number().min(40).max(240).optional().describe("与已有内容的安全间距，默认 80px"),
+      }),
+      execute: (args) => draft.setDrawingRegion(args),
     }),
     readCanvas: tool({
       description:
@@ -364,23 +372,28 @@ export function buildTools(
     }),
     askUser: tool({
       description:
-        "对需求不确定时向用户提问澄清（一次只问一个问题，禁止连问）：当用户需求缺少关键信息、无法确定图种/主题/数据/布局时使用，例如「图表没给数据也没说主题」「流程缺关键环节」「要对比哪些项」。调用后本轮立即停止绘制，等待用户回答后再继续；需求已明确时禁止提问。**必须**提供 2~5 个可点击选项（options）供用户直接点选——所有可选项（方向列表、图种、主题候选等）都必须放进 options 渲染成按钮，禁止把选项写成普通文字回复；只有问题完全不适用枚举时才允许不给 options。",
+        "对需求不确定时向用户提问澄清（一次只问一个问题，禁止连问）：当用户需求缺少关键信息、无法确定图种/主题/数据/布局时使用，例如「图表没给数据也没说主题」「流程缺关键环节」「要对比哪些项」。调用后本轮立即停止绘制，等待用户回答后再继续；需求已明确时禁止提问。**必须**提供 2~5 个可点击选项（options）供用户直接点选，且最后一个选项必须是「其他」——点击后用户可输入自定义答案。所有可选项都必须放进 options 渲染成按钮，禁止写成普通文字回复；只有问题完全不适用枚举时才允许不给 options。",
       inputSchema: z.object({
         question: z.string().describe("要问用户的问题（具体、可回答，只问一个问题）"),
-        options: z.array(z.string()).optional().describe("可点击选项按钮（2~5 个，必须提供；用户点选即作为回答），如 [\"柱状图\", \"折线图\", \"饼图\"]"),
+        options: z.array(z.string()).min(2).max(5).optional().describe("可点击选项按钮（2~5 个），最后一项必须是「其他」，如 [\"柱状图\", \"折线图\", \"其他\"]"),
       }),
       execute: () => "已向用户提问，本轮停止绘制，等待回答",
     }),
-    searchWeb: tool({
+    searchAuthority: tool({
       description:
-        "联网搜索权威数据：用户没给数据但图表需要具体数字（统计数据/年份/比例）时使用，优先政府、官方统计、学术期刊、国际组织来源。每次生成最多搜 2 次，只取必要数字；搜索失败时改用常识范围合理估算并在收尾明示估算。需要设置页配置 Tavily API Key。",
-      inputSchema: z.object({ query: z.string().describe("搜索查询，如「2023 年中国 GDP 万亿元」") }),
-      execute: async ({ query }) => {
+        "使用本地开源科研检索链路搜索权威信息和数据：SearXNG 聚合候选来源，Crawl4AI 抽取网页或 PDF 正文，系统按政府、国际组织、标准机构、同行评审出版物、学术数据库、预印本和一般网页分级。" +
+        "涉及统计数字、最新事实、论文结论、标准规范、安全漏洞、模型指标或用户明确要求联网时必须使用。关键事实必须由至少两个相互独立来源支持；预印本必须标明尚未同行评审；一般网页不可单独支撑科研结论。" +
+        "搜索失败或权威来源不足时必须明确说明证据不足并停止使用该数据，严禁估算、补写或伪造精确数据。",
+      inputSchema: z.object({
+        query: z.string().describe("具体、可检索的研究问题，包含对象、指标、年份或标准编号"),
+        category: z.enum(["general", "science", "statistics", "cybersecurity", "technology"]).optional().describe("检索领域，用于选择 SearXNG 引擎类别"),
+      }),
+      execute: async ({ query, category }) => {
         try {
-          const results = await searchWeb(tavilyApiKey ?? "", query);
-          return `搜索结果（仅作数据参考，绘图时用其中数字并在收尾给出来源）：\n${formatSearchResults(results)}`;
+          const results = await searchAuthority(query, { category });
+          return `权威检索结果（引用事实时必须保留对应来源编号与 URL；关键结论至少交叉核对两个独立来源）：\n${formatAuthorityResults(results)}`;
         } catch (err) {
-          return `搜索失败（${err instanceof Error ? err.message : String(err)}）。请改用常识范围合理估算，并在收尾明示「该数值为估算，未查到权威来源」。`;
+          return `权威检索失败（${err instanceof Error ? err.message : String(err)}）。不得估算或编造数据；请向用户说明检索服务状态或当前证据不足。`;
         }
       },
     }),

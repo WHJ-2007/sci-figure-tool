@@ -17,6 +17,27 @@ import ArrowContextMenu, { type ArrowMenuState } from "./ArrowContextMenu";
 import ChartDialog from "./ChartDialog";
 import { usePointerInteraction, type DrawPreview } from "./usePointerInteraction";
 import CanvasMiniMap from "./CanvasMiniMap";
+import { CANVAS_GESTURE_ZOOM_PER_100, loadSettings, type CanvasGestureSensitivity } from "@/lib/settings";
+
+// 触摸板捏合采用设置指定的指数曲线。小增量连续跟手，单帧钳制吸收驱动极端值。
+const MIN_GESTURE_FACTOR = 1 / 3;
+const MAX_GESTURE_FACTOR = 3;
+const INPUT_GESTURE_GAP_MS = 180;
+
+type WheelInputKind = "mouse" | "trackpad";
+
+// 浏览器没有标准 pointerType 可区分滚轮与触摸板，只能使用稳定的事件特征：
+// 传统滚轮常用行/页单位或 ±120 wheelDelta；触摸板产生连续、小幅或二维像素增量。
+export function classifyWheelInput(e: Pick<WheelEvent, "deltaMode" | "deltaX" | "deltaY" | "ctrlKey"> & { wheelDeltaY?: number }): WheelInputKind {
+  if (e.ctrlKey) return "trackpad";
+  if (e.deltaMode !== WheelEvent.DOM_DELTA_PIXEL) return "mouse";
+  if (Math.abs(e.deltaX) > 0.01) return "trackpad";
+  const legacyTick = Math.abs(e.wheelDeltaY ?? 0);
+  if (legacyTick >= 119 && legacyTick <= 121) return "mouse";
+  if (Math.abs(e.deltaY) < 40 || !Number.isInteger(e.deltaY)) return "trackpad";
+  // 无法识别来源的像素事件优先按触摸板处理，避免把双指竖滑误判成缩放。
+  return "trackpad";
+}
 
 // 画布背景：缺省纯白；"none" 透明；"linear:#c1,#c2" 对角渐变
 export function backgroundFill(bg: string | undefined): string {
@@ -92,10 +113,15 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
   const setView = useCanvasStore((s) => s.setView);
   const tool = useCanvasStore((s) => s.tool);
   const aiLockedIds = useCanvasStore((s) => s.aiLockedIds);
+  const canvasRootRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   // 缩放中显示缩略图：滚轮缩放时短暂展示（800ms 无缩放后收起），与平移缩略图共用
   const [zooming, setZooming] = useState(false);
   const zoomTimerRef = useRef<number | null>(null);
+  const [gestureSensitivity, setGestureSensitivity] = useState<CanvasGestureSensitivity>(() => loadSettings().canvasGestureSensitivity);
+  // 触摸板捏合手势的上一帧中心：浏览器若在缩放时同步上报中心移动，合并成同一帧平移。
+  const pinchFrameRef = useRef<{ x: number; y: number; time: number } | null>(null);
+  const wheelInputRef = useRef<{ kind: WheelInputKind; time: number } | null>(null);
 
   // WASD 键盘平移也显示左下角缩略图：useShortcuts 每次移动派发 canvas-wasd-pan，
   // 这里复用 zooming 显示机制（停止 800ms 后自动收起），与滚轮缩放行为一致
@@ -107,6 +133,13 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
     };
     window.addEventListener("canvas-wasd-pan", onWasdPan);
     return () => window.removeEventListener("canvas-wasd-pan", onWasdPan);
+  }, []);
+
+  // 设置页保存后即时同步，不刷新页面；下一帧触摸板手势直接使用新灵敏度。
+  useEffect(() => {
+    const syncGestureSensitivity = () => setGestureSensitivity(loadSettings().canvasGestureSensitivity);
+    window.addEventListener("settings-saved", syncGestureSensitivity);
+    return () => window.removeEventListener("settings-saved", syncGestureSensitivity);
   }, []);
 
   // 每次换算实时读 store 的 view：任何时刻的换算基准都与渲染一致，
@@ -348,34 +381,81 @@ export default function Canvas({ viewportWidth, viewportHeight }: { viewportWidt
     [worldX, worldY, lastRightClickRef]
   );
 
-  const onWheel = (e: React.WheelEvent) => {
+  const onWheel = useCallback((e: WheelEvent) => {
+    // 必须由画布自己的非被动原生监听器拦截；避免 Chromium 把触摸板捏合继续交给网页级缩放。
     e.preventDefault();
-    // 拖动/绘制中锁定视口：缩放会改变换算基准，拖动中 view 变化（触控板惯性滚动等）会让
+    // 拖动/绘制中锁定视口：手势会改变换算基准，拖动中 view 变化会让
     // 元素位移与指针严重不匹配（"鼠标动 1 格卡片动 20 格"）
     if (modeRef.current.kind !== "idle") return;
     const rect = svgRef.current!.getBoundingClientRect();
     const px = e.clientX - rect.left;
     const py = e.clientY - rect.top;
-    const factor = e.deltaY < 0 ? 1.1 : 0.9;
-    // 允许更大范围缩放（0.1~16 倍）：精细看细节（16x）与纵览全图（0.1x）都支持
-    const newScale = Math.min(16, Math.max(0.1, view.scale * factor));
-    setView({
-      scale: newScale,
-      ox: px - ((px - view.ox) / view.scale) * newScale,
-      oy: py - ((py - view.oy) / view.scale) * newScale,
-    });
-    // 缩放中也显示左下角缩略图（缩放停止 800ms 后收起）
+    const current = useCanvasStore.getState().view;
+    // WheelEvent 的行/页单位先换成像素，保证不同浏览器与触摸板驱动手感一致。
+    const unitX = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? viewportWidth : 1;
+    const unitY = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? viewportHeight : 1;
+    const dx = e.deltaX * unitX;
+    const dy = e.deltaY * unitY;
+    const dz = e.deltaZ * unitY;
+    const previousInput = wheelInputRef.current;
+    const detectedInput = classifyWheelInput(e as WheelEvent & { wheelDeltaY?: number });
+    // 同一连续手势保持设备类别，防止触摸板先竖滑时被后续帧重新解释；这里只锁设备，绝不锁方向。
+    const inputKind = !e.ctrlKey && previousInput && e.timeStamp - previousInput.time < INPUT_GESTURE_GAP_MS
+      ? previousInput.kind
+      : detectedInput;
+    wheelInputRef.current = { kind: inputKind, time: e.timeStamp };
+
+    if (e.ctrlKey || inputKind === "mouse") {
+      // Chromium / Safari 把触摸板双指捏合报告为 ctrl+wheel。使用指数连续缩放，
+      // deltaY=-100 的倍率由设置决定；细小增量逐帧变化，兼顾灵敏度与稳定性。
+      // 部分高精度驱动用 deltaZ 独立表达捏合，此时 deltaX/deltaY 可完整保留为二维平移；
+      // Chromium 常见路径没有 deltaZ，则按约定使用 ctrl+deltaY 表达缩放。
+      const zoomPer100 = CANVAS_GESTURE_ZOOM_PER_100[gestureSensitivity];
+      const sensitivity = Math.log(zoomPer100) / 100;
+      const independentZoom = e.ctrlKey && Math.abs(dz) > 0.001;
+      // 鼠标滚轮按固定 22px 等效步进缩放，既响应清晰又不会因不同驱动的 100/120 像素刻度暴跳。
+      const zoomDelta = inputKind === "mouse" && !e.ctrlKey ? Math.sign(dy) * 22 : independentZoom ? dz : dy;
+      const factor = Math.min(MAX_GESTURE_FACTOR, Math.max(MIN_GESTURE_FACTOR, Math.exp(-zoomDelta * sensitivity)));
+      const newScale = Math.min(16, Math.max(0.1, current.scale * factor));
+      const previous = e.ctrlKey ? pinchFrameRef.current : null;
+      const sameGesture = previous && e.timeStamp - previous.time < 160;
+      const centerDx = sameGesture ? px - previous.x : 0;
+      const centerDy = sameGesture ? py - previous.y : 0;
+      // 先合并浏览器上报的横向双指位移与捏合中心移动，再围绕当前手指中心缩放。
+      const pannedOx = current.ox - (e.ctrlKey ? dx : 0) + centerDx;
+      const pannedOy = current.oy - (independentZoom ? dy : 0) + centerDy;
+      setView({
+        scale: newScale,
+        ox: px - ((px - pannedOx) / current.scale) * newScale,
+        oy: py - ((py - pannedOy) / current.scale) * newScale,
+      });
+      pinchFrameRef.current = e.ctrlKey ? { x: px, y: py, time: e.timeStamp } : null;
+    } else {
+      // 触摸板双指滑动逐帧应用完整 X/Y：允许竖→斜→横任意转向，不做主轴锁定。
+      pinchFrameRef.current = null;
+      setView({ scale: current.scale, ox: current.ox - dx, oy: current.oy - dy });
+    }
+    // 双指移动/缩放期间显示左下角缩略图，停止 800ms 后收起。
     setZooming(true);
     if (zoomTimerRef.current) window.clearTimeout(zoomTimerRef.current);
     zoomTimerRef.current = window.setTimeout(() => setZooming(false), 800);
-  };
+  }, [gestureSensitivity, setView, viewportHeight, viewportWidth]);
+
+  // React/浏览器对 wheel 的 passive 策略并不完全一致。直接绑定非被动监听器，保证画布内
+  // 鼠标滚轮缩放、双指滑动平移、捏合缩放都只改变 view，不触发网页缩放或页面滚动。
+  useEffect(() => {
+    const root = canvasRootRef.current;
+    if (!root) return;
+    root.addEventListener("wheel", onWheel, { passive: false });
+    return () => root.removeEventListener("wheel", onWheel);
+  }, [onWheel]);
 
   const sorted = [...doc.elements].sort((a, b) => a.zIndex - b.zIndex);
   const editing = doc.elements.find((e) => e.id === editingText && (e.type === "text" || e.type === "formula"));
   const grad = backgroundGradient(doc.background);
 
   return (
-    <div className="relative h-full w-full select-none" onWheel={onWheel} onDragOver={onDragOver} onDrop={onDrop}>
+    <div ref={canvasRootRef} className="relative h-full w-full select-none" onDragOver={onDragOver} onDrop={onDrop}>
       {/* 玻璃面板包裹画布：撑满整个画布容器（高度与右侧 AI 面板天然齐平），
           svg 内容固定 1200×800 居中；inset-2 四周留边距让外投影完整显示，
           不再被容器边缘/相邻面板裁切（阴影断裂）；溢出内容由玻璃面板自身裁剪 */}

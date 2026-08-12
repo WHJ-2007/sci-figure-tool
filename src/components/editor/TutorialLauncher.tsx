@@ -83,7 +83,7 @@ const TOPICS: TutorialTopic[] = [
     icon: ICON_ROBOT,
     steps: [
       { selector: "#chat-input", title: "AI 聊天输入框", text: "在这里输入描述，比如「画一个神经网络架构图」，然后点「一键生成」。" },
-      { title: "AI 提问与搜索", text: "AI 提问时点选项按钮即可回答；需要具体数字时会联网搜索（Tavily）。生成中可继续操作画布。" },
+      { title: "AI 提问与搜索", text: "AI 提问时点选项按钮即可回答；需要权威数据时会通过本地 SearXNG + Crawl4AI 检索并保留来源。生成中可继续操作画布。" },
     ],
   },
   {

@@ -59,6 +59,16 @@ export function loadCurrentProjectId(projects: CanvasProject[]): string | null {
   }
 }
 
+// localStorage 里是否已有画布数据（容量超限被静默降级时返回 false——此时刷新会生成新随机画布 id，
+// 按画布 id 存储的对话键 chatThreads-{id} 全部失配导致历史对话"消失"，需要从文件备份恢复）
+export function hasStoredProjects(): boolean {
+  try {
+    return !!localStorage.getItem(STORAGE_KEY);
+  } catch {
+    return false;
+  }
+}
+
 // 画布视口记忆：每个画布记住上次的缩放/平移（独立 localStorage 键，
 // 不与 projects 同存——视口变化不触发画布内容保存）
 export function saveView(projectId: string, view: { scale: number; ox: number; oy: number }) {

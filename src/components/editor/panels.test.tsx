@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import Toolbar from "./Toolbar";
 import PropertyPanel from "./PropertyPanel";
@@ -64,7 +64,7 @@ describe("PropertyPanel", () => {
       .filter((l) => !l.startsWith("预设色"))
       .filter((l) => !l.includes("选择颜色"));
     // 编辑顺序：边框色 → 线宽 → 边框透明度 → 箭头样式（无/单/双）
-    expect(seq).toEqual(["边框色", "线宽", "线宽 数值", "边框透明度", "边框透明度 数值", "无箭头", "单箭头", "双箭头"]);
+    expect(seq).toEqual(["边框色", "边框色取色器", "线宽", "线宽 数值", "边框透明度", "边框透明度 数值", "无箭头", "单箭头", "双箭头"]);
   });
 
   it("箭头卡片交互：样式切换 head，粗细/边框透明度/旋转/颜色写入元素", () => {
@@ -117,6 +117,25 @@ describe("PropertyPanel", () => {
     expect(useCanvasStore.getState().doc.elements.find((e) => e.id === "r1")!.fill).toBe("#f0fff0");
     fireEvent.blur(fill);
     expect(fill.value).toBe("#f0fff0");
+  });
+
+  it("颜色选择器支持屏幕取色，并把结果实时写入当前颜色", async () => {
+    const open = vi.fn().mockResolvedValue({ sRGBHex: "#12AB34" });
+    Object.defineProperty(window, "EyeDropper", {
+      configurable: true,
+      value: class { open = open; },
+    });
+    const a = makeElement("rect", 0, 0, 100, 60);
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().setSelection([a.id]);
+    render(<PropertyPanel />);
+
+    fireEvent.click(screen.getByLabelText("填充色取色器"));
+    await act(async () => { await Promise.resolve(); });
+
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(useCanvasStore.getState().doc.elements[0].fill).toBe("#12ab34");
+    Reflect.deleteProperty(window, "EyeDropper");
   });
 
   it("选中文字显示文本编辑框", () => {
@@ -264,16 +283,21 @@ describe("PropertyPanel", () => {
     expect(useCanvasStore.getState().selection).toEqual([b.id]);
   });
 
-  it("层级卡片拖拽排序：把底层条目拖到顶层条目上 → 该元素变最顶层，一步撤销恢复", () => {
+  it("层级卡片拖拽排序：完整气泡跟随、列表实时留空，松手后一步完成排序", () => {
     const a = makeElement("rect", 0, 0, 100, 60, { id: "a1" });
     const b = makeElement("ellipse", 10, 10, 50, 50, { id: "b1" });
     useCanvasStore.getState().addElements([a, b]);
     useCanvasStore.getState().setSelection([a.id]);
     render(<PropertyPanel />);
     const items = screen.getAllByTestId("layer-item"); // [b(顶层), a(底层)]
-    const dt = { effectAllowed: "", dropEffect: "", setData: () => {}, getData: () => "" };
+    const setDragImage = vi.fn();
+    const dt = { effectAllowed: "", dropEffect: "", setData: () => {}, getData: () => "", setDragImage };
+    vi.spyOn(items[0], "getBoundingClientRect").mockReturnValue({ top: 100, bottom: 128, left: 0, right: 240, width: 240, height: 28, x: 0, y: 100, toJSON: () => ({}) } as DOMRect);
     fireEvent.dragStart(items[1], { dataTransfer: dt });
-    fireEvent.dragOver(items[0], { dataTransfer: dt });
+    expect(setDragImage).toHaveBeenCalledWith(items[1], expect.any(Number), expect.any(Number));
+    expect(screen.getByTestId("layer-placeholder")).toBeTruthy();
+    expect(screen.getAllByTestId("layer-item")).toHaveLength(1);
+    fireEvent.dragOver(items[0], { dataTransfer: dt, clientY: 101 });
     fireEvent.drop(items[0], { dataTransfer: dt });
     const byId = new Map(useCanvasStore.getState().doc.elements.map((e) => [e.id, e.zIndex]));
     expect(byId.get(a.id)).toBe(2); // a 被提到最顶

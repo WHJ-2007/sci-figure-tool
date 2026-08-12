@@ -273,6 +273,8 @@ export interface PngExportOptions {
   scale?: number; // 超采样倍率（分辨率），缺省 4x
   includeBackground?: boolean; // 含画布背景色，缺省 false（透明背景）
   crop?: { x: number; y: number; width: number; height: number }; // 世界坐标导出区域（框选/对象导出）
+  // 进度回调（大图分块渲染时逐块上报；小图整幅渲染时一次性 done=total=1）
+  onProgress?: (done: number, total: number) => void;
 }
 
 // 浏览器 canvas 真实上限：单边 32767px、总面积约 268M 像素（16384×16384）。
@@ -315,8 +317,10 @@ export async function exportPng(doc: CanvasDocument, filename = "figure.png", op
   const h = Math.max(1, Math.round(outH * limit));
   const effScale = w / Math.max(1, vw);
   const includeBg = opts.includeBackground ?? false;
+  const onProgress = opts.onProgress;
   // 小图（≤4096px 单边）：整幅 SVG 直接渲染
   if (w <= TILE_PX && h <= TILE_PX) {
+    onProgress?.(1, 1);
     const svg = serializeSVG(doc, effScale, includeBg, crop);
     const dataUrl = await svgToPngDataUrl(svg, w, h);
     downloadDataUrl(dataUrl, filename);
@@ -331,6 +335,10 @@ export async function exportPng(doc: CanvasDocument, filename = "figure.png", op
   if (!ctx) throw new Error("无法创建画布上下文");
   const ox = crop?.x ?? 0;
   const oy = crop?.y ?? 0;
+  const tilesX = Math.ceil(w / TILE_PX);
+  const tilesY = Math.ceil(h / TILE_PX);
+  const totalTiles = tilesX * tilesY;
+  let doneTiles = 0;
   for (let ty = 0; ty < h; ty += TILE_PX) {
     for (let tx = 0; tx < w; tx += TILE_PX) {
       const tw = Math.min(TILE_PX, w - tx);
@@ -345,6 +353,8 @@ export async function exportPng(doc: CanvasDocument, filename = "figure.png", op
       const tileSvg = serializeSVG(doc, effScale, includeBg, crop, tile);
       const img = await loadSvgImage(tileSvg);
       ctx.drawImage(img, tx, ty);
+      doneTiles += 1;
+      onProgress?.(doneTiles, totalTiles);
     }
   }
   downloadDataUrl(canvas.toDataURL("image/png"), filename);

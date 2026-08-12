@@ -5,7 +5,10 @@ import { useCanvasStore } from "@/lib/canvas/store";
 import { makeElement } from "@/lib/canvas/elements";
 import type { ImageElement } from "@/lib/canvas/types";
 
-beforeEach(() => useCanvasStore.setState(useCanvasStore.getInitialState()));
+beforeEach(() => {
+  localStorage.clear();
+  useCanvasStore.setState(useCanvasStore.getInitialState());
+});
 afterEach(() => vi.unstubAllGlobals());
 
 // jsdom 的 Image 不加载图片：stub 为立即触发 onload 的假类
@@ -53,18 +56,105 @@ describe("Canvas", () => {
     expect(document.querySelector("div.relative")!.className).toContain("select-none");
   });
 
-  it("滚轮缩放：锚点换算与最大倍数钳制", () => {
+  it("触摸板捏合缩放：连续比例、锚点换算与最大倍数钳制", () => {
     render(<Canvas viewportWidth={800} viewportHeight={600} />);
-    fireEvent.wheel(document.querySelector("div.relative")!, { clientX: 100, clientY: 100, deltaY: -100 });
+    fireEvent.wheel(document.querySelector("div.relative")!, { clientX: 100, clientY: 100, deltaY: -100, ctrlKey: true });
     let view = useCanvasStore.getState().view;
-    expect(view.scale).toBeCloseTo(1.1, 5);
-    expect(view.ox).toBeCloseTo(-10, 5);
-    expect(view.oy).toBeCloseTo(-10, 5);
+    expect(view.scale).toBeCloseTo(2.35, 5);
+    expect(view.ox).toBeCloseTo(-135, 5);
+    expect(view.oy).toBeCloseTo(-135, 5);
 
     act(() => useCanvasStore.getState().setView({ scale: 16, ox: 0, oy: 0 }));
-    fireEvent.wheel(document.querySelector("div.relative")!, { clientX: 100, clientY: 100, deltaY: -100 });
+    fireEvent.wheel(document.querySelector("div.relative")!, { clientX: 100, clientY: 100, deltaY: -100, ctrlKey: true });
     view = useCanvasStore.getState().view;
     expect(view.scale).toBe(16);
+  });
+
+  it("触摸板双指滑动按二维增量平移，不再误触缩放", () => {
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    fireEvent.wheel(document.querySelector("div.relative")!, { clientX: 200, clientY: 150, deltaX: 24, deltaY: -30 });
+    const view = useCanvasStore.getState().view;
+    expect(view.scale).toBe(1);
+    expect(view.ox).toBe(-24);
+    expect(view.oy).toBe(30);
+  });
+
+  it("鼠标实体滚轮缩放画布，不作为双指平移", () => {
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    fireEvent.wheel(document.querySelector("div.relative")!, {
+      clientX: 100, clientY: 100, deltaY: -3, deltaMode: WheelEvent.DOM_DELTA_LINE,
+    });
+    const view = useCanvasStore.getState().view;
+    expect(view.scale).toBeGreaterThan(1);
+    expect(view.ox).toBeLessThan(0);
+    expect(view.oy).toBeLessThan(0);
+  });
+
+  it("双指先竖滑再转斜向和横向仍逐帧自由移动，不按起始方向锁轴", () => {
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const root = document.querySelector("div.relative")!;
+    fireEvent.wheel(root, { clientX: 200, clientY: 150, deltaX: 0, deltaY: 12 });
+    fireEvent.wheel(root, { clientX: 200, clientY: 150, deltaX: 9, deltaY: 7 });
+    fireEvent.wheel(root, { clientX: 200, clientY: 150, deltaX: 14, deltaY: 0 });
+    const view = useCanvasStore.getState().view;
+    expect(view.scale).toBe(1);
+    expect(view.ox).toBe(-23);
+    expect(view.oy).toBe(-19);
+  });
+
+  it("触摸板斜向滑动同时保留水平与垂直位移，不做主轴锁定", () => {
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    fireEvent.wheel(document.querySelector("div.relative")!, { clientX: 200, clientY: 150, deltaX: -37, deltaY: 26 });
+    const view = useCanvasStore.getState().view;
+    expect(view.scale).toBe(1);
+    expect(view.ox).toBe(37);
+    expect(view.oy).toBe(-26);
+  });
+
+  it("画布使用非被动滚轮拦截，捏合只缩放画布而不会传给网页级缩放", () => {
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    const root = document.querySelector("div.relative")!;
+    const event = new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      clientX: 100,
+      clientY: 100,
+      deltaY: -20,
+      ctrlKey: true,
+    });
+    root.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(useCanvasStore.getState().view.scale).toBeGreaterThan(1);
+  });
+
+  it("设置页切换灵敏度后画布无需刷新即可使用新倍率", () => {
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    localStorage.setItem("fig-tool-settings", JSON.stringify({
+      apiKey: "", model: "deepseek-v4-flash", baseURL: "https://api.deepseek.com", canvasGestureSensitivity: "very-high",
+    }));
+    act(() => window.dispatchEvent(new CustomEvent("settings-saved")));
+    fireEvent.wheel(document.querySelector("div.relative")!, { clientX: 100, clientY: 100, deltaY: -100, ctrlKey: true });
+    expect(useCanvasStore.getState().view.scale).toBeCloseTo(2.8, 5);
+  });
+
+  it("捏合帧可同时合并横向移动与缩放并保持手指锚点", () => {
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    fireEvent.wheel(document.querySelector("div.relative")!, { clientX: 100, clientY: 100, deltaX: 20, deltaY: -100, ctrlKey: true });
+    const view = useCanvasStore.getState().view;
+    expect(view.scale).toBeCloseTo(2.35, 5);
+    expect(view.ox).toBeCloseTo(-182, 5);
+    expect(view.oy).toBeCloseTo(-135, 5);
+  });
+
+  it("高精度触摸板独立上报缩放轴时可在一帧内二维移动并缩放", () => {
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+    fireEvent.wheel(document.querySelector("div.relative")!, {
+      clientX: 100, clientY: 100, deltaX: 20, deltaY: 30, deltaZ: -100, ctrlKey: true,
+    });
+    const view = useCanvasStore.getState().view;
+    expect(view.scale).toBeCloseTo(2.35, 5);
+    expect(view.ox).toBeCloseTo(-182, 5);
+    expect(view.oy).toBeCloseTo(-205.5, 5);
   });
 
   it("旋转元素内层 g 带旋转 transform", () => {

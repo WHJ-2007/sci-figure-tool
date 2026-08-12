@@ -1,8 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { layoutMindMap } from "./mindMapLayout";
+import { layoutMindMap, MINDMAP_BRANCH_THEMES, mindMapBranchInk } from "./mindMapLayout";
 import { curveControl } from "./geometry";
-import { contrastTextColor } from "./elements";
 import type { CanvasElement } from "./types";
+
+function contrastRatioOnWhite(hex: string): number {
+  const channels = hex.slice(1).match(/.{2}/g)!.map((part) => Number.parseInt(part, 16) / 255);
+  const [r, g, b] = channels.map((value) => (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4));
+  return 1.05 / (0.2126 * r + 0.7152 * g + 0.0722 * b + 0.05);
+}
 
 describe("mindMapLayout", () => {
   it("3 个一级分支均分 360°（12 点起），中心主题居中偏上", () => {
@@ -38,9 +43,9 @@ describe("mindMapLayout", () => {
     const ang = (e: CanvasElement) => Math.atan2(e.y + e.height / 2 - 470, e.x + e.width / 2 - 800);
     expect(ang(a1)).toBeLessThan(ang(a));
     expect(ang(a2)).toBeGreaterThan(ang(a));
-    // 颜色继承：A1/A2 文字色 = A 填充色的对比色（text.fill 是字形颜色，浅色分支色不可读）
-    expect(a1.fill).toBe(contrastTextColor(a.fill));
-    expect(a2.fill).toBe(contrastTextColor(a.fill));
+    // 颜色继承：子分支使用同色深墨，而不是把几乎不可见的浅底色直接当文字色
+    expect(a1.fill).toBe(MINDMAP_BRANCH_THEMES[0].ink);
+    expect(a2.fill).toBe(MINDMAP_BRANCH_THEMES[0].ink);
     // 曲线：主题→A、A→A1、A→A2 共 3 条
     expect(els.filter((e) => e.type === "curve")).toHaveLength(3);
   });
@@ -77,6 +82,36 @@ describe("mindMapLayout", () => {
     const els = layoutMindMap({ topic: "T", branches: [{ keyword: "a" }, { keyword: "b" }, { keyword: "c" }] });
     const fills = els.filter((e) => e.type === "logic" && e.text !== "T").map((e) => e.fill);
     expect(new Set(fills).size).toBe(3);
+  });
+
+  it("默认配色使用浅色节点底与高对比同色墨线，中心主题层级清晰", () => {
+    const els = layoutMindMap({ topic: "T", branches: [{ keyword: "a" }, { keyword: "b" }, { keyword: "c" }] });
+    const topic = els.find((e) => e.type === "logic" && e.text === "T")!;
+    expect(topic.fill).toBe("#172554");
+    expect(topic.stroke).toBe("#0F172A");
+    expect(topic.shadow).toMatchObject({ dy: 4, blur: 12 });
+
+    const nodes = els.filter((e) => e.type === "logic" && e.text !== "T");
+    const curves = els.filter((e) => e.type === "curve");
+    nodes.forEach((node, index) => {
+      expect(node.fill).toBe(MINDMAP_BRANCH_THEMES[index].fill);
+      expect(node.stroke).toBe(MINDMAP_BRANCH_THEMES[index].ink);
+      expect(contrastRatioOnWhite(node.stroke)).toBeGreaterThanOrEqual(4.5);
+    });
+    curves.forEach((curve) => expect(contrastRatioOnWhite(curve.stroke)).toBeGreaterThanOrEqual(4.5));
+  });
+
+  it("模型传入过浅或无效颜色时也会生成可读分支墨色", () => {
+    const paleInk = mindMapBranchInk("#fff8e6");
+    expect(contrastRatioOnWhite(paleInk)).toBeGreaterThanOrEqual(4.5);
+    expect(mindMapBranchInk("not-a-color")).toBe("#334155");
+
+    const els = layoutMindMap({ topic: "T", branches: [{ keyword: "a", fill: "#fff8e6", children: [{ keyword: "a1" }] }] });
+    const branch = els.find((e) => e.type === "logic" && e.text === "a")!;
+    const child = els.find((e) => e.type === "text" && e.text === "a1")!;
+    expect(branch.stroke).toBe(paleInk);
+    expect(child.fill).toBe(paleInk);
+    expect(els.filter((e) => e.type === "curve").every((curve) => curve.stroke === paleInk)).toBe(true);
   });
 
   it("整体超出画布时自动缩放回画布内", () => {

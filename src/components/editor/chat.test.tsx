@@ -16,6 +16,47 @@ function mockStream(events: unknown[]) {
 }
 
 describe("ChatPanel", () => {
+  it("支持拖拽解析附件并把正文作为隐藏研究上下文发送", async () => {
+    const longName = `${"超长科研论文方法与实验结果附件".repeat(8)}.pdf`;
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(Response.json({ ok: true, file: {
+        id: "file-1", name: longName, mimeType: "application/pdf", size: 2048,
+        text: "Transformer encoder and attention mechanism", characters: 43, truncated: false,
+      } }))
+      .mockResolvedValueOnce(mockStream([
+        { type: "complete", canvas: { width: 1600, height: 1000, elements: [] }, summary: "已根据论文绘图" },
+      ]));
+    render(<ChatPanel />);
+    const file = new File(["fake-pdf"], longName, { type: "application/pdf" });
+    fireEvent.drop(screen.getByTestId("chat-file-dropzone"), { dataTransfer: { files: [file] } });
+    await waitFor(() => expect(screen.getByTestId("pending-attachments")).toHaveTextContent(longName));
+    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "画出方法架构" } });
+    fireEvent.click(screen.getByText("一键生成"));
+    await waitFor(() => expect(screen.getByText("已根据论文绘图")).toBeInTheDocument());
+
+    const chatCall = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/chat");
+    const requestBody = JSON.parse(String((chatCall?.[1] as RequestInit).body));
+    expect(requestBody.messages[0].content).toContain("UNTRUSTED UPLOADED DOCUMENT");
+    expect(requestBody.messages[0].content).toContain("Transformer encoder");
+    expect(screen.getByText("画出方法架构")).toBeInTheDocument();
+    expect(screen.getByTestId("message-attachments")).toHaveTextContent(longName);
+    expect(screen.getByText("画出方法架构").closest("[data-testid='message-bubble']")).toHaveClass("min-w-0", "max-w-full", "overflow-hidden");
+    expect(screen.getByTestId("message-attachment")).toHaveClass("w-full", "min-w-0", "overflow-hidden");
+    expect(screen.getByText(longName)).toHaveClass("min-w-0", "flex-1", "truncate");
+    expect(screen.queryByText(/UNTRUSTED UPLOADED DOCUMENT/)).toBeNull();
+  });
+
+  it("点击上传按钮会打开隐藏文件选择器", () => {
+    render(<ChatPanel />);
+    const input = screen.getByTestId("chat-file-input") as HTMLInputElement;
+    const click = vi.spyOn(input, "click");
+    fireEvent.click(screen.getByLabelText("上传文件"));
+    expect(click).toHaveBeenCalledOnce();
+    expect(input.accept).toContain(".docx");
+    expect(input.accept).toContain(".ppt");
+    expect(input.accept).toContain(".xlsx");
+  });
+
   it("新版复制按钮写入剪贴板并显示成功对勾状态", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
@@ -125,6 +166,7 @@ describe("ChatPanel", () => {
     expect(screen.getByText("柱状图")).toBeInTheDocument();
     expect(screen.getByText("折线图")).toBeInTheDocument();
     expect(screen.getByText("饼图")).toBeInTheDocument();
+    expect(screen.getByText("其他")).toBeInTheDocument();
     // 点选项 → 作为回答发送（第二次 fetch），生成完成
     vi.mocked(fetch).mockResolvedValueOnce(
       mockStream([
@@ -135,6 +177,37 @@ describe("ChatPanel", () => {
     await waitFor(() => expect(screen.getByText(/柱状图画好了/)).toBeInTheDocument());
     // 选项区在回答后消失
     await waitFor(() => expect(screen.queryByTestId("question-options")).toBeNull());
+  });
+
+  it("AI 选项最后强制为其他，点击后输入自定义答案再继续生成", async () => {
+    let ctrl!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({ start(c) { ctrl = c; } });
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(stream, { headers: { "Content-Type": "application/x-ndjson" } }));
+    render(<ChatPanel />);
+    fireEvent.change(screen.getByPlaceholderText(/描述你想画的图/), { target: { value: "画个模型图" } });
+    fireEvent.click(screen.getByText("一键生成"));
+
+    const enc = new TextEncoder();
+    ctrl.enqueue(enc.encode(JSON.stringify({ type: "question", question: "想突出哪个部分？", options: ["编码器", "解码器"] }) + "\n"));
+    ctrl.close();
+    await waitFor(() => expect(screen.getByText("其他")).toBeInTheDocument());
+    const optionLabels = Array.from(screen.getByTestId("question-options").querySelectorAll("button")).map((button) => button.textContent?.trim());
+    expect(optionLabels.slice(0, 3)).toEqual(["编码器", "解码器", "其他"]);
+
+    fireEvent.click(screen.getByText("其他"));
+    expect(screen.getByTestId("custom-answer-box")).toBeInTheDocument();
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+
+    vi.mocked(fetch).mockResolvedValueOnce(mockStream([
+      { type: "complete", canvas: { width: 1600, height: 1000, elements: [] }, summary: "已按自定义重点生成" },
+    ]));
+    fireEvent.change(screen.getByTestId("custom-answer-input"), { target: { value: "重点展示跨层注意力" } });
+    fireEvent.click(screen.getByText("提交"));
+    await waitFor(() => expect(screen.getByText("已按自定义重点生成")).toBeInTheDocument());
+
+    const request = JSON.parse(String((vi.mocked(fetch).mock.calls[1][1] as RequestInit).body));
+    expect(request.messages.at(-1)).toEqual({ role: "user", content: "重点展示跨层注意力" });
+    expect(screen.queryByTestId("custom-answer-box")).toBeNull();
   });
 
   it("A7 对话长期记忆：消息持久化到 localStorage，刷新（重挂载）后恢复", async () => {
@@ -342,7 +415,7 @@ describe("ChatPanel", () => {
     await waitFor(() => expect(screen.getByTestId("ai-typing")).toBeInTheDocument());
   });
 
-  it("请求体携带 tavilyApiKey（设置中配置后透传）", async () => {
+  it("旧设置中的 Tavily Key 不再向服务端传输", async () => {
     localStorage.setItem("fig-tool-settings", JSON.stringify({ apiKey: "sk-1", tavilyApiKey: "tvly-9" }));
     vi.mocked(fetch).mockResolvedValueOnce(
       mockStream([{ type: "complete", canvas: { width: 1600, height: 1000, elements: [] }, summary: "好" }])
@@ -352,7 +425,7 @@ describe("ChatPanel", () => {
     fireEvent.click(screen.getByText("一键生成"));
     await waitFor(() => expect(screen.getByText(/好/)).toBeInTheDocument());
     const body = JSON.parse((vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string);
-    expect(body.tavilyApiKey).toBe("tvly-9");
+    expect(body).not.toHaveProperty("tavilyApiKey");
   });
 
   it("AI 提问澄清：question 事件显示问题气泡与等待提示，回答后复用主流程继续生成", async () => {
@@ -559,5 +632,197 @@ describe("ChatPanel A5 画布切换守卫", () => {
     expect(screen.queryByText(/画好了/)).toBeNull();
     // 对话会话已随切换清空：用户消息不残留
     expect(screen.queryByText("画图")).toBeNull();
+  });
+});
+
+describe("ChatPanel 生成队列", () => {
+  // 便捷：开一个挂起的生成流，返回控制句柄用于推事件
+  function openGeneration() {
+    let ctrl!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({ start(c) { ctrl = c; } });
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(stream, { headers: { "Content-Type": "application/x-ndjson" } }));
+    return { ctrl, enc: new TextEncoder() };
+  }
+
+  it("生成中回车发送的消息入队：显示等待队列、输入框清空、不发请求；生成结束自动执行队首", async () => {
+    const { ctrl, enc } = openGeneration();
+    // 第一条完成后，队列队首的"再加一个圆"自动发起第二次生成
+    vi.mocked(fetch).mockResolvedValueOnce(
+      mockStream([{ type: "complete", canvas: { width: 1600, height: 1000, elements: [] }, summary: "圆画好了" }])
+    );
+    render(<ChatPanel />);
+    const input = screen.getByPlaceholderText(/描述你想画的图/);
+    fireEvent.change(input, { target: { value: "画一个矩形" } });
+    fireEvent.click(screen.getByText("一键生成"));
+    await waitFor(() => expect(useCanvasStore.getState().isGenerating).toBe(true));
+    // 生成中输入第二条消息按回车 → 入队（不是立即发送）
+    fireEvent.change(input, { target: { value: "再加一个圆" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(screen.getByTestId("generation-queue")).toBeInTheDocument();
+    expect(screen.getByText("再加一个圆")).toBeInTheDocument();
+    expect((input as HTMLTextAreaElement).value).toBe("");
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+    // 第一条完成 → 队列自动续跑：第二次请求带上排队消息与上轮摘要
+    ctrl.enqueue(enc.encode(JSON.stringify({ type: "complete", canvas: { width: 1600, height: 1000, elements: [] }, summary: "矩形画好了" }) + "\n"));
+    ctrl.close();
+    await waitFor(() => expect(screen.getByText("圆画好了")).toBeInTheDocument());
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
+    const body2 = JSON.parse((vi.mocked(fetch).mock.calls[1][1] as RequestInit).body as string);
+    expect(body2.messages).toEqual([
+      { role: "user", content: "画一个矩形" },
+      { role: "assistant", content: "矩形画好了" },
+      { role: "user", content: "再加一个圆" },
+    ]);
+    // 队首已出队，队列清空
+    await waitFor(() => expect(screen.queryByTestId("generation-queue")).toBeNull());
+  });
+
+  it("生成中排队多条：按顺序依次自动执行（第二条完成后再执行第三条）", async () => {
+    const { ctrl, enc } = openGeneration();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      mockStream([{ type: "complete", canvas: { width: 1600, height: 1000, elements: [] }, summary: "二号完成" }])
+    );
+    vi.mocked(fetch).mockResolvedValueOnce(
+      mockStream([{ type: "complete", canvas: { width: 1600, height: 1000, elements: [] }, summary: "三号完成" }])
+    );
+    render(<ChatPanel />);
+    const input = screen.getByPlaceholderText(/描述你想画的图/);
+    fireEvent.change(input, { target: { value: "一号" } });
+    fireEvent.click(screen.getByText("一键生成"));
+    await waitFor(() => expect(useCanvasStore.getState().isGenerating).toBe(true));
+    // 生成中连排两条
+    fireEvent.change(input, { target: { value: "二号" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.change(input, { target: { value: "三号" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(screen.getAllByTestId("queue-item")).toHaveLength(2);
+    // 一号完成 → 自动执行二号
+    ctrl.enqueue(enc.encode(JSON.stringify({ type: "complete", canvas: { width: 1600, height: 1000, elements: [] }, summary: "一号完成" }) + "\n"));
+    ctrl.close();
+    await waitFor(() => expect(screen.getByText("二号完成")).toBeInTheDocument());
+    // 二号完成 → 自动执行三号
+    await waitFor(() => expect(screen.getByText("三号完成")).toBeInTheDocument());
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(3);
+    await waitFor(() => expect(screen.queryByTestId("generation-queue")).toBeNull());
+  });
+
+  it("等待队列预览从首字开始单行显示，换行折叠且超出部分交给省略号", async () => {
+    openGeneration();
+    render(<ChatPanel />);
+    const input = screen.getByPlaceholderText(/描述你想画的图/);
+    fireEvent.change(input, { target: { value: "先运行当前任务" } });
+    fireEvent.click(screen.getByText("一键生成"));
+    await waitFor(() => expect(useCanvasStore.getState().isGenerating).toBe(true));
+
+    const queuedText = "从这里开始展示研究背景与方法设计\n不要生硬地只显示最后一行结论";
+    fireEvent.change(input, { target: { value: queuedText } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    const preview = screen.getByTestId("queue-preview");
+    expect(preview).toHaveTextContent("从这里开始展示研究背景与方法设计 不要生硬地只显示最后一行结论");
+    expect(preview).toHaveAttribute("title", "从这里开始展示研究背景与方法设计 不要生硬地只显示最后一行结论");
+    expect(preview).toHaveClass("overflow-hidden", "text-ellipsis", "whitespace-nowrap");
+  });
+
+  it("每条等待消息都可打断当前请求，并优先执行用户点选的队列项", async () => {
+    let firstController!: ReadableStreamDefaultController<Uint8Array>;
+    let firstSignal!: AbortSignal;
+    const firstStream = new ReadableStream<Uint8Array>({ start(controller) { firstController = controller; } });
+    vi.mocked(fetch)
+      .mockImplementationOnce(async (_url, init) => {
+        firstSignal = (init as RequestInit).signal as AbortSignal;
+        // 模拟不会因 AbortSignal 立刻结束的顽固代理流：新任务仍必须立即开始，不能等 reader.read() 返回。
+        return new Response(firstStream, { headers: { "Content-Type": "application/x-ndjson" } });
+      })
+      .mockResolvedValueOnce(mockStream([
+        { type: "complete", canvas: { width: 1600, height: 1000, elements: [] }, summary: "点选任务已完成" },
+      ]))
+      .mockResolvedValueOnce(mockStream([
+        { type: "complete", canvas: { width: 1600, height: 1000, elements: [] }, summary: "原队首任务已完成" },
+      ]));
+
+    render(<ChatPanel />);
+    const input = screen.getByPlaceholderText(/描述你想画的图/);
+    fireEvent.change(input, { target: { value: "正在耗时思考的旧任务" } });
+    fireEvent.click(screen.getByText("一键生成"));
+    await waitFor(() => expect(useCanvasStore.getState().isGenerating).toBe(true));
+
+    fireEvent.change(input, { target: { value: "立即改画网络安全架构" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.change(input, { target: { value: "改画联邦学习架构" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    const interruptButtons = screen.getAllByTestId("queue-interrupt");
+    expect(interruptButtons).toHaveLength(2);
+    expect(interruptButtons[0]).toHaveClass("h-5", "w-5", "rounded", "text-slate-400");
+    fireEvent.click(interruptButtons[1]);
+
+    expect(firstSignal.aborted).toBe(true);
+    // 旧流仍未 close/error，但第二个请求已经发出，证明切换不依赖旧请求完成清理。
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.length).toBeGreaterThanOrEqual(2));
+    await waitFor(() => expect(screen.getByText("点选任务已完成")).toBeInTheDocument());
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledTimes(3));
+    const request = JSON.parse(String((vi.mocked(fetch).mock.calls[1][1] as RequestInit).body));
+    expect(request.messages.at(-1)).toEqual({ role: "user", content: "改画联邦学习架构" });
+    const nextRequest = JSON.parse(String((vi.mocked(fetch).mock.calls[2][1] as RequestInit).body));
+    expect(nextRequest.messages.at(-1)).toEqual({ role: "user", content: "立即改画网络安全架构" });
+    expect(screen.queryByText(/生成中断/)).toBeNull();
+    firstController.close();
+  });
+
+  it("队列操作：删除 / 编辑保存 / 点击置顶优先", async () => {
+    const { ctrl } = openGeneration();
+    render(<ChatPanel />);
+    const input = screen.getByPlaceholderText(/描述你想画的图/);
+    fireEvent.change(input, { target: { value: "一号" } });
+    fireEvent.click(screen.getByText("一键生成"));
+    await waitFor(() => expect(useCanvasStore.getState().isGenerating).toBe(true));
+    fireEvent.change(input, { target: { value: "二号" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.change(input, { target: { value: "三号" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(screen.getAllByTestId("queue-item")).toHaveLength(2);
+    // 删除"三号"（第二项）
+    const items = screen.getAllByTestId("queue-item");
+    fireEvent.click(items[1].querySelector('[data-testid="queue-delete"]')!);
+    expect(screen.getAllByTestId("queue-item")).toHaveLength(1);
+    expect(screen.queryByText("三号")).toBeNull();
+    // 编辑"二号"→"二B"
+    fireEvent.click(screen.getByTestId("queue-edit"));
+    const editInput = screen.getByTestId("queue-edit-input");
+    fireEvent.change(editInput, { target: { value: "二B" } });
+    fireEvent.keyDown(editInput, { key: "Enter" });
+    expect(screen.getByText("二B")).toBeInTheDocument();
+    // 再加一条，点击置顶优先（点后成为队首）
+    fireEvent.change(input, { target: { value: "新来的" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(screen.getAllByTestId("queue-item")).toHaveLength(2);
+    // 当前顺序 [二B, 新来的]；点击"新来的"置顶 → [新来的, 二B]
+    fireEvent.click(screen.getByText("新来的"));
+    const ordered = screen.getAllByTestId("queue-item").map((el) => el.textContent);
+    expect(ordered[0]).toContain("新来的");
+    expect(ordered[1]).toContain("二B");
+  });
+
+  it("队列拖拽排序：把第二项拖到第一项位置，顺序交换", async () => {
+    const { ctrl } = openGeneration();
+    render(<ChatPanel />);
+    const input = screen.getByPlaceholderText(/描述你想画的图/);
+    fireEvent.change(input, { target: { value: "甲" } });
+    fireEvent.click(screen.getByText("一键生成"));
+    await waitFor(() => expect(useCanvasStore.getState().isGenerating).toBe(true));
+    fireEvent.change(input, { target: { value: "乙" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.change(input, { target: { value: "丙" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    // 顺序 [乙, 丙]：拖"丙"(index1) 到"乙"(index0) 位置 → [丙, 乙]
+    let items = screen.getAllByTestId("queue-item");
+    const dataTransfer = { effectAllowed: "", setData: vi.fn() };
+    fireEvent.dragStart(items[1], { dataTransfer });
+    fireEvent.dragOver(items[0], { dataTransfer });
+    fireEvent.drop(items[0], { dataTransfer });
+    items = screen.getAllByTestId("queue-item");
+    expect(items[0].textContent).toContain("丙");
+    expect(items[1].textContent).toContain("乙");
   });
 });

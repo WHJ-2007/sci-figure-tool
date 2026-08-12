@@ -1,4 +1,4 @@
-import { makeElement, newId, contrastTextColor } from "./elements";
+import { makeElement, newId } from "./elements";
 import { CANVAS_WIDTH, CANVAS_HEIGHT, curveControl, quadBezierBounds, type Point } from "./geometry";
 import type { CanvasElement } from "./types";
 
@@ -14,7 +14,56 @@ export interface MindMapSpec {
   branches: MindMapBranch[];
 }
 
-export const MINDMAP_PALETTE = ["#eef4ff", "#f0fff0", "#fff8e6", "#f3efff", "#ffeef0"];
+/**
+ * Paper-friendly branch colours: the quiet fill keeps dense maps calm while the
+ * paired ink remains readable on both the tinted node and the white canvas.
+ */
+export const MINDMAP_BRANCH_THEMES = [
+  { fill: "#EAF2FF", ink: "#2457A7" },
+  { fill: "#EAF8F1", ink: "#23704A" },
+  { fill: "#FFF3D6", ink: "#805500" },
+  { fill: "#F1EDFF", ink: "#6044A5" },
+  { fill: "#FDECEF", ink: "#A23B55" },
+] as const;
+
+export const MINDMAP_PALETTE = MINDMAP_BRANCH_THEMES.map((theme) => theme.fill);
+
+function parseHexColor(color: string): [number, number, number] | null {
+  const value = color.trim().replace(/^#/, "");
+  const full = value.length === 3 ? value.split("").map((part) => part + part).join("") : value;
+  if (!/^[0-9a-f]{6}$/i.test(full)) return null;
+  return [Number.parseInt(full.slice(0, 2), 16), Number.parseInt(full.slice(2, 4), 16), Number.parseInt(full.slice(4, 6), 16)];
+}
+
+function relativeLuminance([r, g, b]: [number, number, number]): number {
+  const linear = [r, g, b].map((channel) => {
+    const value = channel / 255;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+}
+
+function contrastOnWhite(rgb: [number, number, number]): number {
+  return 1.05 / (relativeLuminance(rgb) + 0.05);
+}
+
+/** Derive a hue-preserving, WCAG-readable branch ink for model-supplied fills. */
+export function mindMapBranchInk(fill: string): string {
+  const rgb = parseHexColor(fill);
+  if (!rgb) return "#334155";
+  if (contrastOnWhite(rgb) >= 4.5) return `#${rgb.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`.toUpperCase();
+
+  let readableFactor = 0;
+  let unreadableFactor = 1;
+  for (let i = 0; i < 14; i += 1) {
+    const factor = (readableFactor + unreadableFactor) / 2;
+    const candidate = rgb.map((channel) => Math.round(channel * factor)) as [number, number, number];
+    if (contrastOnWhite(candidate) >= 4.5) readableFactor = factor;
+    else unreadableFactor = factor;
+  }
+  const ink = rgb.map((channel) => Math.round(channel * readableFactor));
+  return `#${ink.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`.toUpperCase();
+}
 
 const TOPIC_FONT = 18;
 const NODE_FONT = 13;
@@ -37,7 +86,11 @@ export function layoutMindMap(spec: MindMapSpec): CanvasElement[] {
     body: spec.topicBody,
     fontSize: TOPIC_FONT,
     bold: true,
-    fill: "#ffffff",
+    fill: "#172554",
+    stroke: "#0F172A",
+    strokeWidth: 1.5,
+    rx: 10,
+    shadow: { color: "#172554", blur: 12, dx: 0, dy: 4, opacity: 0.16 },
   }) as Extract<CanvasElement, { type: "logic" }>;
   topicEl.x = cx - topicEl.width / 2;
   topicEl.y = cy - topicEl.height / 2;
@@ -47,13 +100,21 @@ export function layoutMindMap(spec: MindMapSpec): CanvasElement[] {
   // 一级分支：角度均分 360°
   const branchAngle = (i: number) => -Math.PI / 2 + (i * 2 * Math.PI) / n;
 
-  const placeBranch = (b: MindMapBranch, angle: number, radius: number, color: string, level: number, parentCenter: Point) => {
+  const placeBranch = (b: MindMapBranch, angle: number, radius: number, fill: string, ink: string, level: number, parentCenter: Point) => {
     const center: Point = { x: cx + radius * Math.cos(angle), y: cy + radius * Math.sin(angle) };
     let el: CanvasElement;
     if (level === 1) {
-      el = makeElement("logic", 0, 0, 0, 0, { text: b.keyword, body: b.body, fontSize: NODE_FONT, fill: color }) as Extract<CanvasElement, { type: "logic" }>;
+      el = makeElement("logic", 0, 0, 0, 0, {
+        text: b.keyword,
+        body: b.body,
+        fontSize: NODE_FONT,
+        fill,
+        stroke: ink,
+        strokeWidth: 1.5,
+        rx: 8,
+      }) as Extract<CanvasElement, { type: "logic" }>;
     } else {
-      el = makeElement("text", 0, 0, 0, 0, { text: b.keyword, fontSize: NODE_FONT, fill: contrastTextColor(color) }) as Extract<CanvasElement, { type: "text" }>;
+      el = makeElement("text", 0, 0, 0, 0, { text: b.keyword, fontSize: NODE_FONT, fill: ink, bold: level === 2 }) as Extract<CanvasElement, { type: "text" }>;
     }
     el.id = newId();
     el.x = center.x - el.width / 2;
@@ -62,20 +123,23 @@ export function layoutMindMap(spec: MindMapSpec): CanvasElement[] {
     nodeEls.push(el);
 
     // 父→子曲线：起点 = 父元素朝向子中心的边缘锚点（离父中心 8px），终点 = 子中心
-    out.push(makeCurve(edgePointToward(parentCenter, center), center, color));
+    out.push(makeCurve(edgePointToward(parentCenter, center), center, ink));
 
     const children = b.children ?? [];
     if (children.length) {
       const spread = Math.min(CHILD_SPREAD_MAX, (2 * Math.PI) / n * 0.4);
       children.forEach((child, j) => {
         const childAngle = angle + (j - (children.length - 1) / 2) * spread;
-        placeBranch(child, childAngle, radius + R_STEP, color, level + 1, center);
+        placeBranch(child, childAngle, radius + R_STEP, fill, ink, level + 1, center);
       });
     }
   };
 
   spec.branches.forEach((b, i) => {
-    placeBranch(b, branchAngle(i), R1, b.fill ?? MINDMAP_PALETTE[i % MINDMAP_PALETTE.length], 1, {
+    const defaultTheme = MINDMAP_BRANCH_THEMES[i % MINDMAP_BRANCH_THEMES.length];
+    const fill = b.fill ?? defaultTheme.fill;
+    const ink = b.fill ? mindMapBranchInk(b.fill) : defaultTheme.ink;
+    placeBranch(b, branchAngle(i), R1, fill, ink, 1, {
       x: cx,
       y: cy,
     });
@@ -102,8 +166,8 @@ function makeCurve(start: Point, end: Point, color: string): CanvasElement {
   const curvature = (side < 0 ? 1 : -1) * 0.4;
   const el = makeElement("curve", start.x, start.y, end.x - start.x, end.y - start.y, {
     curvature,
-    stroke: color === "#ffffff" ? "#2f2f2f" : color,
-    strokeWidth: 2.5,
+    stroke: color,
+    strokeWidth: 2.25,
     zIndex: 1,
   });
   el.id = newId();

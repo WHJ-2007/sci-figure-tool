@@ -1,57 +1,78 @@
 // @vitest-environment node
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { searchWeb, formatSearchResults } from "./search";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { formatAuthorityResults, searchAuthority } from "./search";
 
 afterEach(() => vi.unstubAllGlobals());
 
-describe("searchWeb", () => {
-  it("调用 Tavily API 并返回精简结果（内容截断 200 字）", async () => {
-    const longContent = "数".repeat(500);
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        results: [
-          { title: "中国 GDP", url: "https://www.stats.gov.cn/x", content: longContent },
-          { title: "第二篇", url: "https://example.com/2", content: "短内容" },
-        ],
-      }),
-    }));
-    const results = await searchWeb("tvly-test", "2023 年中国 GDP");
-    expect(vi.mocked(fetch)).toHaveBeenCalledWith("https://api.tavily.com/search", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ api_key: "tvly-test", query: "2023 年中国 GDP", search_depth: "basic", max_results: 5 }),
-    });
-    expect(results).toHaveLength(2);
-    expect(results[0].title).toBe("中国 GDP");
-    expect(results[0].content).toHaveLength(200);
-    expect(results[1].content).toBe("短内容");
+describe("searchAuthority", () => {
+  it("通过 SearXNG 检索、按权威性排序，并用 Crawl4AI 抽取正文", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ results: [
+          { title: "博客", url: "https://example.com/post", content: "二手摘要", engines: ["bing"] },
+          { title: "国家统计局", url: "https://www.stats.gov.cn/data", content: "官方摘要", engines: ["google", "bing"] },
+        ] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ results: [
+          { url: "https://www.stats.gov.cn/data", markdown: { fit_markdown: "2024 年权威统计正文" } },
+          { url: "https://example.com/post", markdown: "博客正文" },
+        ] }),
+      }));
+
+    const results = await searchAuthority(`GDP-${crypto.randomUUID()}`, { category: "statistics" });
+    expect(results[0].authority).toBe("government");
+    expect(results[0].authorityScore).toBe(100);
+    expect(results[0].content).toContain("权威统计正文");
+    expect(results[0].extracted).toBe(true);
+    expect(vi.mocked(fetch).mock.calls[0][0]).toContain("format=json");
+    expect(vi.mocked(fetch).mock.calls[0][0]).toContain("categories=science%2Cgeneral");
+    expect(vi.mocked(fetch).mock.calls[1][0]).toBe("http://127.0.0.1:11235/crawl");
+    expect((vi.mocked(fetch).mock.calls[1][1] as RequestInit).headers).toMatchObject({ Authorization: "Bearer sci-figure-local-crawl-token" });
   });
 
-  it("无 apiKey 时报错", async () => {
-    await expect(searchWeb("", "GDP")).rejects.toThrow("Tavily");
+  it("拦截搜索结果中的本机和私网 URL，避免 Crawl4AI SSRF", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ results: [
+        { title: "本机", url: "http://127.0.0.1/admin" },
+        { title: "内网", url: "http://192.168.1.1/private" },
+        { title: "官方", url: "https://www.nist.gov/publication", content: "标准" },
+      ] }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ results: [] }) }));
+    const results = await searchAuthority(`security-${crypto.randomUUID()}`, { category: "cybersecurity" });
+    expect(results).toHaveLength(1);
+    expect(results[0].url).toContain("nist.gov");
   });
 
-  it("HTTP 失败时报错（搜索服务不可用）", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500 }));
-    await expect(searchWeb("tvly-test", "GDP")).rejects.toThrow("搜索服务不可用");
+  it("SearXNG 不可用时给出本地服务启动方法", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("ECONNREFUSED")));
+    await expect(searchAuthority(`offline-${crypto.randomUUID()}`)).rejects.toThrow("npm run research:up");
   });
 
-  it("无 results 字段时返回空数组", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }));
-    expect(await searchWeb("tvly-test", "GDP")).toEqual([]);
+  it("Crawl4AI 不可用时保留搜索摘要并标明未抽取全文", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ results: [
+        { title: "WHO", url: "https://www.who.int/report", content: "摘要证据" },
+      ] }) })
+      .mockRejectedValueOnce(new Error("extract offline")));
+    const results = await searchAuthority(`who-${crypto.randomUUID()}`);
+    expect(results[0].content).toBe("摘要证据");
+    expect(results[0].extracted).toBe(false);
+    expect(formatAuthorityResults(results)).toContain("仅搜索摘要");
   });
 });
 
-describe("formatSearchResults", () => {
-  it("格式化结果列表，空结果返回提示", () => {
-    const s = formatSearchResults([
-      { title: "T1", url: "https://a.com", content: "C1" },
-      { title: "T2", url: "https://b.com", content: "C2" },
-    ]);
-    expect(s).toContain("1. T1");
-    expect(s).toContain("来源：https://a.com");
-    expect(s).toContain("2. T2");
-    expect(formatSearchResults([])).toBe("未搜到相关结果");
+describe("formatAuthorityResults", () => {
+  it("输出来源编号、权威等级、URL 与证据内容", () => {
+    const text = formatAuthorityResults([{
+      title: "NIST 标准", url: "https://nist.gov/x", content: "正文", authority: "standard",
+      authorityScore: 96, engines: ["google"], extracted: true,
+    }]);
+    expect(text).toContain("[来源 1]");
+    expect(text).toContain("标准与安全机构");
+    expect(text).toContain("https://nist.gov/x");
+    expect(text).toContain("正文");
   });
 });

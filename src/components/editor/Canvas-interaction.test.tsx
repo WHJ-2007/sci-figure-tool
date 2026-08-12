@@ -71,12 +71,12 @@ describe("Canvas 交互", () => {
     render(<Canvas viewportWidth={800} viewportHeight={600} />);
     const el = document.querySelector("[data-element-id]")!;
     fireEvent.pointerDown(el, { clientX: 50, clientY: 30, button: 0 });
-    fireEvent.wheel(el, { clientX: 100, clientY: 100, deltaY: -100 });
+    fireEvent.wheel(el, { clientX: 100, clientY: 100, deltaY: -100, ctrlKey: true });
     expect(useCanvasStore.getState().view.scale).toBe(1);
     fireEvent.pointerUp(el, { clientX: 50, clientY: 30 });
     // 松开后滚轮缩放恢复
-    fireEvent.wheel(el, { clientX: 100, clientY: 100, deltaY: -100 });
-    expect(useCanvasStore.getState().view.scale).toBeCloseTo(1.1, 5);
+    fireEvent.wheel(el, { clientX: 100, clientY: 100, deltaY: -100, ctrlKey: true });
+    expect(useCanvasStore.getState().view.scale).toBeCloseTo(2.35, 5);
   });
 
   it("拖动元素移动", async () => {
@@ -310,6 +310,31 @@ describe("逻辑节点", () => {
     expect(arrow.x).toBe(100);
     expect(arrow.y).toBe(130);
     expect(arrow.x + arrow.width).toBe(220);
+  });
+
+  it("缩放箭头终点时显示逻辑锚点、实时高亮并保存新的连接关系", () => {
+    const source = makeElement("logic", 100, 100, 120, 60, { text: "源" });
+    const target = makeElement("logic", 360, 100, 120, 60, { text: "目标" });
+    const arrow = makeElement("arrow", 220, 130, 80, 0, { startId: source.id });
+    useCanvasStore.getState().addElements([source, target, arrow]);
+    useCanvasStore.getState().setSelection([arrow.id]);
+    render(<Canvas viewportWidth={800} viewportHeight={600} />);
+
+    const end = document.querySelector('[data-handle="end"]')!;
+    fireEvent.pointerDown(end, { clientX: 300, clientY: 130, button: 0 });
+    expect(document.querySelectorAll("[data-arrow-resize-anchor]")).toHaveLength(8);
+
+    fireEvent.pointerMove(window, { clientX: 354, clientY: 130, buttons: 1 });
+    const active = document.querySelectorAll("[data-arrow-resize-anchor][data-active='true']");
+    expect(active).toHaveLength(1);
+    expect(active[0].getAttribute("data-element-id")).toBe(target.id);
+    fireEvent.pointerUp(window, { clientX: 354, clientY: 130 });
+
+    const updated = useCanvasStore.getState().doc.elements.find((element) => element.id === arrow.id)!;
+    expect(updated.x + updated.width).toBe(360);
+    expect(updated.y + updated.height).toBe(130);
+    expect(updated.type === "arrow" && updated.endId).toBe(target.id);
+    expect(document.querySelectorAll("[data-arrow-resize-anchor]")).toHaveLength(0);
   });
 
   it("从选中逻辑节点的触点拖出箭头，靠近目标锚点自动吸附并记录 startId/endId", () => {

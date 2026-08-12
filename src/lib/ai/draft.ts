@@ -190,6 +190,8 @@ export class DraftCanvas {
   private pendingConfirms: PendingConfirm[] = [];
   private newCanvasFlag = false;
   private touchedIds = new Set<string>();
+  // 新内容区域偏移：弱模型只需选择右侧/下方，所有后续绘图工具自动整体落到扩展区域。
+  private drawingOffset = { x: 0, y: 0 };
 
   constructor(elements: CanvasElement[], charts: Record<string, ChartSpec> = {}, onChange?: () => void) {
     this.elements = structuredClone(elements);
@@ -241,7 +243,33 @@ export class DraftCanvas {
   }
 
   serialize(): CanvasDocument {
-    return { width: CANVAS_WIDTH, height: CANVAS_HEIGHT, elements: this.elements, charts: this.charts };
+    // 1600×1000 只是初始可视区域，不是内容硬边界；文档随正坐标内容自动扩张。
+    const maxX = this.elements.reduce((max, e) => Math.max(max, e.x + Math.max(0, e.width)), CANVAS_WIDTH - 80);
+    const maxY = this.elements.reduce((max, e) => Math.max(max, e.y + Math.max(0, e.height)), CANVAS_HEIGHT - 80);
+    return {
+      width: Math.max(CANVAS_WIDTH, Math.ceil(maxX + 80)),
+      height: Math.max(CANVAS_HEIGHT, Math.ceil(maxY + 80)),
+      elements: this.elements,
+      charts: this.charts,
+    };
+  }
+
+  setDrawingRegion(args: { side: "right" | "below"; gap?: number }): { ok: boolean; origin: { x: number; y: number }; note: string } {
+    const gap = Math.max(40, Math.min(240, Number(args.gap) || 80));
+    if (this.elements.length === 0) {
+      this.drawingOffset = { x: 0, y: 0 };
+      return { ok: true, origin: { x: 0, y: 0 }, note: "画布为空，使用初始区域" };
+    }
+    const maxX = Math.max(...this.elements.map((e) => e.x + Math.max(0, e.width)));
+    const maxY = Math.max(...this.elements.map((e) => e.y + Math.max(0, e.height)));
+    this.drawingOffset = args.side === "right" ? { x: maxX + gap, y: 0 } : { x: 0, y: maxY + gap };
+    const sideName = args.side === "right" ? "右侧" : "下方";
+    this.activity.push(`将新内容绘图区设在现有内容${sideName}（起点 ${Math.round(this.drawingOffset.x)}, ${Math.round(this.drawingOffset.y)}）`);
+    return {
+      ok: true,
+      origin: { ...this.drawingOffset },
+      note: `后续新建内容将自动整体放到现有内容${sideName}，无需压缩进初始 1600×1000 区域`,
+    };
   }
 
   hasScientificFigure(): boolean {
@@ -378,7 +406,12 @@ export class DraftCanvas {
     if (!allowed.includes(args.type as ElementType)) return { ok: false, error: `未知元素类型: ${args.type}` };
     const w = Math.max(8, Number(args.width) || 8);
     const h = Math.max(8, Number(args.height) || 8);
-    const r = clampRect({ x: args.x, y: args.y, width: w, height: h }, CANVAS_WIDTH, CANVAS_HEIGHT);
+    const r = {
+      x: Math.max(0, Number(args.x) + this.drawingOffset.x),
+      y: Math.max(0, Number(args.y) + this.drawingOffset.y),
+      width: w,
+      height: h,
+    };
     const maxZ = this.elements.reduce((m, e) => Math.max(m, e.zIndex), 0);
     let el: CanvasElement;
     if (args.type === "text" || args.type === "logic" || args.type === "formula") {
@@ -408,7 +441,9 @@ export class DraftCanvas {
         rx: args.rx,
         head: args.type === "arrow" ? args.head : undefined,
         midPoints: args.type === "arrow" ? args.midPoints : undefined,
-        points: args.type === "polyline" || args.type === "pen" ? args.points : undefined,
+        points: args.type === "polyline" || args.type === "pen"
+          ? args.points?.map((point) => ({ x: point.x + this.drawingOffset.x, y: point.y + this.drawingOffset.y }))
+          : undefined,
         scientificRole: args.scientificRole,
         scientificId: args.scientificId,
         scientificRegionId: args.scientificRegionId,
@@ -456,13 +491,13 @@ export class DraftCanvas {
     if (next.type === "arrow") {
       // 箭头的 width/height 是“终点 - 起点”的有向向量，负数与 0 都有意义；
       // 不能套用普通矩形的最小尺寸钳制，否则向左/向上的折线会被反转并飞向空白处。
-      next.x = Math.min(Math.max(next.x, 0), CANVAS_WIDTH);
-      next.y = Math.min(Math.max(next.y, 0), CANVAS_HEIGHT);
+      next.x = Math.max(next.x, 0);
+      next.y = Math.max(next.y, 0);
     } else {
       next.width = Math.max(4, next.width);
       next.height = Math.max(4, next.height);
-      next.x = Math.min(Math.max(next.x, 0), CANVAS_WIDTH - next.width);
-      next.y = Math.min(Math.max(next.y, 0), CANVAS_HEIGHT - next.height);
+      next.x = Math.max(next.x, 0);
+      next.y = Math.max(next.y, 0);
     }
     this.touch(e.id);
     this.elements[idx] = next;
@@ -523,11 +558,15 @@ export class DraftCanvas {
       maxY = Math.max(maxY, e.y + e.height);
     }
     const empty = this.elements.length === 0;
+    const expansionPoints = empty ? null : {
+      right: { x: Math.round(maxX) + 80, y: Math.max(0, Math.round(minY)) },
+      below: { x: Math.max(0, Math.round(minX)), y: Math.round(maxY) + 80 },
+    };
     const overview = empty
-      ? "当前画布为空，可从任意位置开始绘制（建议以画布中心 (800,500) 为起点布局）"
-      : `现有内容范围：x ${Math.round(minX)}~${Math.round(maxX)}，y ${Math.round(minY)}~${Math.round(maxY)}（画布 1600×1000）。` +
-        `已有内容集中在上述区域，新增内容请放在其右侧或下方（x ≥ ${Math.round(maxX) + 40} 或 y ≥ ${Math.round(maxY) + 40}）的空白区域，避免重叠。`;
-    return { overview, elements: items };
+      ? "当前无限画布为空；1600×1000 只是初始可视区域，可从任意位置开始绘制。"
+      : `现有内容范围：x ${Math.round(minX)}~${Math.round(maxX)}，y ${Math.round(minY)}~${Math.round(maxY)}。` +
+        `画布会随内容向右或向下自动扩张，1600×1000 不是硬边界。新增独立内容优先调用 setDrawingRegion 选择 right 或 below，禁止压缩或覆盖已有内容。`;
+    return { overview, infinite: true, initialViewport: { width: CANVAS_WIDTH, height: CANVAS_HEIGHT }, expansionPoints, elements: items };
   }
 
   // 自动连接：从源形状边缘精确指向目标形状边缘的箭头（AI 无需手算坐标）
@@ -1283,8 +1322,9 @@ export class DraftCanvas {
 
   // 布局引擎产物直接入草稿（引擎坐标已规划且可能为负偏移，如向上的坐标轴箭头），不钳制
   private pushElement(el: CanvasElement) {
-    this.elements.push(el);
-    this.touch(el.id);
+    const shifted = { ...el, x: el.x + this.drawingOffset.x, y: el.y + this.drawingOffset.y } as CanvasElement;
+    this.elements.push(shifted);
+    this.touch(shifted.id);
     this.ensureTextOnTop();
     this.changed();
   }
@@ -1334,7 +1374,14 @@ export class DraftCanvas {
     }
     const els = layoutChart(spec, chartId);
     for (const el of els) this.pushElement(el);
-    this.charts[chartId] = structuredClone(spec);
+    this.charts[chartId] = structuredClone({
+      ...spec,
+      at: {
+        x: (spec.at?.x ?? 0) + this.drawingOffset.x,
+        y: (spec.at?.y ?? 0) + this.drawingOffset.y,
+        scale: spec.at?.scale ?? 1,
+      },
+    });
     this.activity.push(`图表已生成：${chartTypeName(args.type)}（${args.data.length} 项数据）`);
     return { ok: true };
   }

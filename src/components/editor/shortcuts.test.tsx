@@ -63,6 +63,36 @@ describe("快捷键", () => {
     }
   });
 
+  it("Ctrl+A 全选所有元素（非 AI 锁定）", () => {
+    const a = makeElement("rect", 0, 0, 50, 50);
+    const b = makeElement("ellipse", 100, 100, 40, 30);
+    const c = makeElement("text", 200, 200, 80, 20, { text: "hi" });
+    useCanvasStore.getState().addElement(a);
+    useCanvasStore.getState().addElement(b);
+    useCanvasStore.getState().addElement(c);
+    // AI 锁定元素不进选区（生成中锁定的元素全选时也应排除）
+    useCanvasStore.setState({ aiLockedIds: [c.id] });
+    render(<EditorHost />);
+    fireEvent.keyDown(window, { key: "a", ctrlKey: true });
+    const sel = useCanvasStore.getState().selection;
+    expect(sel).toContain(a.id);
+    expect(sel).toContain(b.id);
+    expect(sel).not.toContain(c.id);
+  });
+
+  it("输入框内 Ctrl+A 不拦截（文字全选交给输入框自身）", () => {
+    const a = makeElement("rect", 0, 0, 50, 50);
+    useCanvasStore.getState().addElement(a);
+    render(<EditorHost />);
+    const ta = document.createElement("textarea");
+    document.body.appendChild(ta);
+    ta.focus();
+    fireEvent.keyDown(ta, { key: "a", ctrlKey: true });
+    // 未触发画布全选：选区仍为空
+    expect(useCanvasStore.getState().selection).toHaveLength(0);
+    document.body.removeChild(ta);
+  });
+
   it("输入框内快捷键不拦截", () => {
     const a = makeElement("rect", 0, 0, 50, 50);
     useCanvasStore.getState().addElement(a);

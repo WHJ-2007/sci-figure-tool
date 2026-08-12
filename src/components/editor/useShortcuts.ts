@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { newId } from "@/lib/canvas/elements";
+import { copySelection, pasteClipboard } from "@/lib/canvas/clipboard";
 
 export function useShortcuts() {
   useEffect(() => {
@@ -51,7 +52,15 @@ export function useShortcuts() {
         if (s.isGenerating && (k === "z" || k === "y")) return;
         if (k === "z" && !e.shiftKey) { e.preventDefault(); s.undo(); }
         else if (k === "y" || (k === "z" && e.shiftKey)) { e.preventDefault(); s.redo(); }
+        else if (k === "c") { e.preventDefault(); copySelection(); }
+        else if (k === "v") { e.preventDefault(); void pasteClipboard(); }
         else if (k === "d") { e.preventDefault(); duplicateSelection(); }
+        else if (k === "a") {
+          // 全选所有元素：拦截浏览器默认的"全选文字"，选中全部非 AI 锁定元素
+          e.preventDefault();
+          const all = s.doc.elements.filter((el) => !s.aiLockedIds.includes(el.id)).map((el) => el.id);
+          s.setSelection(all);
+        }
         return;
       }
       // WASD 平移视口（按下即动 50px，按住 rAF 循环每 33ms 一步）；仅移动视图，不影响元素与选区。

@@ -5,6 +5,7 @@ import { DraftCanvas } from "./draft";
 import { buildTools, type CanvasSnapshot } from "./tools";
 import { buildSystemPrompt, type AIMode } from "./prompt";
 import { setConfirmSession } from "./confirmStore";
+import { ensureOtherOption } from "./questions";
 
 export interface ChatMessage {
   role: "user" | "assistant";
@@ -20,7 +21,8 @@ export type AgentEvent =
   | { type: "confirm-request"; sessionId: string; summary: string; pending: { id: string; description: string }[] }
   | { type: "question"; question: string; options?: string[] }
   | { type: "referenced"; canvasName: string }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  | { type: "heartbeat" };
 
 export async function runAgent(opts: {
   messages: ChatMessage[];
@@ -28,10 +30,11 @@ export async function runAgent(opts: {
   apiKey: string;
   baseURL: string;
   model: string;
-  tavilyApiKey?: string;
   modes?: AIMode[] | null;
   // 其他画布摘要：AI 可跨画布读取/参考（画布与 AI 隔离——绝不切换当前画布）
   canvases?: CanvasSnapshot[];
+  // 中止信号：客户端断开/服务端硬上限时取消上游模型调用，避免请求悬挂
+  signal?: AbortSignal;
   onEvent: (ev: AgentEvent) => void;
 }): Promise<string> {
   const provider = createOpenAICompatible({ baseURL: opts.baseURL, apiKey: opts.apiKey, name: "deepseek" });
@@ -46,10 +49,11 @@ export async function runAgent(opts: {
     if (activity.length) opts.onEvent({ type: "progress", activity });
     opts.onEvent({ type: "snapshot", canvas: draft.serialize(), touched: draft.takeTouched() });
   });
-  const tools = buildTools(draft, opts.tavilyApiKey, opts.canvases, (name) => opts.onEvent({ type: "referenced", canvasName: name }));
+  const tools = buildTools(draft, opts.canvases, (name) => opts.onEvent({ type: "referenced", canvasName: name }));
   const toolStatus: Record<string, string> = {
     applyCNNArchitecture: "正在构建 CNN 特征图层级、局部感受野与分类概率…",
     listElements: "正在读取画布结构并寻找可用空间…",
+    setDrawingRegion: "正在现有内容旁边展开新的绘图区…",
     listCanvases: "正在查看可参考的画布…",
     readCanvas: "正在提取参考画布的结构特征…",
     applyScientificDiagram: "正在编排科研图的功能分区、专业符号与关系…",
@@ -64,7 +68,7 @@ export async function runAgent(opts: {
     connectElements: "正在建立语义连接并校准锚点…",
     updateElement: "正在调整位置、样式或文字…",
     deleteElement: "正在移除不再需要的元素…",
-    searchWeb: "正在核对数据来源…",
+    searchAuthority: "正在通过 SearXNG 检索并用 Crawl4AI 提取权威来源…",
     askUser: "需要补充一个关键信息…",
     clearCanvas: "正在准备清理当前画布…",
   };
@@ -84,6 +88,7 @@ export async function runAgent(opts: {
     system: buildSystemPrompt(opts.modes?.length ? opts.modes : undefined),
     messages: opts.messages,
     tools,
+    abortSignal: opts.signal,
     // AI SDK v5 已移除 maxSteps，改用 stopWhen 限制多轮工具调用步数（默认只跑 1 步）
     stopWhen: [hasToolCall("askUser"), stepCountIs(20)],
     onStepFinish: ({ toolCalls }) => {
@@ -102,7 +107,7 @@ export async function runAgent(opts: {
     if (call) {
       const input = call.input as { question?: string; options?: string[] } | undefined;
       askQuestion = input?.question ?? "";
-      askOptions = input?.options;
+      askOptions = ensureOtherOption(input?.options);
       break;
     }
   }

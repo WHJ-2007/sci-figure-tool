@@ -32,4 +32,13 @@ describe("changelog", () => {
     const released = CHANGELOG.find((v) => v.sections.length > 0);
     expect(APP_VERSION).toBe(released?.version);
   });
+  it("v2 与 v3 功能归属分离，不再把 v2 全量并入 v3", () => {
+    const v2 = CHANGELOG.find((v) => v.version === "2.0.0")!;
+    const v3 = CHANGELOG.find((v) => v.version === "3.0.0")!;
+    const titles = (version: typeof v2) => version.sections.flatMap((section) => section.subsections.map((sub) => sub.title));
+    const v2Only = ["标题优先", "公式编辑", "图表对象", "教学与引导", "导出增强", "长期存储"];
+    expect(titles(v2)).toEqual(expect.arrayContaining(v2Only));
+    for (const title of v2Only) expect(titles(v3)).not.toContain(title);
+    expect(v3.summary).not.toContain("合并 2.0");
+  });
 });

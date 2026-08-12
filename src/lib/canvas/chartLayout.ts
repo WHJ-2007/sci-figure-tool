@@ -30,6 +30,31 @@ export interface ChartSpec {
   // x 轴刻度标签间隔：数据点多时每隔 xStep 个分类显示一个刻度标签（如 30 个点、每 5 个标一个，
   // 用户要求"每 N 年一个刻度"时传该值）；缺省自动稀疏化到 ≤15 个标签避免拥挤
   xStep?: number;
+  // 元素级微调（图表编辑对话框预览内手动拖动/缩放/改字号）：键 = chartElemKey(e)，
+  // 值为相对默认布局的偏移量。layoutChart 输出时应用，重排（recomputeChart）后仍保留
+  elementAdjust?: Record<string, { x?: number; y?: number; width?: number; height?: number; fontSize?: number }>;
+}
+
+// 元素稳定键：优先 bind 的 role+index（bar-0/slice-1 等随数据行稳定），
+// 无 index 的元素（轴/网格等）用类型+数组位置（布局顺序稳定）
+export function chartElemKey(e: CanvasElement, i: number): string {
+  return e.bind && e.bind.index !== undefined ? `${e.bind.role}:${e.bind.index}` : `${e.type}:${i}`;
+}
+
+// 应用元素级微调：把偏移加到元素位置/尺寸/字号（负数尺寸/字号钳制到最小值）
+function applyElementAdjust(els: CanvasElement[], adjust: ChartSpec["elementAdjust"]): CanvasElement[] {
+  if (!adjust) return els;
+  return els.map((e, i) => {
+    const a = adjust[chartElemKey(e, i)];
+    if (!a) return e;
+    const n = { ...e } as CanvasElement;
+    if (a.x !== undefined) n.x += a.x;
+    if (a.y !== undefined) n.y += a.y;
+    if (a.width !== undefined) n.width = Math.max(1, n.width + a.width);
+    if (a.height !== undefined) n.height = Math.max(1, n.height + a.height);
+    if (a.fontSize !== undefined && "fontSize" in n) n.fontSize = Math.max(6, (n.fontSize ?? 12) + a.fontSize);
+    return n;
+  });
 }
 
 export const CHART_PALETTE = ["#eef4ff", "#f0fff0", "#fff8e6", "#f3efff", "#ffeef0", "#ffffff"];
@@ -55,13 +80,15 @@ export function niceScale(maxV: number): { step: number; max: number } {
 // spec.at 支持整图缩放+平移（多图表平铺：AI 一次画多张图时自动分配网格位置，避免全部叠在默认 PLOT 区域）。
 export function layoutChart(spec: ChartSpec, chartId?: string): CanvasElement[] {
   const els = spec.type === "pie" ? pie(spec, chartId) : cartesian(spec, chartId);
+  // 元素级微调在 at 缩放前叠加：预览（无 at，CSS 缩放）与提交（at 缩放）视觉一致
+  const adjusted = applyElementAdjust(els, spec.elementAdjust);
   const at = spec.at;
-  if (!at) return applyChartFlip(els, spec);
+  if (!at) return applyChartFlip(adjusted, spec);
   const k = at.scale ?? 1;
   const dx = at.x ?? 0;
   const dy = at.y ?? 0;
-  if (k === 1 && dx === 0 && dy === 0) return applyChartFlip(els, spec);
-  const shifted = els.map((e) => {
+  if (k === 1 && dx === 0 && dy === 0) return applyChartFlip(adjusted, spec);
+  const shifted = adjusted.map((e) => {
     const n = { ...e } as CanvasElement;
     n.x = e.x * k + dx;
     n.y = e.y * k + dy;

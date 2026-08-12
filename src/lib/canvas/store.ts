@@ -6,6 +6,7 @@ import { createHistory, pushHistory, undo as undoHistory, redo as redoHistory, t
 import {
   loadProjects,
   loadCurrentProjectId,
+  hasStoredProjects,
   makeProject,
   defaultProjectName,
   saveProjects,
@@ -168,6 +169,8 @@ export interface CanvasStore {
   restoredProjects: DeletedProject[];
   addElement: (e: CanvasElement) => void;
   addElements: (list: CanvasElement[]) => void;
+  // 粘贴：一次入栈加入元素 + 图表声明，自动选中新元素（一步撤销回到粘贴前）
+  pasteElements: (list: CanvasElement[], charts?: Record<string, ChartSpec>) => void;
   updateElement: (id: string, patch: Partial<CanvasElement>) => void;
   updateElementFast: (id: string, patch: Partial<CanvasElement>) => void;
   // 元素整体替换（画笔识别等）：fast=true 不入历史（拖拽中逐帧用），缺省入栈替换前快照（一步撤销复原）
@@ -280,6 +283,24 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => {
         });
         doc.elements = [...doc.elements, ...copies];
         return { ...syncProject(s, doc, pushHistory(s.history, s.doc)) };
+      }),
+    // 粘贴：一次入栈同时加入元素与图表声明（复制图表元素时图表声明必须随行，且已换新 chartId），
+    // 粘贴后自动选中新元素；一步撤销回到粘贴前
+    pasteElements: (list, charts) =>
+      set((s) => {
+        const doc = structuredClone(s.doc);
+        let z = maxZIndex(doc.elements);
+        const copies = list.map((e) => {
+          const copy = structuredClone(e);
+          copy.zIndex = ++z;
+          return copy;
+        });
+        doc.elements = [...doc.elements, ...copies];
+        if (charts && Object.keys(charts).length) doc.charts = { ...(doc.charts ?? {}), ...charts };
+        return {
+          ...syncProject(s, doc, pushHistory(s.history, s.doc)),
+          selection: copies.map((c) => c.id),
+        };
       }),
     updateElement: (id, patch) =>
       set((s) => {
@@ -860,3 +881,42 @@ useCanvasStore.subscribe((s) => {
     saveCurrentProject(s.currentProjectId);
   }, 300);
 });
+
+// 刷新兜底：localStorage 画布数据缺失（容量超限被 saveProjects 静默降级/浏览器清理）时，
+// store 初始化会用新随机 id 重建"画布 1"——按画布 id 存储的对话键 chatThreads-{旧id}
+// 全部失配，历史对话看起来"刷新即消失"。从 data/canvas-data.json 文件备份恢复画布（含
+// 稳定 id），让 currentProjectId 回到真实画布，对话键重新对上。
+export async function restoreProjectsFromFileBackup(): Promise<boolean> {
+  if (typeof window === "undefined" || hasStoredProjects()) return false;
+  try {
+    const res = await fetch("/api/data?kind=canvas");
+    const j = (await res.json()) as { ok?: boolean; data?: string | null };
+    if (!j?.ok || !j.data) return false;
+    const arr = JSON.parse(j.data) as { id: string; name: string; doc: CanvasDocument; view?: { scale: number; ox: number; oy: number } }[];
+    if (!Array.isArray(arr) || arr.length === 0) return false;
+    const projects: CanvasProject[] = arr.map((p) => ({ id: p.id, name: p.name, doc: p.doc, view: p.view, history: createHistory() }));
+    const savedCurrentId = loadCurrentProjectId(projects);
+    const currentId = savedCurrentId ?? projects[0].id;
+    const current = projects.find((p) => p.id === currentId) ?? projects[0];
+    useCanvasStore.setState({
+      projects,
+      currentProjectId: current.id,
+      doc: structuredClone(current.doc),
+      history: current.history,
+      view: loadView(current.id) ?? { ...EMPTY_VIEW },
+      selection: [],
+      editingText: null,
+      aiLockedIds: [],
+      aiBaselineIds: [],
+      restoredProjects: [],
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// 模块加载后自动兜底（测试环境跳过：测试显式调用 restoreProjectsFromFileBackup 验证）
+if (typeof window !== "undefined" && process.env.NODE_ENV !== "test") {
+  void restoreProjectsFromFileBackup();
+}

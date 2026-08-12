@@ -6,7 +6,10 @@
     "dev": "next dev -p 8081",
     "build": "next build",
     "start": "next start -p 8081",
-    "test": "tsc --noEmit && vitest run"
+    "test": "tsc --noEmit && vitest run",
+    "research:up": "docker compose -f docker-compose.research.yml up -d",
+    "research:down": "docker compose -f docker-compose.research.yml down",
+    "research:status": "docker compose -f docker-compose.research.yml ps"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^1.0.0",

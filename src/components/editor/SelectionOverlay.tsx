@@ -1,6 +1,6 @@
 import { Fragment, useState } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
-import { logicAnchors, elementBounds, snapResizeRect, alignmentGuides, type Anchor, type AlignGuides } from "@/lib/canvas/geometry";
+import { logicAnchors, nearestAnchor, elementBounds, snapResizeRect, alignmentGuides, type Anchor, type AlignGuides } from "@/lib/canvas/geometry";
 import type { CanvasElement } from "@/lib/canvas/types";
 
 const HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const;
@@ -47,6 +47,8 @@ export default function SelectionOverlay({
   const [resizePreview, setResizePreview] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   // 缩放对齐参考线：拖动缩放手柄时与移动相同的 PPT 式对齐线（橙色贯穿线）
   const [resizeGuides, setResizeGuides] = useState<AlignGuides | null>(null);
+  // 箭头端点缩放时显示全部逻辑锚点，并高亮当前将要吸附的锚点。
+  const [arrowResizeAnchor, setArrowResizeAnchor] = useState<{ active: Anchor | null } | null>(null);
   if (selection.length === 0) return null;
   const H = 8 / scale;
   const sel = selection.map((id) => doc.elements.find((e) => e.id === id)).filter((e): e is CanvasElement => Boolean(e));
@@ -107,6 +109,28 @@ export default function SelectionOverlay({
           )}
         </g>
       )}
+      {arrowResizeAnchor && (
+        <g pointerEvents="none" data-testid="arrow-resize-anchors">
+          {doc.elements.flatMap((element) => logicAnchors(element)).map((anchor) => {
+            const active = arrowResizeAnchor.active?.id === anchor.id;
+            return (
+              <circle
+                key={anchor.id}
+                data-arrow-resize-anchor={anchor.side}
+                data-element-id={anchor.elementId}
+                data-active={active ? "true" : undefined}
+                cx={anchor.x}
+                cy={anchor.y}
+                r={(active ? 5 : 4) / scale}
+                fill={active ? "#2563eb" : "#ffffff"}
+                fillOpacity={active ? 1 : 0.92}
+                stroke="#2563eb"
+                strokeWidth={1.5 / scale}
+              />
+            );
+          })}
+        </g>
+      )}
       {sel.map((e) => {
         const b = elementBounds(e);
         const cx = b.x + b.width / 2;
@@ -160,8 +184,8 @@ export default function SelectionOverlay({
                           style={{ cursor: "move", pointerEvents: "all" }}
                           onPointerDown={(ev) => {
                             ev.stopPropagation();
-                            if (h === "start") startDown(ev, e);
-                            else endDown(ev, e);
+                            if (h === "start") startDown(ev, e, setArrowResizeAnchor);
+                            else endDown(ev, e, setArrowResizeAnchor);
                           }}
                         />
                       );
@@ -450,7 +474,11 @@ function handleDown(
 }
 
 // 拖动箭头起点：终点固定，起点跟随指针；折点保持世界位置不变（相对坐标随新起点重算）
-function startDown(ev: React.PointerEvent, e: CanvasElement) {
+function startDown(
+  ev: React.PointerEvent,
+  e: CanvasElement,
+  setAnchorState: (state: { active: Anchor | null } | null) => void
+) {
   // 仅箭头有起点手柄（调用点已按 arrow 渲染该手柄）
   if (e.type !== "arrow") return;
   const s = useCanvasStore.getState();
@@ -461,33 +489,51 @@ function startDown(ev: React.PointerEvent, e: CanvasElement) {
   const svg = (ev.target as Element).closest("svg")!;
   // 折点原世界位置（相对坐标 + 旧起点）；拖动起点时世界位置不变 → 相对坐标随新起点重算
   const mids = (e.midPoints ?? []).map((m) => ({ ...m, x: e.x + m.x, y: e.y + m.y }));
+  setAnchorState({ active: null });
   const onMove = (me: PointerEvent) => {
-    const wx = worldOf(svg, me.clientX, "x");
-    const wy = worldOf(svg, me.clientY, "y");
-    useCanvasStore.getState().updateElementFast(e.id, {
-      x: wx,
-      y: wy,
-      width: x2 - wx,
-      height: y2 - wy,
-      midPoints: mids.map((m) => (m.smooth ? { x: m.x - wx, y: m.y - wy, smooth: true } : { x: m.x - wx, y: m.y - wy })),
+    const state = useCanvasStore.getState();
+    const pointer = { x: worldOf(svg, me.clientX, "x"), y: worldOf(svg, me.clientY, "y") };
+    const anchor = nearestAnchor(state.doc.elements, pointer);
+    const x = anchor?.x ?? pointer.x;
+    const y = anchor?.y ?? pointer.y;
+    setAnchorState({ active: anchor });
+    state.updateElementFast(e.id, {
+      x,
+      y,
+      width: x2 - x,
+      height: y2 - y,
+      startId: anchor?.elementId,
+      midPoints: mids.map((m) => (m.smooth ? { x: m.x - x, y: m.y - y, smooth: true } : { x: m.x - x, y: m.y - y })),
     });
   };
-  addWindowListeners(onMove);
+  addWindowListeners(onMove, () => setAnchorState(null));
 }
 
 // 拖动箭头终点：起点固定，终点跟随指针（折点为相对坐标，无需改动）
-function endDown(ev: React.PointerEvent, e: CanvasElement) {
+function endDown(
+  ev: React.PointerEvent,
+  e: CanvasElement,
+  setAnchorState: (state: { active: Anchor | null } | null) => void
+) {
   const s = useCanvasStore.getState();
   if (s.aiLockedIds.includes(e.id)) return;
   s.commitHistory(); // 拖动前提交快照，一次拖动 = 一步撤销
   const svg = (ev.target as Element).closest("svg")!;
+  setAnchorState({ active: null });
   const onMove = (me: PointerEvent) => {
-    useCanvasStore.getState().updateElementFast(e.id, {
-      width: worldOf(svg, me.clientX, "x") - e.x,
-      height: worldOf(svg, me.clientY, "y") - e.y,
+    const state = useCanvasStore.getState();
+    const pointer = { x: worldOf(svg, me.clientX, "x"), y: worldOf(svg, me.clientY, "y") };
+    const anchor = nearestAnchor(state.doc.elements, pointer);
+    const x = anchor?.x ?? pointer.x;
+    const y = anchor?.y ?? pointer.y;
+    setAnchorState({ active: anchor });
+    state.updateElementFast(e.id, {
+      width: x - e.x,
+      height: y - e.y,
+      endId: anchor?.elementId,
     });
   };
-  addWindowListeners(onMove);
+  addWindowListeners(onMove, () => setAnchorState(null));
 }
 
 // 拖动箭头中间折点：只改该折点相对箭头起点的坐标，箭头两端与其余折点不动（相对位置改变）

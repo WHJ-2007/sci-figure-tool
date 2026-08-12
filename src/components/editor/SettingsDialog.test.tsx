@@ -35,7 +35,7 @@ describe("设置弹窗", () => {
     await waitFor(() => {
       expect((screen.getByPlaceholderText("sk-...") as HTMLInputElement).value).toBe("sk-123");
     });
-    expect((screen.getByRole("combobox") as HTMLSelectElement).value).toBe("deepseek-reasoner");
+    expect((screen.getByRole("combobox", { name: "模型" }) as HTMLSelectElement).value).toBe("deepseek-reasoner");
   });
 
   it("AI 设置保存写入 localStorage", () => {
@@ -48,22 +48,33 @@ describe("设置弹窗", () => {
     expect(screen.getByText("已保存")).toBeInTheDocument();
   });
 
-  it("Tavily API Key 可选字段：缺省为空，保存后写入 localStorage", () => {
+  it("画布手势灵敏度默认更高，选择后立即保存", () => {
     render(<SettingsDialog open={true} onClose={() => {}} />);
-    const tv = screen.getByPlaceholderText("tvly-...");
-    expect((tv as HTMLInputElement).value).toBe("");
-    fireEvent.change(tv, { target: { value: "tvly-save" } });
-    fireEvent.click(screen.getByRole("button", { name: "保存" }));
-    const saved = JSON.parse(localStorage.getItem("fig-tool-settings")!);
-    expect(saved.tavilyApiKey).toBe("tvly-save");
+    const select = screen.getByTestId("canvas-gesture-sensitivity") as HTMLSelectElement;
+    expect(select.value).toBe("high");
+    fireEvent.change(select, { target: { value: "very-high" } });
+    expect(JSON.parse(localStorage.getItem("fig-tool-settings")!).canvasGestureSensitivity).toBe("very-high");
+    expect(screen.getByText("画布手势灵敏度已保存")).toBeInTheDocument();
   });
 
-  it("Tavily API Key 挂载后回显已保存值", async () => {
+  it("移除 Tavily 付费渠道，显示本地开源检索状态", async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url === "/api/research/status") return Promise.resolve({ json: async () => ({ ok: true, search: true, extract: true, documents: true }) });
+      return Promise.resolve({ json: async () => ({}) });
+    });
+    render(<SettingsDialog open={true} onClose={() => {}} />);
+    expect(screen.queryByPlaceholderText("tvly-...")).toBeNull();
+    expect(screen.getByText("SearXNG 搜索 + Crawl4AI 网页抽取 + Apache Tika 文档解析")).toBeInTheDocument();
+    expect(screen.queryByText("npm run research:up")).toBeNull();
+    await waitFor(() => expect(screen.getByTestId("research-status")).toHaveTextContent("已就绪"));
+  });
+
+  it("旧设置中的 Tavily Key 不再回显或继续保存", async () => {
     localStorage.setItem("fig-tool-settings", JSON.stringify({ apiKey: "sk-1", tavilyApiKey: "tvly-123" }));
     render(<SettingsDialog open={true} onClose={() => {}} />);
-    await waitFor(() => {
-      expect((screen.getByPlaceholderText("tvly-...") as HTMLInputElement).value).toBe("tvly-123");
-    });
+    expect(screen.queryByPlaceholderText("tvly-...")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    expect(JSON.parse(localStorage.getItem("fig-tool-settings")!)).not.toHaveProperty("tavilyApiKey");
   });
 
   it("测试连接成功显示「连接成功」（不带多余内容）", async () => {

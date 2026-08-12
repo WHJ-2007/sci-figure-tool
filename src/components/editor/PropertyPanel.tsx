@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useCanvasStore } from "@/lib/canvas/store";
 import { lineBounds } from "@/lib/canvas/geometry";
 import { adjustSaturation, saturationOf } from "@/lib/canvas/color";
@@ -19,7 +19,29 @@ const SWATCHES = [
 function ColorPicker({ value, onChange, ariaLabel }: { value: string; onChange: (c: string) => void; ariaLabel: string }) {
   // 本地 hex 输入与外部值双向同步：合法 6 位 hex 即写入，非法输入失焦后回退显示当前值
   const [hex, setHex] = useState(value);
+  const [picking, setPicking] = useState(false);
+  const nativePickerRef = useRef<HTMLInputElement>(null);
   useEffect(() => setHex(value), [value]);
+
+  const pickFromScreen = async () => {
+    const EyeDropperCtor = (window as typeof window & {
+      EyeDropper?: new () => { open: () => Promise<{ sRGBHex: string }> };
+    }).EyeDropper;
+    if (!EyeDropperCtor) {
+      nativePickerRef.current?.click();
+      return;
+    }
+    setPicking(true);
+    try {
+      const result = await new EyeDropperCtor().open();
+      if (/^#[0-9a-fA-F]{6}$/.test(result.sRGBHex)) onChange(result.sRGBHex.toLowerCase());
+    } catch {
+      // 用户按 Esc 取消取色属于正常操作，保留当前颜色即可。
+    } finally {
+      setPicking(false);
+    }
+  };
+
   return (
     <div className="min-w-0 flex-1">
       <div className="grid grid-cols-7 gap-1.5">
@@ -48,6 +70,29 @@ function ColorPicker({ value, onChange, ariaLabel }: { value: string; onChange: 
           onBlur={() => setHex(value)}
           className="h-6 w-full min-w-0 flex-1 rounded-md border border-white/60 bg-white/70 px-1.5 text-xs text-gray-700 outline-none focus:border-blue-300"
           placeholder="#rrggbb"
+        />
+        <button
+          type="button"
+          aria-label={`${ariaLabel}取色器`}
+          title="从屏幕或画布取色"
+          disabled={picking}
+          onClick={() => void pickFromScreen()}
+          className="lift flex h-7 shrink-0 items-center gap-1 rounded-md border border-blue-200/80 bg-blue-50/80 px-2 text-[11px] font-medium text-blue-700 shadow-sm hover:bg-blue-100/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:cursor-wait disabled:opacity-60"
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m19 3 2 2-8.5 8.5-3-3L18 2l1 1Z" />
+            <path d="m9.5 10.5-5.8 5.8a2.4 2.4 0 0 0-.7 1.7v3h3a2.4 2.4 0 0 0 1.7-.7l5.8-5.8" />
+          </svg>
+          {picking ? "取色中" : "取色"}
+        </button>
+        <input
+          ref={nativePickerRef}
+          type="color"
+          value={/^#[0-9a-fA-F]{6}$/.test(value) ? value : "#000000"}
+          tabIndex={-1}
+          aria-hidden="true"
+          onChange={(event) => onChange(event.target.value.toLowerCase())}
+          className="sr-only"
         />
       </label>
     </div>
@@ -140,6 +185,137 @@ function SliderRow({
   );
 }
 
+function LayerList({
+  elements,
+  allElements,
+  selection,
+  lockedIds,
+  onSelect,
+}: {
+  elements: CanvasElement[];
+  allElements: CanvasElement[];
+  selection: string[];
+  lockedIds: string[];
+  onSelect: (id: string) => void;
+}) {
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
+
+  const resetDrag = () => {
+    setDragId(null);
+    setDropIndex(null);
+  };
+
+  const commitDrop = () => {
+    if (!dragId || dropIndex == null) return resetDrag();
+    const remainingVisible = elements.filter((element) => element.id !== dragId);
+    const visibleOrder = remainingVisible.map((element) => element.id);
+    visibleOrder.splice(Math.min(dropIndex, visibleOrder.length), 0, dragId);
+
+    const fullOrder = [...allElements].sort((a, b) => b.zIndex - a.zIndex).map((element) => element.id);
+    const withoutDragged = fullOrder.filter((id) => id !== dragId);
+    const nextVisibleIndex = visibleOrder.indexOf(dragId) + 1;
+    const nextVisibleId = visibleOrder[nextVisibleIndex];
+    const previousVisibleId = visibleOrder[nextVisibleIndex - 2];
+    if (nextVisibleId) {
+      withoutDragged.splice(withoutDragged.indexOf(nextVisibleId), 0, dragId);
+    } else if (previousVisibleId) {
+      withoutDragged.splice(withoutDragged.indexOf(previousVisibleId) + 1, 0, dragId);
+    } else {
+      withoutDragged.push(dragId);
+    }
+    if (withoutDragged.join("|") !== fullOrder.join("|")) useCanvasStore.getState().reorderElements(withoutDragged);
+    resetDrag();
+  };
+
+  const remaining = dragId ? elements.filter((element) => element.id !== dragId) : elements;
+  const slots: (CanvasElement | null)[] = [...remaining];
+  if (dragId && dropIndex != null) slots.splice(Math.min(dropIndex, slots.length), 0, null);
+
+  return (
+    <ul
+      className="space-y-1"
+      data-testid="layer-list"
+      onDragOver={(event) => {
+        if (!dragId) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        commitDrop();
+      }}
+    >
+      {slots.map((element, slotIndex) => {
+        if (!element) {
+          return (
+            <li
+              key={`layer-placeholder-${dragId}`}
+              data-testid="layer-placeholder"
+              aria-hidden="true"
+              className="h-7 rounded-lg border border-dashed border-blue-300/80 bg-blue-50/55 shadow-inner transition-all duration-150"
+            />
+          );
+        }
+        const locked = lockedIds.includes(element.id);
+        const visibleIndex = remaining.findIndex((item) => item.id === element.id);
+        const originalIndex = elements.findIndex((item) => item.id === element.id);
+        return (
+          <li
+            key={element.id}
+            data-testid="layer-item"
+            data-element-id={element.id}
+            draggable={!locked}
+            role="button"
+            tabIndex={0}
+            title={locked ? "AI 生成中，暂不可调整层级" : "拖动调整层级，点击选中"}
+            onClick={() => onSelect(element.id)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") onSelect(element.id);
+            }}
+            onDragStart={(event) => {
+              event.dataTransfer.effectAllowed = "move";
+              event.dataTransfer.setData("text/plain", element.id);
+              // 用完整气泡作为原生拖拽影像；列表本体随即换成等高落点空位。
+              if (event.dataTransfer.setDragImage) {
+                const rect = event.currentTarget.getBoundingClientRect();
+                event.dataTransfer.setDragImage(event.currentTarget, event.clientX - rect.left, event.clientY - rect.top);
+              }
+              setDragId(element.id);
+              setDropIndex(originalIndex);
+            }}
+            onDragOver={(event) => {
+              if (!dragId || dragId === element.id) return;
+              event.preventDefault();
+              event.stopPropagation();
+              event.dataTransfer.dropEffect = "move";
+              const rect = event.currentTarget.getBoundingClientRect();
+              const insertAfter = event.clientY >= rect.top + rect.height / 2;
+              setDropIndex(visibleIndex + (insertAfter ? 1 : 0));
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              commitDrop();
+            }}
+            onDragEnd={resetDrag}
+            className={`lift flex cursor-grab items-center gap-1.5 rounded-lg border px-2 py-1 text-xs transition-[transform,box-shadow,border-color,background-color] duration-150 active:cursor-grabbing ${
+              selection.includes(element.id)
+                ? "border-blue-300 bg-blue-50 text-blue-950"
+                : "border-white/60 bg-white/70 text-gray-600 shadow-sm hover:bg-white/90"
+            } ${locked ? "opacity-60" : ""}`}
+          >
+            <span className="shrink-0 rounded bg-gray-100/90 px-1 py-0.5 text-[10px] text-gray-500">{TYPE_NAMES[element.type]}</span>
+            <span className="min-w-0 flex-1 truncate">{"text" in element && element.text ? element.text : TYPE_NAMES[element.type]}</span>
+            {slotIndex === 0 && <span className="shrink-0 text-[10px] text-blue-500">顶层</span>}
+            {slotIndex === slots.length - 1 && slots.length > 1 && <span className="shrink-0 text-[10px] text-gray-400">底层</span>}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 export default function PropertyPanel() {
   const doc = useCanvasStore((s) => s.doc);
   const selection = useCanvasStore((s) => s.selection);
@@ -151,7 +327,6 @@ export default function PropertyPanel() {
 
   // 钩子必须先于任何早退调用：空选区的早退返回不能改变钩子数量
   const [chartOpen, setChartOpen] = useState(false);
-  const [dragLayer, setDragLayer] = useState<string | null>(null);
 
   const selected = selection.map((id) => doc.elements.find((e) => e.id === id)).filter((e): e is CanvasElement => Boolean(e));
   if (selected.length === 0) {
@@ -393,66 +568,21 @@ export default function PropertyPanel() {
           只列出与选中元素包围盒重叠的元素（互相遮挡的才有排序意义），避免长列表淹没 */}
       <Section title="层级">
         <p className="text-[10px] leading-relaxed text-gray-400">仅显示与选中元素重叠的条目；顶部 = 最顶层、底部 = 最底层，拖动调整遮挡顺序</p>
-        <ul className="space-y-1">
-          {[...doc.elements]
+        <LayerList
+          elements={[...doc.elements]
             .filter((el) => {
               const b = lineBounds(el);
-              // 与任一选中元素 bbox 相交（含选中元素自身）
               return selected.some((s) => {
                 const sb = lineBounds(s);
                 return b.x < sb.x + sb.width && b.x + b.width > sb.x && b.y < sb.y + sb.height && b.y + b.height > sb.y;
               });
             })
-            .sort((x, y) => y.zIndex - x.zIndex).map((el, i, list) => {
-            const locked = aiLockedIds.includes(el.id);
-            return (
-              <li
-                key={el.id}
-                data-testid="layer-item"
-                data-element-id={el.id}
-                draggable={!locked}
-                title={locked ? "AI 生成中，暂不可调整层级" : "拖动调整层级，点击选中"}
-                onClick={() => setSelection([el.id])}
-                onDragStart={(e) => {
-                  e.dataTransfer.effectAllowed = "move";
-                  e.dataTransfer.setData("text/plain", el.id);
-                  setDragLayer(el.id);
-                }}
-                onDragOver={(e) => {
-                  if (!dragLayer || dragLayer === el.id) return;
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = "move";
-                }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  const src = dragLayer ?? e.dataTransfer.getData("text/plain");
-                  if (src && src !== el.id) {
-                    const order = [...doc.elements].sort((x, y) => y.zIndex - x.zIndex).map((l) => l.id);
-                    const from = order.indexOf(src);
-                    const to = order.indexOf(el.id);
-                    if (from >= 0 && to >= 0) {
-                      order.splice(from, 1);
-                      order.splice(to, 0, src);
-                      useCanvasStore.getState().reorderElements(order);
-                    }
-                  }
-                  setDragLayer(null);
-                }}
-                onDragEnd={() => setDragLayer(null)}
-                className={`lift flex cursor-pointer items-center gap-1.5 rounded-lg border px-2 py-1 text-xs ${
-                  selection.includes(el.id) ? "border-blue-300 bg-blue-50 text-gray-700" : "border-white/60 bg-white/70 text-gray-600 shadow-sm hover:bg-white/90"
-                } ${locked ? "opacity-60" : ""}`}
-              >
-                <span className="shrink-0 rounded bg-gray-100/90 px-1 py-0.5 text-[10px] text-gray-500">{TYPE_NAMES[el.type]}</span>
-                <span className="min-w-0 flex-1 truncate">{"text" in el && el.text ? el.text : TYPE_NAMES[el.type]}</span>
-                {i === 0 && <span className="shrink-0 text-[10px] text-blue-500">顶层</span>}
-                {i === list.length - 1 && list.length > 1 && (
-                  <span className="shrink-0 text-[10px] text-gray-400">底层</span>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+            .sort((x, y) => y.zIndex - x.zIndex)}
+          allElements={doc.elements}
+          selection={selection}
+          lockedIds={aiLockedIds}
+          onSelect={(id) => setSelection([id])}
+        />
       </Section>
 
       <Section title="操作">

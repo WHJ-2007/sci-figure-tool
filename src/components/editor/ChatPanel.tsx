@@ -5,10 +5,23 @@ import { useCanvasStore } from "@/lib/canvas/store";
 import { loadSettings } from "@/lib/settings";
 import type { CanvasDocument } from "@/lib/canvas/types";
 import type { AgentEvent } from "@/lib/ai/agent";
+import { ensureOtherOption, isOtherOption } from "@/lib/ai/questions";
+import {
+  ATTACHMENT_ACCEPT,
+  MAX_ATTACHMENT_BYTES,
+  MAX_ATTACHMENT_COUNT,
+  buildAttachmentMessage,
+  formatFileSize,
+  isAcceptedAttachment,
+  type AttachmentSummary,
+  type ParsedAttachment,
+} from "@/lib/ai/attachments";
 
 interface Msg {
   role: "user" | "assistant";
   content: string;
+  displayContent?: string;
+  attachments?: AttachmentSummary[];
   // 跨画布引用：AI 调用 readCanvas 读取了其他画布时打标，气泡下方显示「引用了…画布」图标
   referenced?: string;
 }
@@ -19,10 +32,22 @@ type ConfirmEvent =
   | { type: "snapshot"; canvas: CanvasDocument; touched: string[] }
   | { type: "confirm-done"; results: { id: string; description: string; approved: boolean }[] };
 
+const QUEUE_INTERRUPT_REASON = "queue-interrupt";
+
+function queuePreviewText(text: string, attachmentNames: string[]): string {
+  const source = text || `根据 ${attachmentNames.join("、")} 绘图`;
+  // 预览始终从消息开头开始；换行仅折叠为空格，视觉截断交给 CSS 省略号完成。
+  return source.replace(/\s+/gu, " ").trim();
+}
+
 export default function ChatPanel() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [error, setError] = useState<string>("");
+  const [pendingAttachments, setPendingAttachments] = useState<ParsedAttachment[]>([]);
+  const [uploadingCount, setUploadingCount] = useState(0);
+  const [isFileDragOver, setIsFileDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const setActivity = useCanvasStore((s) => s.setActivity);
   const setGenerating = useCanvasStore((s) => s.setGenerating);
@@ -35,15 +60,31 @@ export default function ChatPanel() {
   const [waitingAnswer, setWaitingAnswer] = useState<string | null>(null);
   // A9 可点击选项：当前等待回答的问题的可点击选项（点选即作为回答发送）
   const [questionOptions, setQuestionOptions] = useState<string[] | null>(null);
+  const [customAnswerOpen, setCustomAnswerOpen] = useState(false);
+  const [customAnswerText, setCustomAnswerText] = useState("");
   // 仅在本轮生成期间存在的实时状态气泡：不写入对话历史，不冒充 AI 的最终回答。
   const [liveStatus, setLiveStatus] = useState<{ phase: "thinking" | "drawing" | "checking"; message: string } | null>(null);
   // 真实画布同步收据：只在收到 snapshot 后递增。状态气泡据此显示“已同步”，
   // 不再在纯思考/只读检查阶段承诺画布正在变化。
   const [canvasSync, setCanvasSync] = useState<{ revision: number; elements: number }>({ revision: 0, elements: 0 });
   const [copiedMessage, setCopiedMessage] = useState<number | null>(null);
+  // 生成队列：生成中按回车发送的消息入队等待，生成结束后按序自动执行；
+  // 可拖拽排序、点击置顶优先、编辑、删除；confirmReq/waitingAnswer 挂起时暂停自动执行
+  interface QueueItem { id: string; text: string; attachments: ParsedAttachment[] }
+  const [queue, setQueue] = useState<QueueItem[]>([]);
+  const queueRef = useRef<QueueItem[]>([]);
+  // 队列内联编辑：editingQueueId 非空时该条目变为输入框，Enter 保存
+  const [editingQueueId, setEditingQueueId] = useState<string | null>(null);
+  const [editingQueueText, setEditingQueueText] = useState("");
+  // 拖拽排序源索引（HTML5 DnD：dragStart 记录，drop 到目标条目时重排）
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   // A5 画布守卫：记录本轮请求对应的画布 id，生成中切换画布 → 后续事件全部丢弃
   const requestProjectIdRef = useRef<string | null>(null);
+  const requestAbortRef = useRef<AbortController | null>(null);
+  // 每次生成分配唯一代次。打断时先推进代次，旧请求即使无法立即关闭也不再有权更新 UI/画布。
+  const generationIdRef = useRef(0);
+  const interruptingRef = useRef(false);
   // AI 发起的画布切换（new-canvas 事件）：不当作"用户切画布"，对话会话保留
   const aiCanvasSwitchRef = useRef(false);
   // A7 对话长期记忆：消息按画布持久化（localStorage），刷新/关页/切换画布后恢复
@@ -53,6 +94,10 @@ export default function ChatPanel() {
   // 本轮 AI 引用的其他画布名（referenced 事件收集，追加 assistant 消息时打标）
   const referencedRef = useRef<string[]>([]);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
+  useEffect(() => () => {
+    generationIdRef.current += 1;
+    requestAbortRef.current?.abort("chat-panel-unmounted");
+  }, []);
   // 消息变化即保存到当前画布的存档（仅当消息确实属于当前画布）；同时写回当前对话并持久化（刷新恢复）
   useEffect(() => {
     if (lastProjectRef.current !== currentProjectId) return;
@@ -180,6 +225,7 @@ export default function ChatPanel() {
     messagesRef.current = msgs;
     setMessages(msgs);
     setInput("");
+    setPendingAttachments([]);
     setError("");
     setConfirmReq(null);
     setWaitingAnswer(null);
@@ -219,6 +265,7 @@ export default function ChatPanel() {
     messagesRef.current = msgs;
     setMessages(msgs);
     setInput("");
+    setPendingAttachments([]);
     setError("");
     setConfirmReq(null);
     setWaitingAnswer(null);
@@ -235,6 +282,7 @@ export default function ChatPanel() {
     messagesRef.current = [];
     setMessages([]);
     setInput("");
+    setPendingAttachments([]);
     setError("");
     setConfirmReq(null);
     setWaitingAnswer(null);
@@ -272,12 +320,50 @@ export default function ChatPanel() {
     if (waitingAnswer) inputRef.current?.focus();
   }, [waitingAnswer]);
 
+  const parseFiles = async (selected: File[]) => {
+    const available = MAX_ATTACHMENT_COUNT - pendingAttachments.length;
+    if (available <= 0) {
+      setError(`每次最多上传 ${MAX_ATTACHMENT_COUNT} 个文件`);
+      return;
+    }
+    const files = selected.slice(0, available);
+    if (selected.length > available) setError(`每次最多上传 ${MAX_ATTACHMENT_COUNT} 个文件，已忽略多余文件`);
+    setUploadingCount((count) => count + files.length);
+    for (const file of files) {
+      try {
+        if (!isAcceptedAttachment(file.name)) throw new Error("不支持该格式");
+        if (file.size > MAX_ATTACHMENT_BYTES) throw new Error("文件超过 20 MB");
+        const form = new FormData();
+        form.append("file", file);
+        const response = await fetch("/api/files/parse", { method: "POST", body: form });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.file) throw new Error(data.error || `解析失败 (${response.status})`);
+        setPendingAttachments((current) => [...current, data.file as ParsedAttachment].slice(0, MAX_ATTACHMENT_COUNT));
+        setError("");
+      } catch (uploadError) {
+        setError(`${file.name}：${uploadError instanceof Error ? uploadError.message : String(uploadError)}`);
+      } finally {
+        setUploadingCount((count) => Math.max(0, count - 1));
+      }
+    }
+  };
+
+  const makeUserMessage = (text: string, attachments: ParsedAttachment[]): Msg => {
+    if (attachments.length === 0) return { role: "user", content: text.trim() };
+    const built = buildAttachmentMessage(text, attachments);
+    return { role: "user", ...built };
+  };
+
   // 主生成流程：给定完整消息列表发起 /api/chat 流式生成（send 与"确认拒绝/会话过期后自动续跑"共用）
   const runGeneration = async (next: Msg[]) => {
     if (useCanvasStore.getState().isGenerating) return;
+    const generationId = ++generationIdRef.current;
+    const isCurrentGeneration = () => generationIdRef.current === generationId;
     // 提问澄清的回答复用主流程：问题已在 messages 中，此处只追加回答，上下文完整 AI 会继续执行
     setWaitingAnswer(null);
     setQuestionOptions(null);
+    setCustomAnswerOpen(false);
+    setCustomAnswerText("");
     referencedRef.current = [];
     const s = useCanvasStore.getState();
     requestProjectIdRef.current = s.currentProjectId;
@@ -285,6 +371,7 @@ export default function ChatPanel() {
     // 生成前画布作为撤销基线：snapshot 中间态不入栈，生成完成后整体一步 undo 回到该基线；
     // new-canvas 事件后基线重置为新画布的空态
     let baseline = structuredClone(s.doc);
+    messagesRef.current = next;
     setMessages(next);
     setInput("");
     setActivity([]);
@@ -294,17 +381,22 @@ export default function ChatPanel() {
     setGenerating(true);
     // 生成前基线：基线内元素允许被 AI 快照合并替换；基线外且未被 AI 触碰的本地元素保留
     useCanvasStore.getState().setAiBaseline(s.doc.elements.map((e) => e.id));
+    // 队列续跑暂停标记：stream 收到 question（提问）或 confirm-request（确认）时置 true，
+    // 本轮结束不自动续跑队列——需用户先表态/回答（finally 引用，须声明在 try 外）
+    let queuePaused = false;
+    const requestController = new AbortController();
+    requestAbortRef.current = requestController;
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: requestController.signal,
         body: JSON.stringify({
           messages: next,
           canvas: s.doc as CanvasDocument,
           apiKey: settings.apiKey,
           baseURL: settings.baseURL,
           model: settings.model,
-          tavilyApiKey: settings.tavilyApiKey ?? "",
           // 其他画布摘要（跨画布读取/参考用，不含位图 dataURL）：AI 可引用但绝不切换画布
           canvases: useCanvasStore
             .getState()
@@ -327,6 +419,11 @@ export default function ChatPanel() {
             })),
         }),
       });
+      // 被新请求取代后不再等待或处理旧响应；尽力关闭响应体，但不把关闭完成作为启动新任务的前提。
+      if (!isCurrentGeneration()) {
+        void res.body?.cancel().catch(() => undefined);
+        return;
+      }
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         setError(data.error ?? `请求失败 (${res.status})`);
@@ -341,6 +438,7 @@ export default function ChatPanel() {
       // 行缓冲：网络分块可能把一行 JSON 拆成多段，必须先拼够 "\n" 再解析
       let buf = "";
       let abandoned = false;
+      let superseded = false;
       // 流看门狗：页面闲置/网络挂起/服务端无响应时，长时间收不到事件就主动中断本次生成，
       // 避免 reader.read() 永久挂起导致 isGenerating 卡 true（快捷键 Ctrl+Z/Y 被拦截、无法发起新生成）
       let timedOut = false;
@@ -351,15 +449,20 @@ export default function ChatPanel() {
           try { reader.cancel(); } catch { /* 已结束则忽略 */ }
         }
       }, 15_000);
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        let nl = buf.indexOf("\n");
-        while (nl >= 0) {
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          let nl = buf.indexOf("\n");
+          while (nl >= 0) {
           const line = buf.slice(0, nl);
           buf = buf.slice(nl + 1);
           if (line) {
+            if (!isCurrentGeneration()) {
+              superseded = true;
+              break;
+            }
             lastEvent = Date.now();
             // A5 画布守卫：生成中切到其他画布 → 丢弃本轮全部事件（new-canvas 无例外，切换后到达的一样丢弃）
             if (useCanvasStore.getState().currentProjectId !== requestProjectIdRef.current) {
@@ -404,6 +507,7 @@ export default function ChatPanel() {
             } else if (ev.type === "question") {
               // A3 提问澄清：若 AI 提问前已画了元素（不应发生）则按问题优先全部丢弃——恢复生成前基线；
               // 问题作为 assistant 消息入对话，等待用户回答后走主流程继续生成
+              queuePaused = true;
               if (lastSnapshot) useCanvasStore.getState().applyAISnapshot(baseline);
               lastSnapshot = null;
               const refs = referencedRef.current;
@@ -411,11 +515,14 @@ export default function ChatPanel() {
               setMessages((m) => [...m, { role: "assistant", content: ev.question, referenced: refs.length ? refs.join("、") : undefined }]);
               setWaitingAnswer(ev.question);
               // A9 可点击选项：AI 提供选项时渲染可点击按钮，点选即作为回答发送
-              setQuestionOptions(ev.options && ev.options.length > 0 ? ev.options : null);
+              setQuestionOptions(ensureOtherOption(ev.options) ?? null);
+              setCustomAnswerOpen(false);
+              setCustomAnswerText("");
               setLiveStatus(null);
             } else if (ev.type === "confirm-request") {
               // 生成主体结束：把最后快照作为最终结果入历史（一步 undo 回到生成前），再弹确认框；
               // AI 文字回复先入对话（与 complete 分支的 summary 行为一致，空串不产生气泡）
+              queuePaused = true;
               if (lastSnapshot) useCanvasStore.getState().applyAIResult(lastSnapshot, baseline);
               if (ev.summary) {
                 const refs = referencedRef.current;
@@ -431,46 +538,160 @@ export default function ChatPanel() {
             else if (ev.type === "referenced") {
               // 跨画布引用：记录画布名，追加 assistant 消息时打标（气泡下方显示「引用了…画布」）
               referencedRef.current = [...referencedRef.current, ev.canvasName];
+            } else if (ev.type === "heartbeat") {
+              // 服务端心跳保活：模型整轮思考/网络慢速期间无业务事件，仅用于刷新 lastEvent，
+              // 让看门狗不把「模型慢」误判为「连接死」——这里无需任何业务处理
             }
           }
-          nl = buf.indexOf("\n");
+            nl = buf.indexOf("\n");
+          }
+          if (abandoned || superseded) break;
         }
-        if (abandoned) break;
+      } finally {
+        clearInterval(watchdog);
       }
-      clearInterval(watchdog);
+      if (superseded || !isCurrentGeneration()) {
+        void reader.cancel().catch(() => undefined);
+        return;
+      }
       if (timedOut) setError("生成超时：长时间未收到响应，已中断本次生成，请重试");
       else if (abandoned) {
+        // 画布已切换：消息上下文已变，暂停队列续跑，避免把旧画布的排队消息注入新画布对话
+        queuePaused = true;
         setError("画布已切换，本次生成已丢弃");
       } else if (finalDoc) {
         useCanvasStore.getState().applyAIResult(finalDoc, baseline);
         if (summary) {
           const refs = referencedRef.current;
           referencedRef.current = [];
-          setMessages((m) => [...m, { role: "assistant", content: summary, referenced: refs.length ? refs.join("、") : undefined }]);
+          // 同步 messagesRef：finally 的队列续跑以此为消息基线，必须带上本轮 AI 摘要
+          const assistantMsg: Msg = { role: "assistant", content: summary, referenced: refs.length ? refs.join("、") : undefined };
+          messagesRef.current = [...messagesRef.current, assistantMsg];
+          setMessages(messagesRef.current);
         }
       }
     } catch (err) {
-      setError("生成中断：" + String(err));
+      if (!isCurrentGeneration()) {
+        // 已被新任务取代：旧请求的任何迟到错误均静默丢弃。
+      } else if (requestController.signal.aborted && requestController.signal.reason === QUEUE_INTERRUPT_REASON) {
+        setError("");
+      } else {
+        setError("生成中断：" + String(err));
+      }
     } finally {
-      // 生成结束：解除全部锁定与基线（applyAIResult 已把最终画布合并入栈）
-      useCanvasStore.getState().setAiLocked([]);
-      useCanvasStore.getState().setAiBaseline([]);
-      setLiveStatus(null);
-      setGenerating(false);
+      // 只有当前代次可以收尾。旧请求迟到的 finally 不能关掉新请求的生成状态或误取下一条队列。
+      if (isCurrentGeneration()) {
+        if (requestAbortRef.current === requestController) requestAbortRef.current = null;
+        // 生成结束：解除全部锁定与基线（applyAIResult 已把最终画布合并入栈）
+        useCanvasStore.getState().setAiLocked([]);
+        useCanvasStore.getState().setAiBaseline([]);
+        setLiveStatus(null);
+        setGenerating(false);
+        // 队列续跑：本轮生成正常结束（未提问/未确认挂起）→ 自动执行队首排队消息；
+        // question/confirm-request 已置 queuePaused，等待用户表态后由回答/确认流程继续
+        if (!queuePaused) {
+          const queued = queueRef.current;
+          if (queued.length > 0) {
+            const head = queued[0];
+            queueRef.current = queued.slice(1);
+            setQueue(queueRef.current);
+            void runGeneration([...messagesRef.current, makeUserMessage(head.text, head.attachments)]);
+          }
+        }
+      }
     }
   };
 
   // 用户发送：读输入框 → 追加用户消息 → 走主生成流程；仍有未解决的确认项时禁止发起新生成
-  const send = async () => {
+  const send = () => {
     const text = input.trim();
-    if (!text || useCanvasStore.getState().isGenerating || (confirmReq && confirmReq.pending.length > 0)) return;
-    await runGeneration([...messages, { role: "user" as const, content: text }]);
+    const attachments = pendingAttachments;
+    if ((!text && attachments.length === 0) || uploadingCount > 0 || (confirmReq && confirmReq.pending.length > 0)) return;
+    // 生成中：不阻塞输入——消息入队等待，当前生成结束后按序自动执行（可拖拽排序/点击置顶/编辑/删除）
+    if (useCanvasStore.getState().isGenerating) {
+      const item: QueueItem = { id: `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, text, attachments };
+      queueRef.current = [...queueRef.current, item];
+      setQueue(queueRef.current);
+      setInput("");
+      setPendingAttachments([]);
+      return;
+    }
+    setPendingAttachments([]);
+    void runGeneration([...messages, makeUserMessage(text, attachments)]);
+  };
+
+  // 队列操作：删除 / 点击置顶优先（引导模型先处理这条）/ 拖拽重排 / 内联编辑
+  const removeQueueItem = (id: string) => {
+    queueRef.current = queueRef.current.filter((q) => q.id !== id);
+    setQueue(queueRef.current);
+    if (editingQueueId === id) setEditingQueueId(null);
+  };
+  const moveQueueFront = (id: string) => {
+    const item = queueRef.current.find((q) => q.id === id);
+    if (!item) return;
+    queueRef.current = [item, ...queueRef.current.filter((q) => q.id !== id)];
+    setQueue(queueRef.current);
+  };
+  const reorderQueue = (from: number, to: number) => {
+    if (from === to || from < 0 || to < 0) return;
+    const next = [...queueRef.current];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    queueRef.current = next;
+    setQueue(next);
+  };
+  const startQueueEdit = (item: QueueItem) => {
+    setEditingQueueId(item.id);
+    setEditingQueueText(item.text);
+  };
+  const saveQueueEdit = () => {
+    const text = editingQueueText.trim();
+    if (editingQueueId && text) {
+      queueRef.current = queueRef.current.map((q) => (q.id === editingQueueId ? { ...q, text } : q));
+      setQueue(queueRef.current);
+    }
+    setEditingQueueId(null);
   };
 
   // A9 可点击选项：点选选项即作为回答发送（问题已在 messages 中，追加选项文本后继续生成）
   const answerOption = async (opt: string) => {
     if (useCanvasStore.getState().isGenerating || (confirmReq && confirmReq.pending.length > 0)) return;
+    if (isOtherOption(opt)) {
+      setCustomAnswerOpen(true);
+      return;
+    }
+    setCustomAnswerOpen(false);
+    setCustomAnswerText("");
     await runGeneration([...messages, { role: "user" as const, content: opt }]);
+  };
+
+  const interruptAndRunQueue = (id: string) => {
+    if (!useCanvasStore.getState().isGenerating || interruptingRef.current) return;
+    const selected = queueRef.current.find((item) => item.id === id);
+    if (!selected) return;
+    interruptingRef.current = true;
+    // 先从队列中原子取出目标；不等待旧流的 catch/finally，直接释放生成锁并启动新代次。
+    queueRef.current = queueRef.current.filter((item) => item.id !== id);
+    setQueue(queueRef.current);
+    generationIdRef.current += 1;
+    const previousRequest = requestAbortRef.current;
+    requestAbortRef.current = null;
+    previousRequest?.abort(QUEUE_INTERRUPT_REASON);
+    useCanvasStore.getState().setAiLocked([]);
+    useCanvasStore.getState().setAiBaseline([]);
+    setGenerating(false);
+    setError("");
+    setLiveStatus({ phase: "thinking", message: `正在切换到“${queuePreviewText(selected.text, selected.attachments.map((file) => file.name))}”…` });
+    void runGeneration([...messagesRef.current, makeUserMessage(selected.text, selected.attachments)]);
+    interruptingRef.current = false;
+  };
+
+  const submitCustomAnswer = async () => {
+    const answer = customAnswerText.trim();
+    if (!answer || useCanvasStore.getState().isGenerating) return;
+    setCustomAnswerOpen(false);
+    setCustomAnswerText("");
+    await runGeneration([...messages, { role: "user" as const, content: answer }]);
   };
 
   // 破坏性操作逐条确认：POST /api/chat/confirm 二次流应用已确认的操作，快照回发合并进画布
@@ -650,15 +871,31 @@ export default function ChatPanel() {
         )}
         {messages.map((m, i) => (
           <div key={i} className="group/msg relative after:absolute after:left-0 after:right-0 after:top-full after:h-7 after:content-['']">
-            <div className={`flex ${m.role === "user" ? "ml-auto max-w-[86%] flex-col items-end" : "max-w-[94%] flex-col items-start"}`}>
+            <div className={`flex min-w-0 ${m.role === "user" ? "ml-auto max-w-[86%] flex-col items-end" : "max-w-[94%] flex-col items-start"}`}>
               <div
-                className={`msg-in w-fit px-3.5 py-2.5 leading-6 ${
+                data-testid="message-bubble"
+                className={`msg-in min-w-0 max-w-full w-fit overflow-hidden whitespace-pre-wrap break-words px-3.5 py-2.5 leading-6 ${
                   m.role === "user"
                     ? "rounded-[15px_15px_5px_15px] bg-blue-600 text-white shadow-[0_5px_14px_rgba(37,99,235,0.18)]"
                     : "rounded-[5px_15px_15px_15px] border border-slate-200 bg-white text-slate-700 shadow-[0_5px_16px_rgba(15,23,42,0.05)]"
                 }`}
               >
-                {m.content}
+                {m.displayContent ?? m.content}
+                {m.attachments && m.attachments.length > 0 && (
+                  <div className="mt-2 flex w-full min-w-0 flex-col gap-1.5" data-testid="message-attachments">
+                    {m.attachments.map((file) => (
+                      <div key={`${file.name}-${file.size}`} data-testid="message-attachment" className={`flex w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-lg px-2 py-1.5 text-[10px] ${m.role === "user" ? "bg-white/14 text-blue-50" : "bg-slate-50 text-slate-600"}`}>
+                        <svg className="shrink-0" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+                          <path d="M14 2v6h6M8 13h8M8 17h5" />
+                        </svg>
+                        <span className="min-w-0 flex-1 truncate">{file.name}</span>
+                        <span className="shrink-0 opacity-70">{formatFileSize(file.size)}</span>
+                        {file.truncated && <span className="shrink-0 rounded bg-amber-100 px-1 text-amber-700">已截取</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {/* 思考过程：AI 生成中在气泡内部显示操作步骤（取代外部活动气泡）；
                     最后一条 assistant 消息承载当前生成/确认的思考过程 */}
                 {m.role === "assistant" && i === messages.length - 1 && isGenerating && activity.length > 0 && (
@@ -716,22 +953,60 @@ export default function ChatPanel() {
                 {m.role === "assistant" && waitingAnswer && m.content === waitingAnswer && (
                   <div data-testid="waiting-answer" className="mt-1 text-xs text-blue-600">等待你的回答…</div>
                 )}
-                {/* A9 可点击选项：AI 提问带选项时渲染可点击按钮，点选即作为回答发送（玻璃胶囊 + 点击图标） */}
+                {/* 可点击选项：最后一项固定为“其他”，展开输入框收集自定义答案。 */}
                 {m.role === "assistant" && waitingAnswer && m.content === waitingAnswer && questionOptions && (
-                  <div className="mt-2 flex flex-wrap gap-1.5" data-testid="question-options">
-                    {questionOptions.map((opt) => (
-                      <button
-                        key={opt}
-                        onClick={() => answerOption(opt)}
-                        className="lift group/opt flex items-center gap-1.5 rounded-full border border-blue-300/60 bg-gradient-to-b from-white/95 to-blue-50/90 px-3 py-1.5 text-xs font-medium text-blue-700 shadow-sm backdrop-blur-xl transition-all hover:border-blue-400 hover:from-blue-50 hover:to-blue-100 hover:shadow-md active:scale-95"
-                      >
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0 opacity-60 transition-transform group-hover/opt:scale-110">
-                          <path d="M22 2L11 13" />
-                          <path d="M22 2l-7 20-4-9-9-4 20-7z" />
-                        </svg>
-                        {opt}
-                      </button>
-                    ))}
+                  <div className="mt-2 space-y-2" data-testid="question-options">
+                    <div className="flex flex-wrap gap-1.5">
+                      {questionOptions.map((opt) => (
+                        <button
+                          key={opt}
+                          onClick={() => answerOption(opt)}
+                          aria-expanded={isOtherOption(opt) ? customAnswerOpen : undefined}
+                          className="lift group/opt flex items-center gap-1.5 rounded-full border border-blue-300/60 bg-gradient-to-b from-white/95 to-blue-50/90 px-3 py-1.5 text-xs font-medium text-blue-700 shadow-sm backdrop-blur-xl transition-all hover:border-blue-400 hover:from-blue-50 hover:to-blue-100 hover:shadow-md active:scale-95"
+                        >
+                          {isOtherOption(opt) ? (
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0 opacity-60">
+                              <path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" />
+                            </svg>
+                          ) : (
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0 opacity-60 transition-transform group-hover/opt:scale-110">
+                              <path d="M22 2L11 13" /><path d="M22 2l-7 20-4-9-9-4 20-7z" />
+                            </svg>
+                          )}
+                          {opt}
+                        </button>
+                      ))}
+                    </div>
+                    {customAnswerOpen && (
+                      <div data-testid="custom-answer-box" className="flex min-w-0 items-center gap-1.5 rounded-xl border border-blue-200 bg-white p-1.5 shadow-sm">
+                        <input
+                          autoFocus
+                          data-testid="custom-answer-input"
+                          value={customAnswerText}
+                          onChange={(event) => setCustomAnswerText(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              void submitCustomAnswer();
+                            }
+                          }}
+                          placeholder="输入你的答案…"
+                          aria-label="其他答案"
+                          className="h-7 min-w-0 flex-1 bg-transparent px-1.5 text-xs text-slate-700 outline-none placeholder:text-slate-400"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void submitCustomAnswer()}
+                          disabled={!customAnswerText.trim()}
+                          className={[
+                            "lift h-7 shrink-0 rounded-lg bg-blue-600 px-2.5 text-xs font-medium text-white",
+                            "disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500",
+                          ].join(" ")}
+                        >
+                          提交
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -743,7 +1018,7 @@ export default function ChatPanel() {
                 aria-label={copiedMessage === i ? "已复制" : "复制消息"}
                 onClick={async () => {
                   try {
-                    await navigator.clipboard?.writeText(m.content);
+                    await navigator.clipboard?.writeText(m.displayContent ?? m.content);
                     setCopiedMessage(i);
                     window.setTimeout(() => setCopiedMessage((current) => current === i ? null : current), 1400);
                   } catch {
@@ -815,25 +1090,164 @@ export default function ChatPanel() {
       </div>
       {/* AI 思考过程已整合进对话气泡（不再单独挂外部活动气泡） */}
       <div className="border-t border-slate-200 bg-white p-3">
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-2 shadow-[0_5px_18px_rgba(15,23,42,0.06)] focus-within:border-blue-300 focus-within:bg-white">
+        {/* 生成队列：生成中回车发送的消息排队等待；每项均可打断执行、拖拽排序、置顶、编辑或删除 */}
+        {queue.length > 0 && (
+          <div data-testid="generation-queue" className="mb-2 space-y-1">
+            <div className="flex items-center px-1">
+              <span className="text-[10px] font-semibold text-slate-500">等待队列（{queue.length}）</span>
+            </div>
+            {queue.map((item, i) =>
+              editingQueueId === item.id ? (
+                <div key={item.id} data-testid="queue-editing" className="flex items-center gap-1.5 rounded-xl border border-blue-300 bg-white px-2 py-1.5 shadow-sm">
+                  <input
+                    data-testid="queue-edit-input"
+                    autoFocus
+                    value={editingQueueText}
+                    onChange={(e) => setEditingQueueText(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); saveQueueEdit(); } }}
+                    onBlur={saveQueueEdit}
+                    className="min-w-0 flex-1 bg-transparent text-xs text-slate-700 outline-none"
+                  />
+                  <button data-testid="queue-edit-save" onClick={saveQueueEdit} title="保存" className="lift grid h-5 w-5 shrink-0 place-items-center rounded text-xs text-emerald-600 hover:bg-emerald-50">
+                    ✓
+                  </button>
+                </div>
+              ) : (
+                <div
+                  key={item.id}
+                  data-testid="queue-item"
+                  draggable
+                  onDragStart={(e) => { if (e.dataTransfer) e.dataTransfer.effectAllowed = "move"; setDragIndex(i); }}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => { e.preventDefault(); if (dragIndex != null) reorderQueue(dragIndex, i); setDragIndex(null); }}
+                  onDragEnd={() => setDragIndex(null)}
+                  className={`flex cursor-grab items-center gap-1.5 rounded-xl border bg-white px-2 py-1.5 shadow-sm ${dragIndex === i ? "border-blue-300 opacity-50" : "border-slate-200"}`}
+                >
+                  <span className="shrink-0 text-[11px] leading-none text-slate-300" title="拖动排序">⋮⋮</span>
+                  <button
+                    data-testid="queue-move-front"
+                    title="点击置顶，优先执行"
+                    onClick={() => moveQueueFront(item.id)}
+                    aria-label={`置顶：${queuePreviewText(item.text, item.attachments.map((file) => file.name))}`}
+                    className="min-w-0 flex-1 overflow-hidden text-left text-xs text-slate-700 hover:text-blue-600"
+                  >
+                    <span
+                      data-testid="queue-preview"
+                      title={queuePreviewText(item.text, item.attachments.map((file) => file.name))}
+                      className="block overflow-hidden text-ellipsis whitespace-nowrap"
+                    >
+                      {queuePreviewText(item.text, item.attachments.map((file) => file.name))}
+                    </span>
+                  </button>
+                  {item.attachments.length > 0 && <span className="shrink-0 text-[10px] text-blue-600">{item.attachments.length} 个附件</span>}
+                  <button
+                    type="button"
+                    data-testid="queue-interrupt"
+                    title="打断当前生成并执行此消息"
+                    aria-label={`打断并执行：${queuePreviewText(item.text, item.attachments.map((file) => file.name))}`}
+                    onClick={() => interruptAndRunQueue(item.id)}
+                    disabled={!isGenerating}
+                    className="lift grid h-5 w-5 shrink-0 place-items-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:text-slate-300"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <rect x="2.5" y="3" width="4" height="4" rx="0.8" />
+                      <path d="M9 4.25h3.5v3.5M12.5 4.25 8.75 8" />
+                      <path d="M13.5 10.5a3 3 0 0 1-3 3h-7" />
+                    </svg>
+                  </button>
+                  <button data-testid="queue-edit" title="编辑" onClick={() => startQueueEdit(item)} className="lift grid h-5 w-5 shrink-0 place-items-center rounded text-xs text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                    ✎
+                  </button>
+                  <button data-testid="queue-delete" title="删除" onClick={() => removeQueueItem(item.id)} className="lift grid h-5 w-5 shrink-0 place-items-center rounded text-xs text-slate-400 hover:bg-red-50 hover:text-red-500">
+                    ×
+                  </button>
+                </div>
+              )
+            )}
+          </div>
+        )}
+        <div
+          className={`relative rounded-2xl border p-2 shadow-[0_5px_18px_rgba(15,23,42,0.06)] transition-colors focus-within:border-blue-300 focus-within:bg-white ${isFileDragOver ? "border-blue-400 bg-blue-50 ring-2 ring-blue-200/70" : "border-slate-200 bg-slate-50"}`}
+          onDragEnter={(event) => { event.preventDefault(); setIsFileDragOver(true); }}
+          onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; setIsFileDragOver(true); }}
+          onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setIsFileDragOver(false); }}
+          onDrop={(event) => {
+            event.preventDefault();
+            setIsFileDragOver(false);
+            void parseFiles(Array.from(event.dataTransfer.files));
+          }}
+          data-testid="chat-file-dropzone"
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={ATTACHMENT_ACCEPT}
+            multiple
+            className="hidden"
+            data-testid="chat-file-input"
+            onChange={(event) => {
+              void parseFiles(Array.from(event.target.files ?? []));
+              event.currentTarget.value = "";
+            }}
+          />
+          {isFileDragOver && (
+            <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center rounded-2xl bg-blue-50/95 text-xs font-semibold text-blue-700 backdrop-blur-sm">
+              松开即可解析文件
+            </div>
+          )}
+          {(pendingAttachments.length > 0 || uploadingCount > 0) && (
+            <div className="mb-1.5 flex flex-wrap gap-1.5 px-1" data-testid="pending-attachments">
+              {pendingAttachments.map((file) => (
+                <div key={file.id} className="flex min-w-0 max-w-full items-center gap-1.5 overflow-hidden rounded-lg border border-blue-200 bg-white px-2 py-1 text-[10px] text-slate-600 shadow-sm">
+                  <span className="max-w-[10rem] truncate font-medium text-slate-700">{file.name}</span>
+                  <span className="text-slate-400">{formatFileSize(file.size)}</span>
+                  {file.truncated && <span className="text-amber-600" title="正文较长，已截取适合模型上下文的部分">已截取</span>}
+                  <button
+                    type="button"
+                    title={`移除 ${file.name}`}
+                    aria-label={`移除 ${file.name}`}
+                    onClick={() => setPendingAttachments((current) => current.filter((item) => item.id !== file.id))}
+                    className="grid h-4 w-4 place-items-center rounded text-slate-400 hover:bg-red-50 hover:text-red-500"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+              {uploadingCount > 0 && <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[10px] text-blue-600"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />正在解析 {uploadingCount} 个文件…</div>}
+            </div>
+          )}
           <textarea
           id="chat-input"
           ref={inputRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-          placeholder={waitingAnswer ? "回答后继续生成…" : "描述你想画的图…（回车发送）"}
+          placeholder={waitingAnswer ? "回答后继续生成…" : "描述你想画的图，或拖入研究材料…"}
             rows={3}
             className="w-full resize-none bg-transparent px-2 py-1.5 text-sm leading-6 text-slate-800 outline-none placeholder:text-slate-400"
           />
           <div className="flex items-center justify-between gap-2 px-1 pt-1">
-            <span className="text-[10px] text-slate-400">Enter 发送 · Shift+Enter 换行</span>
+            <div className="flex min-w-0 items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingCount > 0 || pendingAttachments.length >= MAX_ATTACHMENT_COUNT}
+                title="上传 Word、PDF、PowerPoint 或 Excel"
+                aria-label="上传文件"
+                className="lift grid h-7 w-7 shrink-0 place-items-center rounded-lg text-slate-500 hover:bg-slate-200/70 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M21.4 11.6 12 21a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.9-2.8l8.6-8.6" />
+                </svg>
+              </button>
+              <span className="truncate text-[10px] text-slate-400">拖拽或点击上传 · 最大 20 MB</span>
+            </div>
             <button
               onClick={send}
-              disabled={isGenerating || !input.trim()}
+              disabled={(!input.trim() && pendingAttachments.length === 0) || uploadingCount > 0}
               className="lift flex h-8 items-center gap-1.5 rounded-lg bg-slate-900 px-3 text-xs font-medium text-white shadow-[0_4px_10px_rgba(15,23,42,0.18)] hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
             >
-              {isGenerating ? "生成中…" : "一键生成"}
+              {isGenerating ? "排队" : "一键生成"}
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="m5 12 14-8-4 16-3-6-7-2Z" />
               </svg>

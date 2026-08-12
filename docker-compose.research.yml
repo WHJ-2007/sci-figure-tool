@@ -1,0 +1,33 @@
+name: sci-figure-research
+
+services:
+  searxng:
+    image: docker.io/searxng/searxng:latest
+    container_name: sci-figure-searxng
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./tools/research/searxng/settings.yml:/etc/searxng/settings.yml:ro
+      - searxng-cache:/var/cache/searxng
+
+  crawl4ai:
+    image: unclecode/crawl4ai:latest
+    container_name: sci-figure-crawl4ai
+    restart: unless-stopped
+    shm_size: "1gb"
+    environment:
+      CRAWL4AI_API_TOKEN: "${CRAWL4AI_API_TOKEN:-sci-figure-local-crawl-token}"
+      SECRET_KEY: "${CRAWL4AI_SECRET_KEY:-6f63f362823d67e16b8b993d30767f119c1a0a3879e154e04d6457c113af997e}"
+    ports:
+      - "127.0.0.1:11235:11235"
+
+  tika:
+    image: apache/tika:3.3.0.0
+    container_name: sci-figure-tika
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9998:9998"
+
+volumes:
+  searxng-cache:

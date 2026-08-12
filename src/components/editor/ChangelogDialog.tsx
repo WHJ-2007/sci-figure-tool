@@ -66,7 +66,12 @@ export default function ChangelogDialog({ open, onClose }: { open: boolean; onCl
                     aria-controls={contentId}
                   >
                     <span className={`shrink-0 text-gray-400 transition-transform duration-200 ${isOpen ? "rotate-90" : ""}`}>▶</span>
-                    <span className="text-sm font-semibold text-gray-800">{sec.title}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-semibold text-gray-800">{sec.title}</span>
+                      <span className="mt-0.5 block truncate text-[11px] font-normal text-gray-500">
+                        包含：{sec.subsections.map((sub) => sub.title).join(" · ")}
+                      </span>
+                    </span>
                   </button>
                   {/* 展开动画：grid-template-rows 0fr → 1fr */}
                   <div id={contentId} aria-hidden={!isOpen} className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>

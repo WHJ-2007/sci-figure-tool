@@ -16,13 +16,14 @@ vi.mock("ai", async (importOriginal) => {
 });
 
 describe("DraftCanvas", () => {
-  it("createElement 钳制越界坐标", () => {
+  it("createElement 只防止负坐标，正方向可超出初始视口并扩张画布", () => {
     const d = new DraftCanvas([]);
     const r = d.createElement({ type: "rect", x: -100, y: 2000, width: 100, height: 60 });
     expect(r.ok).toBe(true);
     const el = d.serialize().elements[0];
     expect(el.x).toBe(0);
-    expect(el.y).toBe(1000 - 60);
+    expect(el.y).toBe(2000);
+    expect(d.serialize().height).toBeGreaterThan(1000);
   });
 
   it("createElement 记录活动日志", () => {
@@ -77,14 +78,15 @@ describe("DraftCanvas", () => {
     expect("evil" in el).toBe(false);
   });
 
-  it("updateElement 先钳最小尺寸再钳位置，缩小宽度的元素不越界", () => {
+  it("updateElement 先钳最小尺寸，同时允许移动到初始视口右侧", () => {
     const d = new DraftCanvas([]);
     const r = d.createElement({ type: "rect", x: 0, y: 0, width: 100, height: 50 });
     const res = d.updateElement({ id: r.id!, patch: { x: 1598, width: 2 } });
     expect(res.ok).toBe(true);
     const el = d.serialize().elements[0];
     expect(el.width).toBe(4);
-    expect(el.x).toBe(CANVAS_WIDTH - 4);
+    expect(el.x).toBe(1598);
+    expect(d.serialize().width).toBeGreaterThan(CANVAS_WIDTH);
   });
 
   it("listElements 返回可序列化摘要", () => {
@@ -94,7 +96,32 @@ describe("DraftCanvas", () => {
     expect(list.elements[0]).toMatchObject({ type: "text", text: "Encoder" });
     // 含画布总览（现有内容范围 + 建议空白起始位置）
     expect(list.overview).toContain("现有内容范围");
+    expect(list.overview).toContain("1600×1000 不是硬边界");
+    expect(list.infinite).toBe(true);
+    expect(list.expansionPoints?.right.x).toBeGreaterThan(50);
     expect(JSON.stringify(list)).toContain("Encoder");
+  });
+
+  it("setDrawingRegion 让弱模型在旧内容右侧新建，并自动扩张文档宽度", () => {
+    const d = new DraftCanvas([]);
+    d.createElement({ type: "rect", x: 1000, y: 100, width: 500, height: 180 });
+    const region = d.setDrawingRegion({ side: "right", gap: 80 });
+    expect(region.origin.x).toBe(1580);
+    const created = d.createElement({ type: "logic", x: 60, y: 80, width: 160, height: 70, text: "新架构" });
+    const doc = d.serialize();
+    const element = doc.elements.find((item) => item.id === created.id)!;
+    expect(element.x).toBe(1640);
+    expect(doc.width).toBeGreaterThan(CANVAS_WIDTH);
+  });
+
+  it("setDrawingRegion 下方模式应用于声明式思维导图整体，不与旧内容重叠", () => {
+    const d = new DraftCanvas([]);
+    d.createElement({ type: "rect", x: 40, y: 40, width: 500, height: 400 });
+    const region = d.setDrawingRegion({ side: "below", gap: 100 });
+    d.applyMindMap({ topic: "新主题", branches: [{ keyword: "分支" }] });
+    const newElements = d.serialize().elements.slice(1);
+    expect(region.origin.y).toBe(540);
+    expect(Math.min(...newElements.map((item) => item.y))).toBeGreaterThanOrEqual(540);
   });
 
   it("connectElements 箭头精确落在两个矩形边缘（水平相邻）", () => {
@@ -841,19 +868,18 @@ describe("tools", () => {
     expect(d.flushActivity()).toHaveLength(0);
   });
 
-  it("searchWeb 工具：配置 key 时返回搜索结果，未配置时返回估算提示", async () => {
-    // 未配置 key：直接返回估算提示，不发起网络请求
+  it("searchAuthority 工具：使用本地开源检索，失败时禁止估算", async () => {
     const d1 = new DraftCanvas([]);
-    const r1 = await (buildTools(d1) as any).searchWeb.execute({ query: "2023 年中国 GDP" });
-    expect(r1).toContain("搜索失败");
-    expect(r1).toContain("估算");
-    // 配置 key：mock Tavily 返回结果
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ results: [{ title: "中国 GDP", url: "https://www.stats.gov.cn/x", content: "126 万亿元" }] }),
-    }));
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+    const r1 = await (buildTools(d1) as any).searchAuthority.execute({ query: "2023 年中国 GDP", category: "statistics" });
+    expect(r1).toContain("权威检索失败");
+    expect(r1).toContain("不得估算或编造");
+
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ results: [{ title: "中国 GDP", url: "https://www.stats.gov.cn/x", content: "126 万亿元" }] }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ results: [] }) }));
     const d2 = new DraftCanvas([]);
-    const r2 = await (buildTools(d2, "tvly-test") as any).searchWeb.execute({ query: "2023 年中国 GDP" });
+    const r2 = await (buildTools(d2) as any).searchAuthority.execute({ query: `2023 年中国 GDP ${crypto.randomUUID()}`, category: "statistics" });
     expect(r2).toContain("126 万亿元");
     expect(r2).toContain("https://www.stats.gov.cn");
     vi.unstubAllGlobals();
@@ -1131,7 +1157,7 @@ describe("runAgent", () => {
       const stops = Array.isArray(stopWhen) ? stopWhen : [stopWhen];
       expect(stops[0]({ steps: [{ toolCalls: [{ toolName: "askUser", input: { question: "请问这个图要表达什么主题？" } }] }] })).toBe(true);
       expect(stops[0]({ steps: [{ toolCalls: [{ toolName: "createElement", input: { type: "rect" } }] }] })).toBe(false);
-      return { text: "需要先确认", steps: [{ toolCalls: [{ toolName: "askUser", input: { question: "请问这个图要表达什么主题？" } }] }] };
+      return { text: "需要先确认", steps: [{ toolCalls: [{ toolName: "askUser", input: { question: "请问这个图要表达什么主题？", options: ["模型架构", "数据流程", "其它"] } }] }] };
     });
     const events: any[] = [];
     await runAgent({
@@ -1145,6 +1171,7 @@ describe("runAgent", () => {
     const question = events.find((e) => e.type === "question");
     expect(question).toBeDefined();
     expect(question.question).toContain("主题");
+    expect(question.options).toEqual(["模型架构", "数据流程", "其他"]);
     expect(events.some((e) => e.type === "complete")).toBe(false);
     expect(events.some((e) => e.type === "confirm-request")).toBe(false);
     // 提问前画的元素不参与任何结果提交（无 complete 画布）

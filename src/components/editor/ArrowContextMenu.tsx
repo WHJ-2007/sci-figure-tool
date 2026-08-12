@@ -1,6 +1,7 @@
 "use client";
 
 import { useCanvasStore } from "@/lib/canvas/store";
+import { copySelection } from "@/lib/canvas/clipboard";
 
 // 元素右键菜单状态：命中折点 → 删除折点；命中线段 → 新建平滑/尖锐折点；
 // 命中任意元素 → 删除元素；命中图表元素 → 编辑图表数据 / 删除图表
@@ -53,6 +54,13 @@ export default function ArrowContextMenu({
           >
             编辑图表数据
           </button>
+          <button
+            data-testid="copy-element"
+            className="lift block w-full rounded-lg px-3 py-1.5 text-left text-[13px] text-gray-700"
+            onClick={() => act(copySelection)}
+          >
+            复制
+          </button>
           <div className="my-1 border-t border-white/60" />
           <button
             data-testid="delete-element"
@@ -63,13 +71,23 @@ export default function ArrowContextMenu({
           </button>
         </>
       ) : menu.kind === "element" ? (
-        <button
-          data-testid="delete-element"
-          className="lift block w-full rounded-lg px-3 py-1.5 text-left text-[13px] text-red-500"
-          onClick={deleteSelected}
-        >
-          删除元素
-        </button>
+        <>
+          <button
+            data-testid="copy-element"
+            className="lift block w-full rounded-lg px-3 py-1.5 text-left text-[13px] text-gray-700"
+            onClick={() => act(copySelection)}
+          >
+            复制
+          </button>
+          <div className="my-1 border-t border-white/60" />
+          <button
+            data-testid="delete-element"
+            className="lift block w-full rounded-lg px-3 py-1.5 text-left text-[13px] text-red-500"
+            onClick={deleteSelected}
+          >
+            删除元素
+          </button>
+        </>
       ) : menu.kind === "segment" ? (
         <>
           <button

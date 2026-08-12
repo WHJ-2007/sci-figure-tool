@@ -36,6 +36,27 @@ describe("buildSystemPrompt 多模式", () => {
     expect(buildSystemPrompt()).toContain("画完必须自查");
   });
 
+  it("把画布理解为可扩张空间，新增独立内容先选择旁侧绘图区", () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain("1600×1000 只是打开时的初始可视区域，不是硬边界");
+    expect(prompt).toContain("当前视口 ≠ 整张画布");
+    expect(prompt).toContain("必须先调用 setDrawingRegion");
+    expect(prompt).toContain("不得把超出初始 1600×1000 误报为越界");
+  });
+
+  it("可选择提问强制以其他选项收尾", () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain("最后一个选项强制为「其他」");
+    expect(prompt).toContain("点击「其他」后可输入自定义答案");
+  });
+
+  it("思维导图优先使用系统高对比论文配色", () => {
+    const prompt = buildSystemPrompt(["mindmap"]);
+    expect(prompt).toContain("高对比论文配色");
+    expect(prompt).toContain("浅色节点底 + 同色深墨分支线/文字");
+    expect(prompt).toContain("通常省略 fill");
+  });
+
   it("逻辑节点正文按语义判断：概念型只标题、过程型写要点，同图风格统一", () => {
     const p = buildSystemPrompt();
     expect(p).toContain("标题是否已经完整表达该节点的语义");
@@ -55,13 +76,12 @@ describe("buildSystemPrompt 多模式", () => {
     expect(p).toContain("需求是数据图表");
   });
 
-  it("公共节含数据来源规范（先搜权威、禁止编造、估算明示）", () => {
+  it("公共节含权威检索规范（双来源、禁止估算与编造）", () => {
     const p = buildSystemPrompt();
-    expect(p).toContain("数据来源规范");
-    expect(p).toContain("searchWeb");
-    expect(p).toContain("禁止凭空编造精确数字");
-    expect(p).toContain("该数值为估算，未查到权威来源");
-    expect(p).toContain("最多搜索 2 次");
+    expect(p).toContain("权威检索规范");
+    expect(p).toContain("searchAuthority");
+    expect(p).toContain("至少交叉核对两个独立来源");
+    expect(p).toContain("严禁凭常识估算或补写精确数字");
   });
 
   it("含简笔画配方（灯泡/放大镜等线条组合）且多模式分支同样包含", () => {

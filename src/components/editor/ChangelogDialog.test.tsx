@@ -7,6 +7,7 @@ describe("更新日志", () => {
     const { rerender } = render(<ChangelogDialog open={true} onClose={vi.fn()} />);
     const sections = screen.getAllByRole("button", { expanded: false });
     expect(sections.length).toBeGreaterThan(1);
+    expect(screen.getByText(/包含：画笔识别 · 画布导航/)).toBeInTheDocument();
 
     fireEvent.click(sections[0]);
     expect(sections[0]).toHaveAttribute("aria-expanded", "true");

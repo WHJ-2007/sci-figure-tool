@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { loadSettings, saveSettings, DEFAULT_SETTINGS } from "@/lib/settings";
+import { loadSettings, saveSettings, DEFAULT_SETTINGS, type CanvasGestureSensitivity } from "@/lib/settings";
 import {
   isSaveDirSupported,
   selectSaveDirectory,
@@ -56,7 +56,7 @@ function LocationRow({ label, path, copy, openable = false }: { label: string; p
 }
 
 // 设置弹窗：背景模糊的半透明遮罩 + 毛玻璃面板（取代跳转 /settings 页面，不离开画布）。
-// 表单逻辑与旧设置页一致（API Key/模型/Base URL/Tavily + 保存目录）。
+// 表单逻辑：模型 API Key/模型/Base URL + 保存目录；联网检索改为本地开源服务，无第三方搜索密钥。
 export default function SettingsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [form, setForm] = useState({ ...DEFAULT_SETTINGS });
   const [status, setStatus] = useState<string>("");
@@ -71,6 +71,7 @@ export default function SettingsDialog({ open, onClose }: { open: boolean; onClo
   const [dataDir, setDataDir] = useState<string>("");
   // 自定义模型：预设列表外的模型名（选择「自定义…」后出现输入框）
   const [customModel, setCustomModel] = useState(false);
+  const [researchStatus, setResearchStatus] = useState<"checking" | "ready" | "partial" | "offline">("checking");
   // 弹出/收起动画：打开时先挂载在隐藏态，下一帧切显示态 → 播放与关闭对称的上浮淡入；
   // 关闭时先播收起动画（200ms 下沉淡出）再卸载
   const [mounted, setMounted] = useState(false);
@@ -113,6 +114,18 @@ export default function SettingsDialog({ open, onClose }: { open: boolean; onClo
         .catch(() => {});
     } catch {
       // 静默：拿不到目录时文件位置区显示浏览器本地存储
+    }
+    try {
+      fetch("/api/research/status")
+        .then((r) => r.json())
+        .then((j: { ok?: boolean; search?: boolean; extract?: boolean; documents?: boolean }) => {
+          if (j.ok) setResearchStatus("ready");
+          else if (j.search || j.extract || j.documents) setResearchStatus("partial");
+          else setResearchStatus("offline");
+        })
+        .catch(() => setResearchStatus("offline"));
+    } catch {
+      setResearchStatus("offline");
     }
     return () => clearInterval(timer);
   }, [open]);
@@ -163,6 +176,14 @@ export default function SettingsDialog({ open, onClose }: { open: boolean; onClo
     // 通知 FirstRunHint：设置已保存（配置好 API Key 后引导条自动隐藏）
     window.dispatchEvent(new CustomEvent("settings-saved"));
     setStatus("已保存");
+  };
+
+  const setGestureSensitivity = (canvasGestureSensitivity: CanvasGestureSensitivity) => {
+    setForm((current) => ({ ...current, canvasGestureSensitivity }));
+    // 该项是即时交互偏好：只合并到已保存设置，避免顺带提交表单里尚未保存的 API 修改。
+    saveSettings({ ...loadSettings(), canvasGestureSensitivity });
+    window.dispatchEvent(new CustomEvent("settings-saved"));
+    setStatus("画布手势灵敏度已保存");
   };
 
   const test = async () => {
@@ -309,16 +330,15 @@ export default function SettingsDialog({ open, onClose }: { open: boolean; onClo
               <span className="text-gray-600">Base URL</span>
               <input value={form.baseURL} onChange={(e) => setForm({ ...form, baseURL: e.target.value })} className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5" />
             </label>
-            <label className="block text-sm">
-              <span className="text-gray-600">Tavily API Key（可选，配置后 AI 可联网搜索权威数据）</span>
-              <input
-                type="password"
-                value={form.tavilyApiKey ?? ""}
-                onChange={(e) => setForm({ ...form, tavilyApiKey: e.target.value })}
-                placeholder="tvly-..."
-                className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5"
-              />
-            </label>
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 px-3 py-2 text-xs leading-5 text-emerald-800">
+              <div className="flex items-center justify-between gap-2 font-medium">
+                <span>开源本地服务</span>
+                <span data-testid="research-status" className={researchStatus === "ready" ? "text-emerald-700" : researchStatus === "checking" ? "text-gray-500" : "text-amber-700"}>
+                  {researchStatus === "ready" ? "● 已就绪" : researchStatus === "checking" ? "检查中…" : researchStatus === "partial" ? "● 部分服务未就绪" : "● 未启动"}
+                </span>
+              </div>
+              <div>SearXNG 搜索 + Crawl4AI 网页抽取 + Apache Tika 文档解析</div>
+            </div>
             <div className="flex gap-2">
               <button type="submit" className="lift rounded bg-blue-600 px-4 py-1.5 text-sm text-white hover:bg-blue-700">保存</button>
               <button type="button" onClick={test} disabled={testing} className="lift rounded border border-gray-300 px-4 py-1.5 text-sm hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50">测试连接</button>
@@ -332,6 +352,21 @@ export default function SettingsDialog({ open, onClose }: { open: boolean; onClo
               <h3 className="text-base font-medium">运行设置</h3>
               <span className="text-xs text-gray-400">最近 {getLogCount()} 条</span>
             </div>
+            <label className="block text-sm">
+              <span className="text-gray-600">画布手势灵敏度</span>
+              <select
+                data-testid="canvas-gesture-sensitivity"
+                value={form.canvasGestureSensitivity}
+                onChange={(event) => setGestureSensitivity(event.target.value as CanvasGestureSensitivity)}
+                className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-gray-700"
+              >
+                <option value="gentle">柔和 · 1.70×</option>
+                <option value="standard">标准 · 2.00×</option>
+                <option value="high">高 · 2.35×（默认）</option>
+                <option value="very-high">极高 · 2.80×</option>
+              </select>
+              <span className="mt-1 block text-xs leading-5 text-gray-500">控制鼠标滚轮与触摸板捏合的缩放速度；双指滑动始终自由平移。</span>
+            </label>
             <pre
               ref={logBoxRef}
               data-testid="run-log-box"

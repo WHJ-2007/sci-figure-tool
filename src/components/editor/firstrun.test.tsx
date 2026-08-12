@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import FirstRunHint from "./FirstRunHint";
-import { saveSettings } from "@/lib/settings";
+import { DEFAULT_SETTINGS, saveSettings } from "@/lib/settings";
 
 beforeEach(() => localStorage.clear());
 
@@ -12,7 +12,7 @@ describe("FirstRunHint", () => {
   });
 
   it("已配置 Key 时不显示引导", () => {
-    saveSettings({ apiKey: "test-key", model: "deepseek-chat", baseURL: "https://api.deepseek.com" });
+    saveSettings({ ...DEFAULT_SETTINGS, apiKey: "test-key", model: "deepseek-chat", baseURL: "https://api.deepseek.com" });
     render(<FirstRunHint />);
     expect(screen.queryByText(/前往设置/)).not.toBeInTheDocument();
   });
@@ -20,7 +20,7 @@ describe("FirstRunHint", () => {
   it("挂载后配置 Key 并保存：自动隐藏引导（无需刷新）", async () => {
     render(<FirstRunHint />);
     expect(screen.getByText(/前往设置/)).toBeInTheDocument();
-    saveSettings({ apiKey: "sk-later", model: "deepseek-chat", baseURL: "https://api.deepseek.com" });
+    saveSettings({ ...DEFAULT_SETTINGS, apiKey: "sk-later", model: "deepseek-chat", baseURL: "https://api.deepseek.com" });
     window.dispatchEvent(new CustomEvent("settings-saved"));
     await waitFor(() => {
       expect(screen.queryByText(/前往设置/)).not.toBeInTheDocument();
